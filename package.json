@@ -1,0 +1,14 @@
+{
+  "name": "fax-crm-system",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FAX リードCRM (CPA優先で着手)",
+  "scripts": {
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "start:frontend": "npm --prefix frontend start",
+    "start:backend": "npm --prefix backend start",
+    "migrate": "npm --prefix backend run migrate"
+  }
+}

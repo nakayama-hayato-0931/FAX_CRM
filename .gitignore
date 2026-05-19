@@ -1,0 +1,21 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+*.log
+.env
+.env.local
+.env.*.local
+
+# Google service account JSON / その他秘密ファイル
+backend/config/google-service-account.json
+backend/config/*.json
+!backend/config/.gitkeep
+uploads/*
+!uploads/.gitkeep
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/

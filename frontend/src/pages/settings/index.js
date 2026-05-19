@@ -1,0 +1,350 @@
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
+import toast from 'react-hot-toast';
+import { api } from '@/utils/api';
+
+const DEMO_DATA = {
+  settings: {
+    drive_root_folder_id: { value: '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789', description: 'Drive上のルートフォルダID(リスト・原稿の親)' },
+    drive_auto_upload:    { value: '1', description: 'リスト抽出時にExcelをDriveへ自動アップロード(1=ON)' },
+    manuscript_auto_create_folders: { value: '0', description: '原稿日付登録時にDriveに23フォルダを自動作成(1=ON)' },
+  },
+  drive: {
+    serviceAccount: { configured: true, keyPath: 'C:/secrets/sa.json', serviceAccount: 'fax-crm@example.iam.gserviceaccount.com' },
+    driveReady: true,
+    driveError: null,
+  },
+};
+
+const DEMO_SHEETS_CFG = {
+  sheet_id: '1dm7UEBA-OcOmgtCva2xJZkPYEDBx9lTW2k4GFrsxjZQ',
+  sheet_range: 'A1:AZ500',
+  last_synced_at: '2026-05-15T08:00:00Z',
+  last_sync_status: 'ok',
+  last_sync_message: 'pivot / 56件 新規 / 14件 更新',
+};
+
+export default function SettingsPage() {
+  const router = useRouter();
+  const isDemo = router.query.demo === '1';
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState({ drive_root_folder_id: '', drive_auto_upload: '0', manuscript_auto_create_folders: '0' });
+  const [sheetsForm, setSheetsForm] = useState({ sheet_id: '', sheet_range: 'A1:AZ500' });
+  const [sheetsCfg, setSheetsCfg] = useState(null);
+  const [savingSheets, setSavingSheets] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (isDemo) {
+        setLoading(false);
+        setData(DEMO_DATA);
+        setForm({
+          drive_root_folder_id: DEMO_DATA.settings.drive_root_folder_id.value || '',
+          drive_auto_upload: DEMO_DATA.settings.drive_auto_upload.value || '0',
+          manuscript_auto_create_folders: DEMO_DATA.settings.manuscript_auto_create_folders.value || '0',
+        });
+        setSheetsCfg(DEMO_SHEETS_CFG);
+        setSheetsForm({ sheet_id: DEMO_SHEETS_CFG.sheet_id, sheet_range: DEMO_SHEETS_CFG.sheet_range });
+        return;
+      }
+      setLoading(true);
+      try {
+        const [resSettings, resSheets] = await Promise.all([
+          api.get('/api/settings'),
+          api.get('/api/fax-stats/config').catch(() => ({ data: { data: null } })),
+        ]);
+        if (cancelled) return;
+        const d = resSettings.data.data || {};
+        setData(d);
+        setForm({
+          drive_root_folder_id: d.settings?.drive_root_folder_id?.value || '',
+          drive_auto_upload: d.settings?.drive_auto_upload?.value || '0',
+          manuscript_auto_create_folders: d.settings?.manuscript_auto_create_folders?.value || '0',
+        });
+        const sc = resSheets.data?.data;
+        if (sc) {
+          setSheetsCfg(sc);
+          setSheetsForm({ sheet_id: sc.sheet_id || '', sheet_range: sc.sheet_range || 'A1:AZ500' });
+        }
+      } catch (e) {
+        if (!cancelled) toast.error(e.userMessage || '読み込み失敗');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isDemo, reloadKey]);
+
+  const save = async () => {
+    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); return; }
+    setSaving(true);
+    try {
+      await api.put('/api/settings', form);
+      toast.success('設定を保存しました');
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e.userMessage || '保存失敗');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveSheets = async () => {
+    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); return; }
+    setSavingSheets(true);
+    try {
+      await api.put('/api/fax-stats/config', sheetsForm);
+      toast.success('Sheets設定を保存しました');
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e.userMessage || '保存失敗');
+    } finally {
+      setSavingSheets(false);
+    }
+  };
+
+  const syncSheets = async () => {
+    if (isDemo) {
+      setSyncResult({ ok: true, format: 'pivot', totalRows: 70, validRows: 70, inserted: 56, updated: 14, skipped: 0 });
+      toast.success('(デモ) 同期OK: 新規56件 / 更新14件');
+      return;
+    }
+    setSyncing(true); setSyncResult(null);
+    try {
+      const { data: r } = await api.post('/api/fax-stats/sync');
+      setSyncResult(r.data);
+      toast.success(`同期: 新規${r.data.inserted} / 更新${r.data.updated} (${r.data.format})`);
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e.userMessage || '同期失敗');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const testConnection = async () => {
+    if (isDemo) {
+      setTestResult({ ok: true, sample: { id: 'demo123', name: 'demo-folder' } });
+      toast.success('(デモ) 接続OK');
+      return;
+    }
+    setTesting(true); setTestResult(null);
+    try {
+      const { data: r } = await api.post('/api/settings/drive/test');
+      setTestResult(r.data);
+      if (r.data.ok) toast.success('Drive接続OK');
+      else toast.error('Drive接続失敗');
+    } catch (e) {
+      setTestResult({ ok: false, error: e.userMessage });
+      toast.error(e.userMessage || 'テスト失敗');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (loading) return <div className="text-zinc-400 py-12 text-center">読み込み中…</div>;
+  if (!data) return <div className="text-zinc-400 py-12 text-center">設定を取得できませんでした</div>;
+
+  const sa = data.drive?.serviceAccount || {};
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-zinc-900">設定</h1>
+        <p className="text-zinc-500 mt-1 text-sm">
+          Drive連携・自動化のON/OFF
+          {isDemo && <span className="ml-2 px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">デモ表示</span>}
+        </p>
+      </div>
+
+      {/* Google認証状態 */}
+      <div className="bg-white border border-zinc-200 rounded-lg p-5 mb-6">
+        <h2 className="text-sm font-semibold text-zinc-800 mb-3">Google API 認証状態</h2>
+        <dl className="text-sm grid grid-cols-[160px_1fr] gap-y-2">
+          <dt className="text-zinc-500">サービスアカウント鍵</dt>
+          <dd>
+            {sa.configured
+              ? <span className="text-emerald-700">✓ 設定済</span>
+              : <span className="text-amber-700">未設定: {sa.reason}</span>}
+          </dd>
+          {sa.configured && (
+            <>
+              <dt className="text-zinc-500">鍵ファイルパス</dt>
+              <dd className="font-mono text-xs break-all">{sa.keyPath}</dd>
+              <dt className="text-zinc-500">サービスアカウント</dt>
+              <dd className="font-mono text-xs break-all">{sa.serviceAccount || '—'}</dd>
+            </>
+          )}
+          <dt className="text-zinc-500">Drive クライアント</dt>
+          <dd>
+            {data.drive?.driveReady
+              ? <span className="text-emerald-700">✓ 利用可能</span>
+              : <span className="text-red-700">利用不可: {data.drive?.driveError || '—'}</span>}
+          </dd>
+        </dl>
+        <div className="mt-4 flex items-center gap-3">
+          <button onClick={testConnection} disabled={testing || !data.drive?.driveReady}
+                  className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded hover:bg-zinc-50 disabled:opacity-50">
+            {testing ? 'テスト中…' : 'Drive接続テスト'}
+          </button>
+          {testResult && (
+            <span className="text-xs">
+              {testResult.ok
+                ? <span className="text-emerald-700">✓ OK {testResult.sample ? `(サンプル: ${testResult.sample.name})` : ''}</span>
+                : <span className="text-red-700">✗ {testResult.error}</span>}
+            </span>
+          )}
+        </div>
+        {!sa.configured && (
+          <div className="mt-3 text-xs text-zinc-500 bg-zinc-50 border border-zinc-200 rounded p-3 leading-relaxed">
+            設定方法: backend の <code>.env</code> に <code>GOOGLE_SERVICE_ACCOUNT_KEY_PATH=./config/google-service-account.json</code> を追記し、GCP発行の鍵JSONを配置してbackendを再起動。
+            鍵には Drive APIへのアクセス権 (<code>drive.file</code> スコープ) が必要。
+          </div>
+        )}
+      </div>
+
+      {/* Drive 設定 */}
+      <div className="bg-white border border-zinc-200 rounded-lg p-5 mb-6">
+        <h2 className="text-sm font-semibold text-zinc-800 mb-3">Drive 連携</h2>
+        <div className="space-y-4">
+          <Field label="ルートフォルダID" hint="Drive上の親フォルダ。配下に /YYYY-MM-DD/ サブフォルダを自動作成">
+            <input type="text" value={form.drive_root_folder_id}
+                   onChange={(e) => setForm({ ...form, drive_root_folder_id: e.target.value })}
+                   className="rep-input font-mono text-xs"
+                   placeholder="1AbCdEfGhIjKlMnOpQrStUvWxYz..." />
+          </Field>
+          <Toggle label="リスト抽出 → Excel 自動Drive保存"
+                  hint="ONにすると抽出ボタンの後に自動でアップロード。OFFなら手動「Drive保存」ボタンが必要"
+                  checked={form.drive_auto_upload === '1'}
+                  onChange={(v) => setForm({ ...form, drive_auto_upload: v ? '1' : '0' })} />
+          <Toggle label="原稿日付登録 → 23フォルダ自動作成"
+                  hint="ONにすると 2026/05/15/1〜23 のフォルダを自動作成。手動の場合は引き続きDrive URLを各スロットに入力"
+                  checked={form.manuscript_auto_create_folders === '1'}
+                  onChange={(v) => setForm({ ...form, manuscript_auto_create_folders: v ? '1' : '0' })} />
+        </div>
+      </div>
+
+      {/* 保存 */}
+      <div className="flex justify-end gap-2 mb-6">
+        <button onClick={() => setReloadKey((k) => k + 1)}
+                className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md">再読込</button>
+        <button onClick={save} disabled={saving}
+                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
+          {saving ? '保存中…' : '設定を保存'}
+        </button>
+      </div>
+
+      {/* FAX送信実績 Sheets連携 */}
+      <div className="bg-white border border-zinc-200 rounded-lg p-5 mb-6">
+        <h2 className="text-sm font-semibold text-zinc-800 mb-1">FAX送信実績 Sheets 連携</h2>
+        <p className="text-xs text-zinc-500 mb-3 leading-relaxed">
+          Google スプレッドシートからFAX送信実績を取り込みます。
+          <strong>ピボット形式</strong>(列=日付、行=NO.X セクション)に自動対応。
+          「送信件数」「エラー数」のみ取り込み、「総数」「エラー総数」「送信数合計」は無視されます。
+        </p>
+        <div className="space-y-3">
+          <Field label="スプレッドシートID" hint="URLの /d/ と /edit の間の文字列">
+            <input type="text" value={sheetsForm.sheet_id}
+                   onChange={(e) => setSheetsForm({ ...sheetsForm, sheet_id: e.target.value })}
+                   className="rep-input font-mono text-xs"
+                   placeholder="1AbCdEfGhIjKlMnOpQrStUvWxYz..." />
+          </Field>
+          <Field label="読み取り範囲(A1記法)" hint="ピボット形式は日付列が広いため A1:AZ200 程度を推奨">
+            <input type="text" value={sheetsForm.sheet_range}
+                   onChange={(e) => setSheetsForm({ ...sheetsForm, sheet_range: e.target.value })}
+                   className="rep-input font-mono text-xs"
+                   placeholder="A1:AZ200" />
+          </Field>
+        </div>
+
+        {/* 状態表示 */}
+        {sheetsCfg && (
+          <div className="mt-4 bg-zinc-50 border border-zinc-200 rounded p-3 text-xs">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-zinc-500">最終同期:</span>
+              <span>{sheetsCfg.last_synced_at ? new Date(sheetsCfg.last_synced_at).toLocaleString('ja-JP') : '未実行'}</span>
+              {sheetsCfg.last_sync_status && sheetsCfg.last_sync_status !== 'never' && (
+                <span className={[
+                  'px-1.5 py-0.5 rounded text-[10px]',
+                  sheetsCfg.last_sync_status === 'ok' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700',
+                ].join(' ')}>
+                  {sheetsCfg.last_sync_status === 'ok' ? 'OK' : 'ERROR'}
+                </span>
+              )}
+            </div>
+            {sheetsCfg.last_sync_message && (
+              <div className="mt-1 text-zinc-500 truncate">{sheetsCfg.last_sync_message}</div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 flex items-center gap-2">
+          <button onClick={saveSheets} disabled={savingSheets}
+                  className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded hover:bg-zinc-50 disabled:opacity-50">
+            {savingSheets ? '保存中…' : 'シート設定を保存'}
+          </button>
+          <button onClick={syncSheets} disabled={syncing || !sheetsForm.sheet_id}
+                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+            {syncing ? '同期中…' : '今すぐ同期'}
+          </button>
+          {syncResult && syncResult.ok !== false && (
+            <span className="text-xs text-emerald-700">
+              ✓ {syncResult.format || 'flat'} / 新規 {syncResult.inserted} / 更新 {syncResult.updated}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <style jsx global>{`
+        .rep-input {
+          width: 100%;
+          border: 1px solid #d4d4d8;
+          border-radius: 6px;
+          padding: 6px 10px;
+          font-size: 13px;
+          background: white;
+        }
+        .rep-input:focus { outline: 2px solid #6366f1; outline-offset: -1px; border-color: transparent; }
+      `}</style>
+    </div>
+  );
+}
+
+function Field({ label, hint, children }) {
+  return (
+    <label className="block">
+      <span className="block text-xs font-medium text-zinc-700 mb-1">{label}</span>
+      {hint && <span className="block text-[11px] text-zinc-500 mb-1.5">{hint}</span>}
+      {children}
+    </label>
+  );
+}
+
+function Toggle({ label, hint, checked, onChange }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="flex-1">
+        <div className="text-xs font-medium text-zinc-700">{label}</div>
+        {hint && <div className="text-[11px] text-zinc-500 mt-0.5">{hint}</div>}
+      </div>
+      <button type="button" onClick={() => onChange(!checked)}
+              className={[
+                'flex-shrink-0 relative inline-flex h-5 w-10 rounded-full transition mt-0.5',
+                checked ? 'bg-indigo-600' : 'bg-zinc-300',
+              ].join(' ')}>
+        <span className={[
+          'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition',
+          checked ? 'translate-x-5' : 'translate-x-0',
+        ].join(' ')} />
+      </button>
+    </div>
+  );
+}
