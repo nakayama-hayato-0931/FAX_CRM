@@ -257,11 +257,11 @@ export default function SettingsPage() {
                    className="rep-input font-mono text-xs"
                    placeholder="1AbCdEfGhIjKlMnOpQrStUvWxYz..." />
           </Field>
-          <Field label="読み取り範囲(A1記法)" hint="ピボット形式は日付列が広いため A1:AZ200 程度を推奨">
+          <Field label="読み取り範囲(A1記法)" hint="ピボット形式は日付列が広いため A1:AZ500 程度を推奨">
             <input type="text" value={sheetsForm.sheet_range}
                    onChange={(e) => setSheetsForm({ ...sheetsForm, sheet_range: e.target.value })}
                    className="rep-input font-mono text-xs"
-                   placeholder="A1:AZ200" />
+                   placeholder="A1:AZ500" />
           </Field>
         </div>
 
