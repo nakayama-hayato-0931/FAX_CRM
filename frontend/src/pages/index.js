@@ -41,7 +41,7 @@ const PENDING = [
 export default function HomePage() {
   return (
     <div>
-      <h1 className="text-2xl font-bold text-zinc-900">FAX-CRM</h1>
+      <h1 className="text-2xl font-bold text-zinc-900">Hitokiwa-FAX-CRM-System</h1>
       <p className="text-zinc-500 mt-1">FAX リードCRMシステム</p>
 
       <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mt-8 mb-3">実装済み</h2>

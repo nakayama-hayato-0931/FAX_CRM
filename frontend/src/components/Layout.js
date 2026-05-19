@@ -25,13 +25,13 @@ export default function Layout({ children }) {
   return (
     <>
       <Head>
-        <title>FAX-CRM</title>
+        <title>Hitokiwa-FAX-CRM-System</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
       <div className="flex h-screen overflow-hidden">
         <aside className="w-56 flex-shrink-0 bg-white border-r border-zinc-200 flex flex-col">
           <div className="px-5 py-4 border-b border-zinc-200">
-            <div className="text-base font-bold text-zinc-900 tracking-tight">FAX-CRM</div>
+            <div className="text-[13px] font-bold text-zinc-900 tracking-tight leading-tight">Hitokiwa-FAX-CRM-System</div>
             <div className="text-[11px] text-zinc-500 mt-0.5">Lead Management</div>
           </div>
 
