@@ -32,7 +32,7 @@ export default function Layout({ children }) {
         <aside className="w-56 flex-shrink-0 bg-white border-r border-zinc-200 flex flex-col">
           <div className="px-5 py-4 border-b border-zinc-200">
             <div className="text-[13px] font-bold text-zinc-900 tracking-tight leading-tight">Hitokiwa-FAX-CRM-System</div>
-            <div className="text-[11px] text-zinc-500 mt-0.5">Lead Management</div>
+            <div className="text-[11px] text-zinc-500 mt-0.5">FAX リードCRM</div>
           </div>
 
           <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
