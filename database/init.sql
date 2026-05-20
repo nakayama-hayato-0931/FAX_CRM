@@ -219,28 +219,46 @@ CREATE TABLE IF NOT EXISTS performance_records (
 
 -- 月次ロールアップ VIEW (算出項目はここで計算)
 -- 注意:
---   call_count カラムは「FAX送信数」を保持する(過去名: コール数)
+--   sends 列は fax_send_stats から取得(Google Sheets 同期)
+--     - performance_records.call_count は廃止に向かう(過去データ互換のため残置)
 --   ROAS は 初回入金 / コスト で計算(見込売上は参考表示のみ)
 CREATE OR REPLACE VIEW v_cpa_monthly AS
 SELECT
-  DATE_FORMAT(period_date, '%Y-%m-01')                    AS month,
-  SUM(cost)                                               AS cost,
-  SUM(call_count)                                         AS sends,
-  ROUND(SUM(project_count) / NULLIF(SUM(call_count), 0) * 100, 2)
+  pr.month,
+  pr.cost,
+  COALESCE(fs.sends, 0)                                   AS sends,
+  ROUND(pr.projects / NULLIF(COALESCE(fs.sends, 0), 0) * 100, 2)
                                                           AS project_rate,
-  SUM(project_count)                                      AS projects,
-  ROUND(SUM(cost) / NULLIF(SUM(project_count), 0))        AS project_cpa,
-  SUM(interview_count)                                    AS interviews,
-  ROUND(SUM(cost) / NULLIF(SUM(interview_count), 0))      AS interview_cpa,
-  ROUND(SUM(interview_count) / NULLIF(SUM(project_count), 0) * 100, 2)
-                                                          AS interview_rate,
-  SUM(offer_count)                                        AS offers,
-  SUM(reject_count)                                       AS rejects,
-  SUM(cancel_count)                                       AS cancels,
-  SUM(first_payment)                                      AS first_payment,
-  SUM(expected_revenue)                                   AS expected_revenue,
-  ROUND(SUM(first_payment) / NULLIF(SUM(cost), 0) * 100, 2)
-                                                          AS roas
-FROM performance_records
-GROUP BY DATE_FORMAT(period_date, '%Y-%m-01')
-ORDER BY month DESC;
+  pr.projects,
+  ROUND(pr.cost / NULLIF(pr.projects, 0))                 AS project_cpa,
+  pr.interviews,
+  ROUND(pr.cost / NULLIF(pr.interviews, 0))               AS interview_cpa,
+  ROUND(pr.interviews / NULLIF(pr.projects, 0) * 100, 2)  AS interview_rate,
+  pr.offers,
+  pr.rejects,
+  pr.cancels,
+  pr.first_payment,
+  pr.expected_revenue,
+  ROUND(pr.first_payment / NULLIF(pr.cost, 0) * 100, 2)   AS roas
+FROM (
+  SELECT
+    DATE_FORMAT(period_date, '%Y-%m-01') AS month,
+    SUM(cost)             AS cost,
+    SUM(project_count)    AS projects,
+    SUM(interview_count)  AS interviews,
+    SUM(offer_count)      AS offers,
+    SUM(reject_count)     AS rejects,
+    SUM(cancel_count)     AS cancels,
+    SUM(first_payment)    AS first_payment,
+    SUM(expected_revenue) AS expected_revenue
+  FROM performance_records
+  GROUP BY 1
+) pr
+LEFT JOIN (
+  SELECT
+    DATE_FORMAT(stat_date, '%Y-%m-01') AS month,
+    SUM(sent_count) AS sends
+  FROM fax_send_stats
+  GROUP BY 1
+) fs ON fs.month = pr.month
+ORDER BY pr.month DESC;
