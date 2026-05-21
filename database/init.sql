@@ -228,6 +228,24 @@ CREATE TABLE IF NOT EXISTS sheets_config (
   CONSTRAINT chk_sheets_config_singleton CHECK (id = 1)
 ) ENGINE=InnoDB COMMENT='Google Sheets 連携設定 (シングルトン)';
 
+-- --------------------------------------------
+-- 委託(外注)FAX送信の月別実績
+-- 自社FAX以外で送信を依頼している分のコストと送信数を手動入力
+-- CPA View で in-house(自社) と合算
+-- --------------------------------------------
+CREATE TABLE IF NOT EXISTS outsourced_fax_records (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  report_month DATE NOT NULL COMMENT '対象月の月初日(YYYY-MM-01)。year_month は MySQL 予約語のため別名',
+  vendor_name VARCHAR(100) DEFAULT NULL COMMENT '委託先名(任意メモ)',
+  send_count INT NOT NULL DEFAULT 0,
+  cost BIGINT NOT NULL DEFAULT 0,
+  memo TEXT DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_outsourced_month (report_month),
+  INDEX idx_outsourced_month (report_month)
+) ENGINE=InnoDB COMMENT='委託(外注)FAX送信の月別実績';
+
 -- 期間 × PC × セグメント の実績(CSVインポート対象)
 CREATE TABLE IF NOT EXISTS performance_records (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -252,27 +270,36 @@ CREATE TABLE IF NOT EXISTS performance_records (
 
 -- 月次ロールアップ VIEW (算出項目はここで計算)
 -- 注意:
---   sends 列は fax_send_stats から取得(Google Sheets 同期)
---     - performance_records.call_count は廃止に向かう(過去データ互換のため残置)
---   ROAS は 初回入金 / コスト で計算(見込売上は参考表示のみ)
+--   sends 列は fax_send_stats(Sheets同期) + outsourced_fax_records(委託分手入力) の合算
+--     - in_house_sends / outsourced_sends で内訳も保持
+--   cost 列も performance_records(CPA CSV) + outsourced_fax_records の合算
+--   ROAS は 初回入金 / コスト合算 で計算
 CREATE OR REPLACE VIEW v_cpa_monthly AS
 SELECT
   pr.month,
-  pr.cost,
-  COALESCE(fs.sends, 0)                                   AS sends,
-  ROUND(pr.projects / NULLIF(COALESCE(fs.sends, 0), 0) * 100, 2)
+  pr.cost + COALESCE(out_.outsourced_cost, 0)             AS cost,
+  pr.cost                                                 AS in_house_cost,
+  COALESCE(out_.outsourced_cost, 0)                       AS outsourced_cost,
+  COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0)
+                                                          AS sends,
+  COALESCE(fs.sends, 0)                                   AS in_house_sends,
+  COALESCE(out_.outsourced_sends, 0)                      AS outsourced_sends,
+  ROUND(pr.projects / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
                                                           AS project_rate,
   pr.projects,
-  ROUND(pr.cost / NULLIF(pr.projects, 0))                 AS project_cpa,
+  ROUND((pr.cost + COALESCE(out_.outsourced_cost, 0)) / NULLIF(pr.projects, 0))
+                                                          AS project_cpa,
   pr.interviews,
-  ROUND(pr.cost / NULLIF(pr.interviews, 0))               AS interview_cpa,
+  ROUND((pr.cost + COALESCE(out_.outsourced_cost, 0)) / NULLIF(pr.interviews, 0))
+                                                          AS interview_cpa,
   ROUND(pr.interviews / NULLIF(pr.projects, 0) * 100, 2)  AS interview_rate,
   pr.offers,
   pr.rejects,
   pr.cancels,
   pr.first_payment,
   pr.expected_revenue,
-  ROUND(pr.first_payment / NULLIF(pr.cost, 0) * 100, 2)   AS roas
+  ROUND(pr.first_payment / NULLIF(pr.cost + COALESCE(out_.outsourced_cost, 0), 0) * 100, 2)
+                                                          AS roas
 FROM (
   SELECT
     DATE_FORMAT(period_date, '%Y-%m-01') AS month,
@@ -294,4 +321,12 @@ LEFT JOIN (
   FROM fax_send_stats
   GROUP BY 1
 ) fs ON fs.month = pr.month
+LEFT JOIN (
+  SELECT
+    DATE_FORMAT(report_month, '%Y-%m-01') AS month,
+    SUM(send_count) AS outsourced_sends,
+    SUM(cost)       AS outsourced_cost
+  FROM outsourced_fax_records
+  GROUP BY 1
+) out_ ON out_.month = pr.month
 ORDER BY pr.month DESC;

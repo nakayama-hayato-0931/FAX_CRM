@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
 import CpaImportModal from '@/components/CpaImportModal';
+import OutsourcedFaxSection from '@/components/OutsourcedFaxSection';
 
 // ROAS = first_payment / cost * 100
 const DEMO_ROWS = [
@@ -172,7 +173,12 @@ export default function CpaPage() {
       <div className="mt-3 text-xs text-zinc-500">
         ※ 案件化率 = 案件数 / 送信数 / 案件CPA = コスト / 案件数 / 面接CPA = コスト / 面接数 /
           面接実施率 = 面接数 / 案件数 / <strong>ROAS = 初回入金 / コスト</strong>
+        <br />
+        ※ 「コスト」「送信数」は <strong>自社FAX(Sheets同期)+ 委託FAX(下記の手入力分)</strong> の合算です。
       </div>
+
+      {/* 委託送信 月別実績 */}
+      <OutsourcedFaxSection isDemo={isDemo} onChanged={reload} />
 
       {showImport && (
         <CpaImportModal
