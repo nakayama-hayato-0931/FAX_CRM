@@ -19,8 +19,9 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
     (async () => {
       setLoading(true);
       try {
+        // 内定 = 取消/辞退も含む全件 (売上は0として記録済み)
         const { data } = await api.get('/api/sales-projects', {
-          params: { month, status: 'active', limit: 1000 },
+          params: { month, status: 'all', limit: 1000 },
         });
         if (!cancelled) setRows(data.data || []);
       } catch (e) {
@@ -71,7 +72,7 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
               内定社内訳 — {monthLabel}
             </h2>
             <p className="text-xs text-zinc-500 mt-0.5">
-              案件シート(『ビザ申請 進捗』)より / 取消・辞退を除いたアクティブ案件
+              案件シート(『ビザ申請 進捗』)より / 取消・辞退も含む全件 (売上は0で記録)
               {expectedCount != null && (
                 <span className="ml-2">
                   (CPA表: {expectedCount}件 / 取得: {loading ? '…' : rows.length}件)
@@ -102,6 +103,7 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
             <table className="w-full text-xs">
               <thead className="bg-zinc-50 border-b border-zinc-200 sticky top-0 z-10">
                 <tr>
+                  <Th>状態<br/><span className="text-[10px] text-zinc-400">J列</span></Th>
                   <Th>内定日<br/><span className="text-[10px] text-zinc-400">A列</span></Th>
                   <Th>案件取得日<br/><span className="text-[10px] text-zinc-400">BK列</span></Th>
                   <Th>求人番号<br/><span className="text-[10px] text-zinc-400">B列</span></Th>
@@ -115,26 +117,44 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-t border-zinc-100 hover:bg-zinc-50/60">
-                    <Td>{date(r.offer_date)}</Td>
-                    <Td>{date(r.acquired_date)}</Td>
-                    <Td className="font-mono">{r.job_number || '—'}</Td>
-                    <Td className="max-w-[200px] truncate" title={r.company_name || ''}>
-                      {r.company_name || '—'}
-                    </Td>
-                    <Td className="font-mono">{r.candidate_registration_no || '—'}</Td>
-                    <Td>{r.sales_owner || '—'}</Td>
-                    <Td>{r.industry || '—'}</Td>
-                    <Td align="right" className="tabular-nums">{yen(r.first_payment)}</Td>
-                    <Td align="right" className="tabular-nums">{yen(r.expected_revenue)}</Td>
-                    <Td align="right" className="tabular-nums">{yen(r.payment_actual)}</Td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const isZero = r.is_cancelled || r.is_declined;
+                  return (
+                    <tr
+                      key={r.id}
+                      className={[
+                        'border-t border-zinc-100 hover:bg-zinc-50/60',
+                        isZero ? 'bg-zinc-50/40 text-zinc-500' : '',
+                      ].join(' ')}
+                    >
+                      <Td><StatusBadge row={r} /></Td>
+                      <Td>{date(r.offer_date)}</Td>
+                      <Td>{date(r.acquired_date)}</Td>
+                      <Td className="font-mono">{r.job_number || '—'}</Td>
+                      <Td className="max-w-[200px] truncate" title={r.company_name || ''}>
+                        {r.company_name || '—'}
+                      </Td>
+                      <Td className="font-mono">{r.candidate_registration_no || '—'}</Td>
+                      <Td>{r.sales_owner || '—'}</Td>
+                      <Td>{r.industry || '—'}</Td>
+                      <Td align="right" className="tabular-nums">{yen(r.first_payment)}</Td>
+                      <Td align="right" className="tabular-nums">{yen(r.expected_revenue)}</Td>
+                      <Td align="right" className="tabular-nums">{yen(r.payment_actual)}</Td>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot className="bg-zinc-50 border-t-2 border-zinc-300 sticky bottom-0">
                 <tr className="font-semibold">
-                  <Td colSpan={7} align="right" className="text-zinc-700">合計 ({rows.length}件)</Td>
+                  <Td colSpan={8} align="right" className="text-zinc-700">
+                    合計 ({rows.length}件
+                    {rows.some((r) => r.is_cancelled || r.is_declined) && (
+                      <span className="text-zinc-500 font-normal">
+                        {' '}— 取消 {rows.filter((r) => r.is_cancelled).length} / 辞退 {rows.filter((r) => r.is_declined).length}
+                      </span>
+                    )}
+                    )
+                  </Td>
                   <Td align="right" className="tabular-nums">{yen(totalFirstPayment)}</Td>
                   <Td align="right" className="tabular-nums">{yen(totalExpectedRevenue)}</Td>
                   <Td align="right" className="tabular-nums">{yen(totalPaymentActual)}</Td>
@@ -156,6 +176,16 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
       </div>
     </div>
   );
+}
+
+function StatusBadge({ row }) {
+  if (row.is_cancelled) {
+    return <span className="inline-block px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-700 font-medium">取消</span>;
+  }
+  if (row.is_declined) {
+    return <span className="inline-block px-1.5 py-0.5 text-[10px] rounded bg-amber-100 text-amber-700 font-medium">辞退</span>;
+  }
+  return <span className="inline-block px-1.5 py-0.5 text-[10px] rounded bg-emerald-100 text-emerald-700 font-medium">通常</span>;
 }
 
 function Th({ children, align = 'left' }) {

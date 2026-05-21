@@ -319,6 +319,7 @@ async function list({ from, to, month, status, limit = 200 } = {}) {
   } else if (status === 'declined') {
     where.push('is_declined = 1');
   }
+  // status === 'all' or undefined → 全件 (取消/辞退含む)
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const [rows] = await pool.query(
