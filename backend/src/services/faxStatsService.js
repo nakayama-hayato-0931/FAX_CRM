@@ -324,28 +324,34 @@ function parsePivotSheet(values, opts = {}) {
   });
 
   // 日次データの集計: { 'NO.x__YYYY-MM-DD': { sent_count, error_count } }
+  // 構造前提:
+  //   先頭ブロック (NO.X マーカー出現前) は「全体合計」のセクション → スキップ
+  //   「NO.X」マーカー行で currentPc を確定
+  //   以降の「送信件数」「エラー数」を currentPc に紐付け
+  //   次の「NO.Y」マーカーで pcを切替
   const acc = {};
-  let pcIndex = 0;             // 「送信件数」行が出てくるたびに increment
   let currentPc = null;
 
   for (let r = 1; r < values.length; r++) {
     const row = values[r] || [];
     const label = String(row[0] || '').trim();
 
-    // 不要ラベル & NO.X セクション区切り行はスキップ
+    // NO.X マーカー → currentPc を更新 (次セクションの開始)
+    const pcMatch = label.match(PC_MARKER_RE);
+    if (pcMatch) {
+      currentPc = `NO.${pcMatch[1]}`;
+      continue;
+    }
+
+    // 不要ラベル
     if (PIVOT_LABEL_SKIP.includes(label)) continue;
-    if (PC_MARKER_RE.test(label)) continue;
 
     const isSend  = PIVOT_LABEL_SEND.includes(label);
     const isError = PIVOT_LABEL_ERROR.includes(label);
     if (!isSend && !isError) continue;
 
-    // 「送信件数」が来たら新しいPCの開始 (NO.X マーカーが後置のため、ペア検出で連番化)
-    if (isSend) {
-      pcIndex++;
-      currentPc = `NO.${pcIndex}`;
-    }
-    if (!currentPc) { pcIndex = 1; currentPc = 'NO.1'; }
+    // NO.X マーカー前は「全体合計」セクションなのでスキップ
+    if (!currentPc) continue;
 
     for (const [colIdx, date] of Object.entries(colToDate)) {
       const raw = row[Number(colIdx)];
