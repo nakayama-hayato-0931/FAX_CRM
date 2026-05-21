@@ -35,6 +35,16 @@ export default function SettingsPage() {
   const [savingSheets, setSavingSheets] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  // 案件シート(『ビザ申請 進捗』)
+  const [projectsForm, setProjectsForm] = useState({
+    projects_sheet_id: '',
+    projects_sheet_name: 'ビザ申請 進捗',
+    projects_sheet_range: 'A1:CZ5000',
+  });
+  const [projectsCfg, setProjectsCfg] = useState(null);
+  const [savingProjects, setSavingProjects] = useState(false);
+  const [syncingProjects, setSyncingProjects] = useState(false);
+  const [projectsSyncResult, setProjectsSyncResult] = useState(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -57,9 +67,10 @@ export default function SettingsPage() {
       }
       setLoading(true);
       try {
-        const [resSettings, resSheets] = await Promise.all([
+        const [resSettings, resSheets, resProjects] = await Promise.all([
           api.get('/api/settings'),
           api.get('/api/fax-stats/config').catch(() => ({ data: { data: null } })),
+          api.get('/api/sales-projects/config').catch(() => ({ data: { data: null } })),
         ]);
         if (cancelled) return;
         const d = resSettings.data.data || {};
@@ -73,6 +84,15 @@ export default function SettingsPage() {
         if (sc) {
           setSheetsCfg(sc);
           setSheetsForm({ sheet_id: sc.sheet_id || '', sheet_range: sc.sheet_range || 'A1:ZZ500' });
+        }
+        const pc = resProjects.data?.data;
+        if (pc) {
+          setProjectsCfg(pc);
+          setProjectsForm({
+            projects_sheet_id: pc.projects_sheet_id || '',
+            projects_sheet_name: pc.projects_sheet_name || 'ビザ申請 進捗',
+            projects_sheet_range: pc.projects_sheet_range || 'A1:CZ5000',
+          });
         }
       } catch (e) {
         if (!cancelled) toast.error(e.userMessage || '読み込み失敗');
@@ -127,6 +147,39 @@ export default function SettingsPage() {
       toast.error(e.userMessage || '同期失敗');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const saveProjects = async () => {
+    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); return; }
+    setSavingProjects(true);
+    try {
+      await api.put('/api/sales-projects/config', projectsForm);
+      toast.success('案件シート設定を保存しました');
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e.userMessage || '保存失敗');
+    } finally {
+      setSavingProjects(false);
+    }
+  };
+
+  const syncProjects = async () => {
+    if (isDemo) {
+      setProjectsSyncResult({ totalRows: 4999, kept: 1407, inserted: 1400, updated: 7, skippedNotFax: 3508, skippedVisa: 74, skippedNoKey: 10 });
+      toast.success('(デモ) 同期OK: 新規1400件 / 更新7件');
+      return;
+    }
+    setSyncingProjects(true); setProjectsSyncResult(null);
+    try {
+      const { data: r } = await api.post('/api/sales-projects/sync');
+      setProjectsSyncResult(r.data);
+      toast.success(`案件同期: 新規${r.data.inserted} / 更新${r.data.updated}`);
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e.userMessage || '同期失敗');
+    } finally {
+      setSyncingProjects(false);
     }
   };
 
@@ -298,6 +351,77 @@ export default function SettingsPage() {
           {syncResult && syncResult.ok !== false && (
             <span className="text-xs text-emerald-700">
               ✓ {syncResult.format || 'flat'} / 新規 {syncResult.inserted} / 更新 {syncResult.updated}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 案件(『ビザ申請 進捗』) Sheets連携 */}
+      <div className="bg-white border border-zinc-200 rounded-lg p-5 mb-6">
+        <h2 className="text-sm font-semibold text-zinc-800 mb-1">案件シート連携 (『ビザ申請 進捗』)</h2>
+        <p className="text-xs text-zinc-500 mb-3 leading-relaxed">
+          案件シートから内定案件を取り込み、CPAの「案件数 / 初回入金 / 見込売上」に反映します。
+          <br />
+          抽出条件: <strong>BE列 = 「FAX受電」 AND J列 ≠ 「ビザ」</strong>。
+          月集計の基準は BK列「案件取得日」。J列が「取消」「辞退」の行は金額0、案件数からも除外。
+        </p>
+        <div className="space-y-3">
+          <Field label="スプレッドシートID" hint="URLの /d/ と /edit の間の文字列">
+            <input type="text" value={projectsForm.projects_sheet_id}
+                   onChange={(e) => setProjectsForm({ ...projectsForm, projects_sheet_id: e.target.value })}
+                   className="rep-input font-mono text-xs"
+                   placeholder="1wPH1sud7dAwJQihiR6qDrH-otJ3ygAgcCAg-e4ituvw" />
+          </Field>
+          <Field label="シート(タブ)名" hint="既定: ビザ申請 進捗">
+            <input type="text" value={projectsForm.projects_sheet_name}
+                   onChange={(e) => setProjectsForm({ ...projectsForm, projects_sheet_name: e.target.value })}
+                   className="rep-input text-xs"
+                   placeholder="ビザ申請 進捗" />
+          </Field>
+          <Field label="読み取り範囲(A1記法)" hint="CF列(83)まで読む必要あり。A1:CZ5000 程度を推奨">
+            <input type="text" value={projectsForm.projects_sheet_range}
+                   onChange={(e) => setProjectsForm({ ...projectsForm, projects_sheet_range: e.target.value })}
+                   className="rep-input font-mono text-xs"
+                   placeholder="A1:CZ5000" />
+          </Field>
+        </div>
+
+        {/* 状態表示 */}
+        {projectsCfg && (
+          <div className="mt-4 bg-zinc-50 border border-zinc-200 rounded p-3 text-xs">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-zinc-500">最終同期:</span>
+              <span>{projectsCfg.projects_last_synced_at ? new Date(projectsCfg.projects_last_synced_at).toLocaleString('ja-JP') : '未実行'}</span>
+              {projectsCfg.projects_last_sync_status && projectsCfg.projects_last_sync_status !== 'never' && (
+                <span className={[
+                  'px-1.5 py-0.5 rounded text-[10px]',
+                  projectsCfg.projects_last_sync_status === 'ok' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700',
+                ].join(' ')}>
+                  {projectsCfg.projects_last_sync_status === 'ok' ? 'OK' : 'ERROR'}
+                </span>
+              )}
+            </div>
+            {projectsCfg.projects_last_sync_message && (
+              <div className="mt-1 text-zinc-500 break-all">{projectsCfg.projects_last_sync_message}</div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 flex items-center gap-2 flex-wrap">
+          <button onClick={saveProjects} disabled={savingProjects}
+                  className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded hover:bg-zinc-50 disabled:opacity-50">
+            {savingProjects ? '保存中…' : '案件シート設定を保存'}
+          </button>
+          <button onClick={syncProjects} disabled={syncingProjects || !projectsForm.projects_sheet_id}
+                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+            {syncingProjects ? '同期中…' : '今すぐ同期'}
+          </button>
+          {projectsSyncResult && (
+            <span className="text-xs text-emerald-700">
+              ✓ 取込 {projectsSyncResult.kept} / 新規 {projectsSyncResult.inserted} / 更新 {projectsSyncResult.updated}
+              <span className="text-zinc-500 ml-2">
+                (FAX以外 {projectsSyncResult.skippedNotFax} / ビザ {projectsSyncResult.skippedVisa} / キー無 {projectsSyncResult.skippedNoKey})
+              </span>
             </span>
           )}
         </div>

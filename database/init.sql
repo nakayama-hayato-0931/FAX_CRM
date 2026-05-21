@@ -320,58 +320,73 @@ CREATE TABLE IF NOT EXISTS performance_records (
 ) ENGINE=InnoDB COMMENT='CPA指標の元データ(月次/PC別/セグメント別)';
 
 -- 月次ロールアップ VIEW (算出項目はここで計算)
--- 注意:
---   sends 列は fax_send_stats(Sheets同期) + outsourced_fax_records(委託分手入力) の合算
---     - in_house_sends / outsourced_sends で内訳も保持
---   cost 列も performance_records(CPA CSV) + outsourced_fax_records の合算
---   ROAS は 初回入金 / コスト合算 で計算
+-- データソース:
+--   cost / interviews / offers / rejects / cancels  ← performance_records (CSV)
+--   sends (自社)                                    ← fax_send_stats (Sheets同期)
+--   sends (委託) / cost (委託)                      ← outsourced_fax_records (手入力)
+--   projects / first_payment / expected_revenue     ← sales_projects (案件シート同期)
+--     - 取消(is_cancelled) / 辞退(is_declined) の行は projects カウントから除外
+--     - 月次キーは acquired_date (案件取得日)
+--   ROAS = 初回入金 / コスト合算
+-- 月キー: 上記4ソースのいずれかに存在する月をすべて FULL OUTER JOIN 的に拾う
 CREATE OR REPLACE VIEW v_cpa_monthly AS
 SELECT
-  pr.month,
-  pr.cost + COALESCE(out_.outsourced_cost, 0)             AS cost,
-  pr.cost                                                 AS in_house_cost,
-  COALESCE(out_.outsourced_cost, 0)                       AS outsourced_cost,
-  COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0)
-                                                          AS sends,
-  COALESCE(fs.sends, 0)                                   AS in_house_sends,
-  COALESCE(out_.outsourced_sends, 0)                      AS outsourced_sends,
-  ROUND(pr.projects / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
-                                                          AS project_rate,
-  pr.projects,
-  ROUND((pr.cost + COALESCE(out_.outsourced_cost, 0)) / NULLIF(pr.projects, 0))
-                                                          AS project_cpa,
-  pr.interviews,
-  ROUND((pr.cost + COALESCE(out_.outsourced_cost, 0)) / NULLIF(pr.interviews, 0))
-                                                          AS interview_cpa,
-  ROUND(pr.interviews / NULLIF(pr.projects, 0) * 100, 2)  AS interview_rate,
-  pr.offers,
-  pr.rejects,
-  pr.cancels,
-  pr.first_payment,
-  pr.expected_revenue,
-  ROUND(pr.first_payment / NULLIF(pr.cost + COALESCE(out_.outsourced_cost, 0), 0) * 100, 2)
-                                                          AS roas
+  m.month,
+  COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0)        AS cost,
+  COALESCE(pr.cost, 0)                                            AS in_house_cost,
+  COALESCE(out_.outsourced_cost, 0)                               AS outsourced_cost,
+  COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0)      AS sends,
+  COALESCE(fs.sends, 0)                                           AS in_house_sends,
+  COALESCE(out_.outsourced_sends, 0)                              AS outsourced_sends,
+  ROUND(COALESCE(sp.projects, 0)
+        / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
+                                                                  AS project_rate,
+  COALESCE(sp.projects, 0)                                        AS projects,
+  ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
+        / NULLIF(COALESCE(sp.projects, 0), 0))                    AS project_cpa,
+  COALESCE(pr.interviews, 0)                                      AS interviews,
+  ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
+        / NULLIF(COALESCE(pr.interviews, 0), 0))                  AS interview_cpa,
+  ROUND(COALESCE(pr.interviews, 0)
+        / NULLIF(COALESCE(sp.projects, 0), 0) * 100, 2)           AS interview_rate,
+  COALESCE(pr.offers, 0)                                          AS offers,
+  COALESCE(pr.rejects, 0)                                         AS rejects,
+  COALESCE(pr.cancels, 0)                                         AS cancels,
+  COALESCE(sp.first_payment, 0)                                   AS first_payment,
+  COALESCE(sp.expected_revenue, 0)                                AS expected_revenue,
+  ROUND(COALESCE(sp.first_payment, 0)
+        / NULLIF(COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0), 0) * 100, 2)
+                                                                  AS roas
 FROM (
+  SELECT DISTINCT month FROM (
+    SELECT DATE_FORMAT(period_date, '%Y-%m-01')   AS month FROM performance_records
+    UNION
+    SELECT DATE_FORMAT(stat_date, '%Y-%m-01')     AS month FROM fax_send_stats
+    UNION
+    SELECT DATE_FORMAT(report_month, '%Y-%m-01')  AS month FROM outsourced_fax_records
+    UNION
+    SELECT DATE_FORMAT(acquired_date, '%Y-%m-01') AS month FROM sales_projects WHERE acquired_date IS NOT NULL
+  ) u
+  WHERE month IS NOT NULL
+) m
+LEFT JOIN (
   SELECT
     DATE_FORMAT(period_date, '%Y-%m-01') AS month,
     SUM(cost)             AS cost,
-    SUM(project_count)    AS projects,
     SUM(interview_count)  AS interviews,
     SUM(offer_count)      AS offers,
     SUM(reject_count)     AS rejects,
-    SUM(cancel_count)     AS cancels,
-    SUM(first_payment)    AS first_payment,
-    SUM(expected_revenue) AS expected_revenue
+    SUM(cancel_count)     AS cancels
   FROM performance_records
   GROUP BY 1
-) pr
+) pr ON pr.month = m.month
 LEFT JOIN (
   SELECT
     DATE_FORMAT(stat_date, '%Y-%m-01') AS month,
     SUM(sent_count) AS sends
   FROM fax_send_stats
   GROUP BY 1
-) fs ON fs.month = pr.month
+) fs ON fs.month = m.month
 LEFT JOIN (
   SELECT
     DATE_FORMAT(report_month, '%Y-%m-01') AS month,
@@ -379,5 +394,15 @@ LEFT JOIN (
     SUM(cost)       AS outsourced_cost
   FROM outsourced_fax_records
   GROUP BY 1
-) out_ ON out_.month = pr.month
-ORDER BY pr.month DESC;
+) out_ ON out_.month = m.month
+LEFT JOIN (
+  SELECT
+    DATE_FORMAT(acquired_date, '%Y-%m-01') AS month,
+    SUM(CASE WHEN is_cancelled = 0 AND is_declined = 0 THEN 1 ELSE 0 END) AS projects,
+    SUM(first_payment)    AS first_payment,
+    SUM(expected_revenue) AS expected_revenue
+  FROM sales_projects
+  WHERE acquired_date IS NOT NULL
+  GROUP BY 1
+) sp ON sp.month = m.month
+ORDER BY m.month DESC;

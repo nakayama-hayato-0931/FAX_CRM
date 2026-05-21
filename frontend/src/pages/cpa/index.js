@@ -51,9 +51,25 @@ export default function CpaPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [syncingProjects, setSyncingProjects] = useState(false);
 
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((k) => k + 1);
+
+  const syncProjects = async () => {
+    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    setSyncingProjects(true);
+    try {
+      const { data } = await api.post('/api/sales-projects/sync');
+      const r = data.data || {};
+      toast.success(`案件同期OK: 取込${r.kept ?? 0} / 新規${r.inserted ?? 0} / 更新${r.updated ?? 0}`);
+      reload();
+    } catch (e) {
+      toast.error(e.userMessage || '案件同期失敗。設定画面でシートIDを確認してください');
+    } finally {
+      setSyncingProjects(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -96,6 +112,14 @@ export default function CpaPage() {
             className="px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50"
           >
             再読み込み
+          </button>
+          <button
+            onClick={syncProjects}
+            disabled={syncingProjects}
+            className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50"
+            title="『ビザ申請 進捗』シートから内定案件を再同期"
+          >
+            {syncingProjects ? '案件同期中…' : '案件シート同期'}
           </button>
           <button
             onClick={() => setShowImport(true)}
@@ -170,11 +194,14 @@ export default function CpaPage() {
         </div>
       </div>
 
-      <div className="mt-3 text-xs text-zinc-500">
+      <div className="mt-3 text-xs text-zinc-500 leading-relaxed">
         ※ 案件化率 = 案件数 / 送信数 / 案件CPA = コスト / 案件数 / 面接CPA = コスト / 面接数 /
           面接実施率 = 面接数 / 案件数 / <strong>ROAS = 初回入金 / コスト</strong>
         <br />
         ※ 「コスト」「送信数」は <strong>自社FAX(Sheets同期)+ 委託FAX(下記の手入力分)</strong> の合算です。
+        <br />
+        ※ 「案件数」「初回入金」「見込売上」は <strong>案件シート(『ビザ申請 進捗』)</strong> から同期されます。
+          月キーは BK列「案件取得日」。J列が「取消」「辞退」は金額0&amp;案件数からも除外。
       </div>
 
       {/* 委託送信 月別実績 */}
