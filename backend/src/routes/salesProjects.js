@@ -28,4 +28,13 @@ router.post('/sync', async (_req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// デバッグ: シート生データを月別/フィルタ別で集計して返す
+//   ?ym=2026-04 のように調べたい月を指定可能
+router.get('/debug-inspect', async (req, res, next) => {
+  try {
+    const data = await svc.debugInspectSheet({ targetYM: req.query.ym || '2026-04' });
+    return ok(res, data);
+  } catch (e) { next(e); }
+});
+
 module.exports = router;

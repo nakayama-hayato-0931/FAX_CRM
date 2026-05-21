@@ -260,6 +260,93 @@ async function markSync(status, message) {
   );
 }
 
+/**
+ * デバッグ用: シートを取得して BE/J フィルタを通す前後の月別件数を返す
+ *   - rawCounts: 全行を BK 列の月で集計 (フィルタ無視)
+ *   - rawCountsOffer: A列の月で集計 (フィルタ無視)
+ *   - byStatus: 全行をJ列(status)別で集計
+ *   - byBeColumn: BE列の値別で集計
+ *   - sampleApril2026Rows: BK列が 2026-04 の行サンプル (最大10件) - フィルタ前
+ */
+async function debugInspectSheet({ targetYM = '2026-04' } = {}) {
+  const cfg = await getConfig();
+  if (!cfg?.projects_sheet_id) {
+    const err = new Error('案件シートIDが未設定です');
+    err.status = 400; throw err;
+  }
+  const keyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH;
+  if (!keyPath || !fs.existsSync(keyPath)) {
+    const err = new Error('GOOGLE_SERVICE_ACCOUNT_KEY_PATH が未設定');
+    err.status = 400; throw err;
+  }
+  const { google } = require('googleapis');
+  const auth = new google.auth.GoogleAuth({
+    keyFile: keyPath,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+  });
+  const sheets = google.sheets({ version: 'v4', auth });
+  const sheetName = cfg.projects_sheet_name || 'ビザ申請 進捗';
+  const rangePart = cfg.projects_sheet_range || 'A1:CZ5000';
+  const range = `'${sheetName}'!${rangePart}`;
+  const resp = await sheets.spreadsheets.values.get({
+    spreadsheetId: cfg.projects_sheet_id, range,
+    valueRenderOption: 'UNFORMATTED_VALUE',
+    dateTimeRenderOption: 'SERIAL_NUMBER',
+  });
+  const values = resp.data.values || [];
+
+  const rawCountsAcquired = {};
+  const rawCountsOffer = {};
+  const byStatus = {};
+  const byBeColumn = {};
+  const sampleAprilRows = [];
+  let totalDataRows = 0;
+
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r] || [];
+    totalDataRows++;
+    const be = clean(row[COL.BE]) || '(empty)';
+    byBeColumn[be] = (byBeColumn[be] || 0) + 1;
+    const j = clean(row[COL.J]) || '(empty)';
+    byStatus[j] = (byStatus[j] || 0) + 1;
+
+    const acquired = parseDateCell(row[COL.BK]);
+    const offer = parseDateCell(row[COL.A]);
+    if (acquired) {
+      const ym = acquired.slice(0, 7);
+      rawCountsAcquired[ym] = (rawCountsAcquired[ym] || 0) + 1;
+      if (ym === targetYM && sampleAprilRows.length < 10) {
+        sampleAprilRows.push({
+          row: r + 1,
+          A_offer: offer,
+          BK_acquired: acquired,
+          B_job: clean(row[COL.B]),
+          BD_company: clean(row[COL.BD]),
+          E_owner: clean(row[COL.E]),
+          J_status: j,
+          BE_kind: be,
+        });
+      }
+    }
+    if (offer) {
+      const ym = offer.slice(0, 7);
+      rawCountsOffer[ym] = (rawCountsOffer[ym] || 0) + 1;
+    }
+  }
+
+  const sortedDesc = (obj) => Object.entries(obj).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 30);
+
+  return {
+    totalDataRows,
+    rawCountsAcquired: sortedDesc(rawCountsAcquired),
+    rawCountsOffer: sortedDesc(rawCountsOffer),
+    byStatus: Object.entries(byStatus).sort((a, b) => b[1] - a[1]),
+    byBeColumn: Object.entries(byBeColumn).sort((a, b) => b[1] - a[1]).slice(0, 10),
+    targetYM,
+    sampleRowsForTargetYM: sampleAprilRows,
+  };
+}
+
 async function syncFromSheets() {
   const cfg = await getConfig();
   if (!cfg?.projects_sheet_id) {
@@ -381,5 +468,6 @@ async function list({ from, to, month, basis = 'acquired', status, limit = 200 }
 module.exports = {
   parseProjectsSheet, upsertProjects, syncFromSheets, list,
   getConfig, updateConfig,
+  debugInspectSheet,
   COL, colIndex,
 };
