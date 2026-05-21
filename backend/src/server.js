@@ -1,4 +1,33 @@
 require('dotenv').config();
+
+// Google サービスアカウントJSONの書き出し(Railway等のファイル永続性がない環境向け)
+// 環境変数 GOOGLE_SERVICE_ACCOUNT_KEY_JSON があれば ./config/google-service-account.json に書き出し
+// 同一プロセス内で GOOGLE_SERVICE_ACCOUNT_KEY_PATH を設定する。
+(function setupGoogleCredentials() {
+  const fs = require('fs');
+  const path = require('path');
+  const json = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON;
+  if (!json) {
+    console.log('[server] GOOGLE_SERVICE_ACCOUNT_KEY_JSON 未設定 (Drive/Sheets連携は無効)');
+    return;
+  }
+  try {
+    const parsed = JSON.parse(json);
+    if (!parsed.client_email || !parsed.private_key) {
+      console.warn('[server] GOOGLE_SERVICE_ACCOUNT_KEY_JSON に client_email/private_key が含まれていません');
+      return;
+    }
+    const dir = path.resolve(__dirname, '../config');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const dst = path.resolve(dir, 'google-service-account.json');
+    fs.writeFileSync(dst, json, { mode: 0o600 });
+    process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH = dst;
+    console.log(`[server] service account JSON written to ${dst} (client: ${parsed.client_email})`);
+  } catch (e) {
+    console.error('[server] サービスアカウントJSON書き出し失敗:', e.message);
+  }
+})();
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
