@@ -307,8 +307,13 @@ export default function FaxStatsPage() {
 
       {/* PC別サマリ */}
       <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden mb-6">
-        <div className="px-4 py-3 border-b border-zinc-200">
+        <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-zinc-800">PC別サマリ</h3>
+          {(filter.from || filter.to) && (
+            <span className="text-[11px] text-zinc-500">
+              期間: {filter.from || '〜'} 〜 {filter.to || '〜'} / {byPc.length} PC
+            </span>
+          )}
         </div>
         <table className="w-full text-sm">
           <thead className="bg-zinc-50 border-b border-zinc-200">
@@ -341,8 +346,15 @@ export default function FaxStatsPage() {
 
       {/* 明細 */}
       <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
-        <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-zinc-800">明細</h3>
+        <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-3">
+            <h3 className="text-sm font-semibold text-zinc-800">明細</h3>
+            {(filter.from || filter.to) && (
+              <span className="text-[11px] text-zinc-500">
+                期間: {filter.from || '〜'} 〜 {filter.to || '〜'} / {detail.length} 件
+              </span>
+            )}
+          </div>
           <div className="flex gap-2 text-xs items-center">
             <span className="text-zinc-400">PCで絞り込み:</span>
             <input type="text" placeholder="例: NO.1" value={filter.pcNumber}
