@@ -39,7 +39,7 @@ export default function SettingsPage() {
   const [projectsForm, setProjectsForm] = useState({
     projects_sheet_id: '',
     projects_sheet_name: 'ビザ申請 進捗',
-    projects_sheet_range: 'A1:CZ5000',
+    projects_sheet_range: 'A1:CZ20000',
   });
   const [projectsCfg, setProjectsCfg] = useState(null);
   const [savingProjects, setSavingProjects] = useState(false);
@@ -91,7 +91,7 @@ export default function SettingsPage() {
           setProjectsForm({
             projects_sheet_id: pc.projects_sheet_id || '',
             projects_sheet_name: pc.projects_sheet_name || 'ビザ申請 進捗',
-            projects_sheet_range: pc.projects_sheet_range || 'A1:CZ5000',
+            projects_sheet_range: pc.projects_sheet_range || 'A1:CZ20000',
           });
         }
       } catch (e) {
@@ -378,11 +378,11 @@ export default function SettingsPage() {
                    className="rep-input text-xs"
                    placeholder="ビザ申請 進捗" />
           </Field>
-          <Field label="読み取り範囲(A1記法)" hint="CF列(83)まで読む必要あり。A1:CZ5000 程度を推奨">
+          <Field label="読み取り範囲(A1記法)" hint="CF列(83)まで × 新規行追加に備えて A1:CZ20000 程度を推奨。 行数が足りないと最新エントリが切り捨てられます">
             <input type="text" value={projectsForm.projects_sheet_range}
                    onChange={(e) => setProjectsForm({ ...projectsForm, projects_sheet_range: e.target.value })}
                    className="rep-input font-mono text-xs"
-                   placeholder="A1:CZ5000" />
+                   placeholder="A1:CZ20000" />
           </Field>
         </div>
 

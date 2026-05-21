@@ -241,7 +241,7 @@ async function updateConfig({ projects_sheet_id, projects_sheet_name, projects_s
     [
       projects_sheet_id || null,
       projects_sheet_name || 'ビザ申請 進捗',
-      projects_sheet_range || 'A1:CZ5000',
+      projects_sheet_range || 'A1:CZ20000',
     ]
   );
   return getConfig();
@@ -286,7 +286,7 @@ async function debugInspectSheet({ targetYM = '2026-04' } = {}) {
   });
   const sheets = google.sheets({ version: 'v4', auth });
   const sheetName = cfg.projects_sheet_name || 'ビザ申請 進捗';
-  const rangePart = cfg.projects_sheet_range || 'A1:CZ5000';
+  const rangePart = cfg.projects_sheet_range || 'A1:CZ20000';
   const range = `'${sheetName}'!${rangePart}`;
   const resp = await sheets.spreadsheets.values.get({
     spreadsheetId: cfg.projects_sheet_id, range,
@@ -376,7 +376,7 @@ async function syncFromSheets() {
   const sheets = google.sheets({ version: 'v4', auth });
 
   const sheetName = cfg.projects_sheet_name || 'ビザ申請 進捗';
-  const rangePart = cfg.projects_sheet_range || 'A1:CZ5000';
+  const rangePart = cfg.projects_sheet_range || 'A1:CZ20000';
   // 'シート名'!A1:CZ5000 の形 (日本語シート名はシングルクォートで囲む)
   const range = `'${sheetName}'!${rangePart}`;
 

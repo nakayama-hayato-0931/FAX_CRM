@@ -224,7 +224,7 @@ CREATE TABLE IF NOT EXISTS sheets_config (
   -- 案件(ビザ申請 進捗)シート用
   projects_sheet_id VARCHAR(100) DEFAULT NULL COMMENT '案件シート スプレッドシートID',
   projects_sheet_name VARCHAR(100) DEFAULT 'ビザ申請 進捗' COMMENT '案件シート名(タブ名)',
-  projects_sheet_range VARCHAR(100) DEFAULT 'A1:CZ5000' COMMENT '案件シート 読み取り範囲',
+  projects_sheet_range VARCHAR(100) DEFAULT 'A1:CZ20000' COMMENT '案件シート 読み取り範囲 (新規行追加に備えて広めに確保)',
   projects_last_synced_at DATETIME DEFAULT NULL,
   projects_last_sync_status ENUM('ok','error','never') NOT NULL DEFAULT 'never',
   projects_last_sync_message TEXT DEFAULT NULL,
