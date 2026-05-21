@@ -7,6 +7,29 @@ import {
 import { api } from '@/utils/api';
 import FaxStatsImportModal from '@/components/FaxStatsImportModal';
 
+// 期間プリセットから { from, to } の YYYY-MM-DD を返す
+function computePresetRange(key) {
+  const today = new Date();
+  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  if (key === 'thisMonth') {
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: fmt(start), to: fmt(today) };
+  }
+  if (key === 'last3months') {
+    // 当月含む直近3ヶ月: 例 5月なら 3/1〜5/今日
+    const start = new Date(today.getFullYear(), today.getMonth() - 2, 1);
+    return { from: fmt(start), to: fmt(today) };
+  }
+  // それ以外(custom含む)は空
+  return { from: '', to: '' };
+}
+
+const PRESETS = [
+  { key: 'thisMonth',   label: '当月' },
+  { key: 'last3months', label: '直近3ヶ月' },
+  { key: 'custom',      label: '任意の期間' },
+];
+
 const DEMO_DAILY = [
   { stat_date: '2026-05-08', sent: 2150, success: 1980, errors: 95,  busy: 55, no_answer: 18, invalid: 2,  error_rate: 4.42 },
   { stat_date: '2026-05-09', sent: 2480, success: 2280, errors: 130, busy: 48, no_answer: 19, invalid: 3,  error_rate: 5.24 },
@@ -67,12 +90,25 @@ export default function FaxStatsPage() {
   const [byPc, setByPc] = useState([]);
   const [detail, setDetail] = useState([]);
   const [config, setConfig] = useState(null);
-  const [filter, setFilter] = useState({ from: '', to: '', pcNumber: '' });
+  const [filter, setFilter] = useState(() => ({
+    ...computePresetRange('last3months'),  // 初期表示: 直近3ヶ月
+    pcNumber: '',
+  }));
+  const [preset, setPreset] = useState('last3months');
   const [syncing, setSyncing] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   const reload = () => setReloadKey((k) => k + 1);
+
+  const applyPreset = (key) => {
+    setPreset(key);
+    if (key === 'custom') {
+      // 任意期間は from/to は維持(編集可)
+      return;
+    }
+    setFilter((f) => ({ ...f, ...computePresetRange(key) }));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -169,6 +205,41 @@ export default function FaxStatsPage() {
             {syncing ? '同期中…' : 'Sheets同期'}
           </button>
         </div>
+      </div>
+
+      {/* 期間プリセット切替 */}
+      <div className="bg-white border border-zinc-200 rounded-lg p-3 mb-4 flex items-center gap-3 flex-wrap">
+        <span className="text-xs text-zinc-500">期間:</span>
+        <div className="flex gap-1">
+          {PRESETS.map((p) => (
+            <button key={p.key}
+                    onClick={() => applyPreset(p.key)}
+                    className={[
+                      'px-3 py-1.5 text-sm rounded-md border transition',
+                      preset === p.key
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
+                    ].join(' ')}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {preset === 'custom' && (
+          <div className="flex items-center gap-2 text-xs">
+            <input type="date" value={filter.from}
+                   onChange={(e) => setFilter({ ...filter, from: e.target.value })}
+                   className="border border-zinc-300 rounded px-2 py-1" />
+            <span className="text-zinc-400">〜</span>
+            <input type="date" value={filter.to}
+                   onChange={(e) => setFilter({ ...filter, to: e.target.value })}
+                   className="border border-zinc-300 rounded px-2 py-1" />
+          </div>
+        )}
+        {preset !== 'custom' && filter.from && filter.to && (
+          <span className="text-xs text-zinc-500 ml-2">
+            {filter.from} 〜 {filter.to}
+          </span>
+        )}
       </div>
 
       {/* KPI cards */}
@@ -272,17 +343,15 @@ export default function FaxStatsPage() {
       <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
         <div className="px-4 py-3 border-b border-zinc-200 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-zinc-800">明細</h3>
-          <div className="flex gap-2 text-xs">
-            <input type="date" value={filter.from} onChange={(e) => setFilter({ ...filter, from: e.target.value })}
-                   className="border border-zinc-300 rounded px-2 py-1" />
-            <span className="text-zinc-400 self-center">〜</span>
-            <input type="date" value={filter.to} onChange={(e) => setFilter({ ...filter, to: e.target.value })}
-                   className="border border-zinc-300 rounded px-2 py-1" />
-            <input type="text" placeholder="PC番号" value={filter.pcNumber}
+          <div className="flex gap-2 text-xs items-center">
+            <span className="text-zinc-400">PCで絞り込み:</span>
+            <input type="text" placeholder="例: NO.1" value={filter.pcNumber}
                    onChange={(e) => setFilter({ ...filter, pcNumber: e.target.value })}
-                   className="border border-zinc-300 rounded px-2 py-1 w-20" />
-            <button onClick={() => setFilter({ from: '', to: '', pcNumber: '' })}
-                    className="px-2 py-1 border border-zinc-300 rounded">クリア</button>
+                   className="border border-zinc-300 rounded px-2 py-1 w-24" />
+            {filter.pcNumber && (
+              <button onClick={() => setFilter({ ...filter, pcNumber: '' })}
+                      className="px-2 py-1 border border-zinc-300 rounded">クリア</button>
+            )}
           </div>
         </div>
         <div className="overflow-x-auto">
