@@ -4,6 +4,23 @@ const { getPool, isConfigured } = require('../../config/db');
 
 const VALID_SOURCES = new Set(['sheets', 'csv', 'manual']);
 
+/**
+ * Excel/Google Sheets のシリアル日付(1900-01-01 を 1 とする日数)を YYYY-MM-DD に変換
+ * 注意: Lotus 1-2-3 互換の 1900 年 2 月 29 日バグを Excel が継承しているため、 60 以上は -1 補正
+ */
+function excelSerialToYMD(serial) {
+  const n = Math.floor(Number(serial));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // 1899-12-30 を 0 日目として扱う (Excel/Sheetsの公式仕様)
+  const baseUtcMs = Date.UTC(1899, 11, 30);
+  const ms = baseUtcMs + n * 86400000;
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 // --------------------------------------------
 // 集計
 // --------------------------------------------
@@ -244,10 +261,23 @@ async function syncFromSheets() {
   // 列数: 1日=1列、AZ(52列)だと2ヶ月分しか取れない。ZZ(702列)で約2年分の日付列に対応
   const range = cfg.sheet_range || 'A1:ZZ500';
 
-  let values;
+  // 1行目(ヘッダ)だけ UNFORMATTED_VALUE で取得 → 日付セルが Excel シリアル値(数値)で返るため
+  //   表示形式 "M/D" で年が見えないシートでも年を正しく特定できる
+  // 残りの行は FORMATTED_VALUE で取得 (「送信件数」「エラー数」のラベルが日本語のため)
+  let formattedValues;
+  let rawHeaderRow;
   try {
-    const resp = await sheets.spreadsheets.values.get({ spreadsheetId: cfg.sheet_id, range });
-    values = resp.data.values || [];
+    const [respFormatted, respHeaderRaw] = await Promise.all([
+      sheets.spreadsheets.values.get({ spreadsheetId: cfg.sheet_id, range }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: cfg.sheet_id,
+        range: range.replace(/(\d+)/, '1'), // 1行目だけ
+        valueRenderOption: 'UNFORMATTED_VALUE',
+        dateTimeRenderOption: 'SERIAL_NUMBER',
+      }).catch(() => ({ data: { values: [[]] } })),
+    ]);
+    formattedValues = respFormatted.data.values || [];
+    rawHeaderRow = (respHeaderRaw.data.values || [[]])[0] || [];
   } catch (e) {
     await markSync('error', e.message);
     const err = new Error(`Sheets取得失敗: ${e.message}`);
@@ -255,10 +285,23 @@ async function syncFromSheets() {
     throw err;
   }
 
-  if (values.length < 2) {
+  if (formattedValues.length < 2) {
     await markSync('error', 'シートが空、またはヘッダーのみ');
     return { totalRows: 0, validRows: 0, inserted: 0, updated: 0, skipped: 0 };
   }
+
+  // ヘッダ行を「年情報付きシリアル」で上書きしてから parse する
+  //   raw[idx] が数値なら Excel serial、それ以外なら formatted の文字列を使う
+  const values = formattedValues.slice();
+  const mergedHeader = (formattedValues[0] || []).map((cell, idx) => {
+    const raw = rawHeaderRow[idx];
+    // Excel serial date: 25569 (1970-01-01) 〜 60000 (2064年あたり)
+    if (typeof raw === 'number' && raw > 25569 && raw < 80000) {
+      return excelSerialToYMD(raw);
+    }
+    return cell;
+  });
+  values[0] = mergedHeader;
 
   // 形式を自動判定: 1行目に「送信件数」「エラー数」のような項目名がない & 日付っぽい列があれば pivot
   const isPivot = detectPivotFormat(values);
@@ -302,7 +345,8 @@ const PC_MARKER_RE = /^NO[\.\s_-]*(\d{1,3})$/i;
 //   - 5/15(水), 5/15 水                → 曜日付き
 //   - 2026年5月15日                    → 全部漢字
 const DATE_HEADER_PATTERNS = [
-  // 1) YYYY/M/D or YYYY-M-D (4桁年 + 区切り + 月 + 区切り + 日)
+  // 1) YYYY/M/D or YYYY-M-D or YYYY年M月D日 (4桁年 + 区切り + 月 + 区切り + 日)
+  //    excelSerialToYMD() の出力 (例: 2026-05-15) もここでマッチ
   { re: /^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})[日]?(?:\s*[\(（].*?[\)）])?$/, y: 1, m: 2, d: 3 },
   // 2) M/D/YYYY (米国表記)
   { re: /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s*[\(（].*?[\)）])?$/, y: 3, m: 1, d: 2 },

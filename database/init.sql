@@ -325,7 +325,8 @@ CREATE TABLE IF NOT EXISTS performance_records (
 --   sends (自社)                                     ← fax_send_stats (Sheets同期)
 --   sends (委託) / cost (委託)                       ← outsourced_fax_records (手入力)
 --   projects (FAXからの総案件数)                     ← sales_projects 全行 (取消/辞退含む)
---   offers (内定社数)                                ← sales_projects 全行 (取消/辞退も含めて1件としてカウント)
+--   offers (内定社数)                                ← COUNT(DISTINCT job_number) - 同一求人は1社カウント
+--                                                      (求人番号が空の行は会社名で代用)
 --   first_payment / expected_revenue                 ← sales_projects (取消/辞退の行は0で記録)
 --     - 月次キーは acquired_date (案件取得日)
 --   ROAS = 初回入金 / コスト合算
@@ -398,10 +399,10 @@ LEFT JOIN (
 LEFT JOIN (
   SELECT
     DATE_FORMAT(acquired_date, '%Y-%m-01') AS month,
-    COUNT(*)              AS projects,  -- FAXからの総案件数 (取消/辞退含む全行)
-    COUNT(*)              AS offers,    -- 内定社数 (取消/辞退も含む。 売上は0で計算)
-    SUM(first_payment)    AS first_payment,
-    SUM(expected_revenue) AS expected_revenue
+    COUNT(*)                                                       AS projects,  -- FAXからの総案件数 (取消/辞退含む全行)
+    COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS offers,    -- 内定社数 = 同一求人番号は1社カウント (取消/辞退含む)
+    SUM(first_payment)                                             AS first_payment,
+    SUM(expected_revenue)                                          AS expected_revenue
   FROM sales_projects
   WHERE acquired_date IS NOT NULL
   GROUP BY 1

@@ -329,7 +329,10 @@ async function list({ from, to, month, status, limit = 200 } = {}) {
        first_payment, expected_revenue, payment_actual,
        status_label, is_cancelled, is_declined, source_row
      FROM sales_projects ${whereSql}
-     ORDER BY acquired_date DESC, id DESC
+     ORDER BY
+       COALESCE(NULLIF(job_number, ''), company_name) ASC,  -- 同一求人を隣り合わせる
+       acquired_date DESC,
+       id DESC
      LIMIT ?`,
     [...params, Math.min(Number(limit) || 200, 1000)]
   );
