@@ -366,8 +366,9 @@ function parsePivotSheet(values, opts = {}) {
   }
 
   return Object.values(acc)
-    // データ整合性チェック: error > sent は誤データ(シート抽出ミス含む)とみなしスキップ
-    .filter((x) => x.error <= x.sent)
+    // データ整合性チェック:
+    //   error は 0以上 sent以下 でなければ誤データ(シート上の計算ミス等)とみなしスキップ
+    .filter((x) => x.error >= 0 && x.error <= x.sent)
     .map((x) => ({
       stat_date: x.stat_date,
       pc_number: x.pc_number,
