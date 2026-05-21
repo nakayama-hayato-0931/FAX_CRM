@@ -302,23 +302,76 @@ function detectPivotFormat(values) {
   return firstRow.some((c) => DATE_HEADER_RE.test(c));
 }
 
-function normalizeDateHeader(s, defaultYear) {
+function parseMonthDay(s) {
   const m = String(s || '').trim().match(DATE_HEADER_RE);
   if (!m) return null;
-  const year = defaultYear || new Date().getFullYear();
-  return `${year}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`;
+  return { month: Number(m[1]), day: Number(m[2]) };
+}
+
+/**
+ * ピボット日付ヘッダ群 (例: ['合計','平均','6/1','6/2',...,'12/31','1/1',...,'5/20'])
+ * の各列に対して、適切な「年」を推定して YYYY-MM-DD 文字列を返す。
+ *
+ * アルゴリズム:
+ *   1. 日付らしいセル(M/D)だけを列順(=時系列順)に並べる
+ *   2. 左→右に走査。月が「前の月より小さくなった」 = 年が切り替わったとみなす (year+1)
+ *   3. 最右(最新)の日付を「今日」と比較。 未来(年/月/日 で today超過) なら全体を1年戻す
+ *      ・典型的にFAXログは未来分が無い → 最右が今日近辺になるよう自動補正
+ *      ・anchor補正は必要なら繰り返す
+ *   4. 各列インデックスごとに YYYY-MM-DD を割り当てる
+ */
+function assignYearsToDateHeaders(headerCells, today) {
+  const dateCols = [];
+  headerCells.forEach((cell, idx) => {
+    const md = parseMonthDay(cell);
+    if (md) dateCols.push({ idx, month: md.month, day: md.day });
+  });
+  if (dateCols.length === 0) return {};
+
+  // pass 1: 年オフセットを左→右で計算
+  let yearOffset = 0;
+  let prevMonth = null;
+  dateCols.forEach((c) => {
+    if (prevMonth !== null && c.month < prevMonth) yearOffset++; // 月が小→大に戻った = 年++
+    c.offset = yearOffset;
+    prevMonth = c.month;
+  });
+
+  // pass 2: anchor (最右の日付 ≦ today になるよう baseYear を決定)
+  const todayY = today.getFullYear();
+  const todayM = today.getMonth() + 1;
+  const todayD = today.getDate();
+  const last = dateCols[dateCols.length - 1];
+  // 候補 baseYear: 最右日付が today を超えない最大の年
+  // (baseYear + last.offset) で last の年が決まる
+  let baseYear = todayY - last.offset;
+  // 補正: last の年月日が today より未来なら baseYear--
+  const isFuture = (y) => {
+    const lastY = y + last.offset;
+    if (lastY > todayY) return true;
+    if (lastY < todayY) return false;
+    if (last.month > todayM) return true;
+    if (last.month < todayM) return false;
+    return last.day > todayD;
+  };
+  while (isFuture(baseYear)) baseYear--;
+
+  // 各列に YYYY-MM-DD を割り当て
+  const colToDate = {};
+  dateCols.forEach((c) => {
+    const y = baseYear + c.offset;
+    colToDate[c.idx] = `${y}-${String(c.month).padStart(2, '0')}-${String(c.day).padStart(2, '0')}`;
+  });
+  return colToDate;
 }
 
 function parsePivotSheet(values, opts = {}) {
-  const defaultYear = opts.defaultYear || new Date().getFullYear();
+  const today = opts.today || new Date();
   const header = (values[0] || []).map((v) => String(v || '').trim());
 
   // 列インデックス → 日付YYYY-MM-DD のマップ (合計/平均/空はスキップ)
-  const colToDate = {};
-  header.forEach((h, idx) => {
-    const d = normalizeDateHeader(h, defaultYear);
-    if (d) colToDate[idx] = d;
-  });
+  // 年の推定はヘッダ全体から導出 (M/D の系列から年境界を検出)
+  const colToDate = assignYearsToDateHeaders(header, today);
 
   // 日次データの集計: { 'NO.x__YYYY-MM-DD': { sent_count, error_count } }
   // 構造前提:
