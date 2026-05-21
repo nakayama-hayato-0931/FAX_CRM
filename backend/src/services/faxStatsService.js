@@ -290,45 +290,78 @@ async function syncFromSheets() {
 //     「エラー数」 → error_count
 //   不要行: 「総数」「エラー総数」「送信数合計」「合計」「平均」「空行」
 // --------------------------------------------
-const DATE_HEADER_RE = /^(\d{1,2})[\/\-](\d{1,2})$/;
 const PIVOT_LABEL_SEND  = ['送信件数', '送信数'];
 const PIVOT_LABEL_ERROR = ['エラー数', 'エラー件数'];
 const PIVOT_LABEL_SKIP  = ['総数', 'エラー総数', '送信数合計', '合計', '平均', ''];
 const PC_MARKER_RE = /^NO[\.\s_-]*(\d{1,3})$/i;
 
+// 日付ヘッダの正規表現候補 (試す順番で先頭から match)
+//   - 2026/5/15, 2026-5-15            → year指定あり
+//   - 5/15/2026, 5-15-2026             → year指定あり (米国表記)
+//   - 5/15, 5-15, 5月15日              → year なし (推定対象)
+//   - 5/15(水), 5/15 水                → 曜日付き
+//   - 2026年5月15日                    → 全部漢字
+const DATE_HEADER_PATTERNS = [
+  // 1) YYYY/M/D or YYYY-M-D (4桁年 + 区切り + 月 + 区切り + 日)
+  { re: /^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})[日]?(?:\s*[\(（].*?[\)）])?$/, y: 1, m: 2, d: 3 },
+  // 2) M/D/YYYY (米国表記)
+  { re: /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s*[\(（].*?[\)）])?$/, y: 3, m: 1, d: 2 },
+  // 3) M/D or M-D or M月D日 (年なし、曜日カッコ任意)
+  { re: /^(\d{1,2})[\/\-月](\d{1,2})[日]?(?:\s*[\(（].\s*[\)）])?$/, y: null, m: 1, d: 2 },
+];
+
+/**
+ * 日付ヘッダ文字列をパース。
+ *   - 年が含まれていれば { month, day, year } を返す
+ *   - 年が無ければ { month, day, year: null }
+ *   - パース不能なら null
+ */
+function parseDateHeader(s) {
+  const str = String(s || '').trim();
+  if (!str) return null;
+  for (const p of DATE_HEADER_PATTERNS) {
+    const m = str.match(p.re);
+    if (!m) continue;
+    const month = Number(m[p.m]);
+    const day = Number(m[p.d]);
+    const year = p.y ? Number(m[p.y]) : null;
+    if (month < 1 || month > 12) continue;
+    if (day < 1 || day > 31) continue;
+    return { month, day, year };
+  }
+  return null;
+}
+
 function detectPivotFormat(values) {
   const firstRow = (values[0] || []).map((v) => String(v || '').trim());
-  // 日付ヘッダ (例: '4/30') が1つでもあれば pivot 形式とみなす
-  return firstRow.some((c) => DATE_HEADER_RE.test(c));
+  // 日付ヘッダ (例: '4/30' / '2026/5/15') が1つでもあれば pivot 形式とみなす
+  return firstRow.some((c) => parseDateHeader(c) != null);
 }
 
 function parseMonthDay(s) {
-  const m = String(s || '').trim().match(DATE_HEADER_RE);
-  if (!m) return null;
-  return { month: Number(m[1]), day: Number(m[2]) };
+  return parseDateHeader(s);
 }
 
 /**
  * ピボット日付ヘッダ群 (例: ['合計','平均','6/1','6/2',...,'12/31','1/1',...,'5/20'])
- * の各列に対して、適切な「年」を推定して YYYY-MM-DD 文字列を返す。
+ * の各列に対して、適切な「年」を割り当てて YYYY-MM-DD 文字列を返す。
  *
- * アルゴリズム:
- *   1. 日付らしいセル(M/D)だけを列順(=時系列順)に並べる
- *   2. 左→右に走査。月が「前の月より小さくなった」 = 年が切り替わったとみなす (year+1)
- *   3. 最右(最新)の日付を「今日」と比較。 未来(年/月/日 で today超過) なら全体を1年戻す
- *      ・典型的にFAXログは未来分が無い → 最右が今日近辺になるよう自動補正
- *      ・anchor補正は必要なら繰り返す
- *   4. 各列インデックスごとに YYYY-MM-DD を割り当てる
+ * 仕様:
+ *   A) ヘッダに年が含まれている列 ('2026/5/15' 等) はその年を優先採用
+ *   B) 年なし列は、左→右走査で「月が小さくなった = 年++」で相対オフセットを決定
+ *   C) アンカー優先順位:
+ *      - 年あり列があれば、その列の年=offset 基準で他列を相対計算
+ *      - 年あり列がなければ、最右日付が today を超えないように baseYear を決定
  */
 function assignYearsToDateHeaders(headerCells, today) {
   const dateCols = [];
   headerCells.forEach((cell, idx) => {
-    const md = parseMonthDay(cell);
-    if (md) dateCols.push({ idx, month: md.month, day: md.day });
+    const md = parseDateHeader(cell);
+    if (md) dateCols.push({ idx, month: md.month, day: md.day, explicitYear: md.year });
   });
   if (dateCols.length === 0) return {};
 
-  // pass 1: 年オフセットを左→右で計算
+  // pass 1: 年オフセットを左→右で計算 (年なし列の月境界も考慮)
   let yearOffset = 0;
   let prevMonth = null;
   dateCols.forEach((c) => {
@@ -337,29 +370,36 @@ function assignYearsToDateHeaders(headerCells, today) {
     prevMonth = c.month;
   });
 
-  // pass 2: anchor (最右の日付 ≦ today になるよう baseYear を決定)
+  // pass 2: baseYear を決定
+  //   A) 年明示列があれば、 その explicitYear = baseYear + offset から逆算
+  //      (複数の年明示列がある場合は最右を採用 - 最新が最も信頼できる)
+  //   B) なければ、 最右日付が today を超えないように baseYear を decrement
   const todayY = today.getFullYear();
   const todayM = today.getMonth() + 1;
   const todayD = today.getDate();
   const last = dateCols[dateCols.length - 1];
-  // 候補 baseYear: 最右日付が today を超えない最大の年
-  // (baseYear + last.offset) で last の年が決まる
-  let baseYear = todayY - last.offset;
-  // 補正: last の年月日が today より未来なら baseYear--
-  const isFuture = (y) => {
-    const lastY = y + last.offset;
-    if (lastY > todayY) return true;
-    if (lastY < todayY) return false;
-    if (last.month > todayM) return true;
-    if (last.month < todayM) return false;
-    return last.day > todayD;
-  };
-  while (isFuture(baseYear)) baseYear--;
+
+  const explicit = [...dateCols].reverse().find((c) => c.explicitYear != null);
+  let baseYear;
+  if (explicit) {
+    baseYear = explicit.explicitYear - explicit.offset;
+  } else {
+    baseYear = todayY - last.offset;
+    const isFuture = (y) => {
+      const lastY = y + last.offset;
+      if (lastY > todayY) return true;
+      if (lastY < todayY) return false;
+      if (last.month > todayM) return true;
+      if (last.month < todayM) return false;
+      return last.day > todayD;
+    };
+    while (isFuture(baseYear)) baseYear--;
+  }
 
   // 各列に YYYY-MM-DD を割り当て
   const colToDate = {};
   dateCols.forEach((c) => {
-    const y = baseYear + c.offset;
+    const y = c.explicitYear != null ? c.explicitYear : baseYear + c.offset;
     colToDate[c.idx] = `${y}-${String(c.month).padStart(2, '0')}-${String(c.day).padStart(2, '0')}`;
   });
   return colToDate;
