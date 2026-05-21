@@ -219,8 +219,15 @@ INSERT IGNORE INTO system_settings (setting_key, setting_value, description) VAL
 -- --------------------------------------------
 CREATE TABLE IF NOT EXISTS sheets_config (
   id TINYINT UNSIGNED NOT NULL PRIMARY KEY DEFAULT 1,
-  sheet_id VARCHAR(100) DEFAULT NULL COMMENT 'スプレッドシートID',
-  sheet_range VARCHAR(100) DEFAULT 'A1:ZZ500' COMMENT '読み取り範囲(pivot形式: NO.1〜NO.23 約162行 × 日付列ZZ=2年分)',
+  sheet_id VARCHAR(100) DEFAULT NULL COMMENT 'FAX送信実績 スプレッドシートID',
+  sheet_range VARCHAR(100) DEFAULT 'A1:ZZ500' COMMENT 'FAX送信実績 読み取り範囲',
+  -- 案件(ビザ申請 進捗)シート用
+  projects_sheet_id VARCHAR(100) DEFAULT NULL COMMENT '案件シート スプレッドシートID',
+  projects_sheet_name VARCHAR(100) DEFAULT 'ビザ申請 進捗' COMMENT '案件シート名(タブ名)',
+  projects_sheet_range VARCHAR(100) DEFAULT 'A1:CZ5000' COMMENT '案件シート 読み取り範囲',
+  projects_last_synced_at DATETIME DEFAULT NULL,
+  projects_last_sync_status ENUM('ok','error','never') NOT NULL DEFAULT 'never',
+  projects_last_sync_message TEXT DEFAULT NULL,
   last_synced_at DATETIME DEFAULT NULL,
   last_sync_status ENUM('ok','error','never') NOT NULL DEFAULT 'never',
   last_sync_message TEXT DEFAULT NULL,
@@ -245,6 +252,50 @@ CREATE TABLE IF NOT EXISTS outsourced_fax_records (
   UNIQUE KEY uk_outsourced_month (report_month),
   INDEX idx_outsourced_month (report_month)
 ) ENGINE=InnoDB COMMENT='委託(外注)FAX送信の月別実績';
+
+-- --------------------------------------------
+-- 案件マスタ (内定案件、シート『ビザ申請 進捗』から同期)
+-- 抽出条件: BE列=「FAX受電」 AND J列≠「ビザ」
+-- 1行 = 1案件
+-- --------------------------------------------
+CREATE TABLE IF NOT EXISTS sales_projects (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  -- シート行を一意に特定するキー(行番号 or 求人番号+登録番号など)
+  external_key VARCHAR(100) NOT NULL COMMENT 'シート行の一意キー(重複防止)',
+
+  -- 主要日付
+  offer_date DATE DEFAULT NULL COMMENT 'A列: 内定日',
+  acquired_date DATE DEFAULT NULL COMMENT 'BK列: 案件取得日 (CPA月集計の基準)',
+
+  -- 案件基本情報
+  job_number VARCHAR(100) DEFAULT NULL COMMENT 'B列: 求人番号',
+  company_name VARCHAR(255) DEFAULT NULL COMMENT 'BD列: 会社名',
+  candidate_registration_no VARCHAR(100) DEFAULT NULL COMMENT 'G列: 内定者の登録番号',
+  sales_owner VARCHAR(100) DEFAULT NULL COMMENT 'E列: 営業担当者',
+  industry VARCHAR(100) DEFAULT NULL COMMENT 'CF列: 業種',
+
+  -- 金額(円換算済、シート上の値×10000)
+  first_payment BIGINT NOT NULL DEFAULT 0 COMMENT 'BI列: 初回入金(円)。取消/辞退は0',
+  expected_revenue BIGINT NOT NULL DEFAULT 0 COMMENT 'BJ列: 見込売上(円)。取消/辞退は0',
+  payment_actual BIGINT NOT NULL DEFAULT 0 COMMENT 'CC列: 入金実績(円)',
+
+  -- ステータス
+  status_label VARCHAR(40) DEFAULT NULL COMMENT 'J列: 取消/辞退/通常等の原文',
+  is_cancelled TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'J列=取消',
+  is_declined TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'J列=辞退',
+
+  -- 取込メタ
+  source_row INT DEFAULT NULL COMMENT 'シート上の行番号',
+  synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  UNIQUE KEY uk_sales_projects_external (external_key),
+  INDEX idx_sales_projects_acquired (acquired_date),
+  INDEX idx_sales_projects_offer (offer_date),
+  INDEX idx_sales_projects_industry (industry),
+  INDEX idx_sales_projects_status (is_cancelled, is_declined)
+) ENGINE=InnoDB COMMENT='案件マスタ(シート『ビザ申請 進捗』同期)';
 
 -- 期間 × PC × セグメント の実績(CSVインポート対象)
 CREATE TABLE IF NOT EXISTS performance_records (
