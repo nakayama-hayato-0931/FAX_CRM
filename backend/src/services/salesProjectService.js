@@ -43,13 +43,42 @@ const COL = {
   CF: colIndex('CF'),  // 83 業種
 };
 
+/**
+ * Excel/Google Sheets シリアル日付 → YYYY-MM-DD
+ * (1899-12-30 を 0 日目とする標準仕様。faxStatsService の同名関数と同等)
+ */
+function excelSerialToYMD(serial) {
+  const n = Math.floor(Number(serial));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const baseUtcMs = Date.UTC(1899, 11, 30);
+  const ms = baseUtcMs + n * 86400000;
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function parseDateCell(v) {
-  if (!v) return null;
+  if (v === undefined || v === null || v === '') return null;
+  // 1) 数値(Excel/Sheets シリアル) → 直接変換
+  if (typeof v === 'number' && v > 25569 && v < 80000) {
+    return excelSerialToYMD(v);
+  }
   const s = String(v).trim();
-  // YYYY/M/D / YYYY-M-D / YYYY年M月D日 等
+  if (!s) return null;
+  // 数字だけ(serial を String 化したもの)
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    if (n > 25569 && n < 80000) return excelSerialToYMD(n);
+  }
+  // 2) YYYY/M/D / YYYY-M-D / YYYY年M月D日
   let m = s.match(/^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})/);
   if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
-  // M/D (今年扱い)
+  // 3) M/D/YYYY (米国表記)
+  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (m) return `${m[3]}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`;
+  // 4) M/D (年なし → 今年扱い)
   m = s.match(/^(\d{1,2})\/(\d{1,2})$/);
   if (m) {
     const y = new Date().getFullYear();
@@ -264,9 +293,17 @@ async function syncFromSheets() {
   // 'シート名'!A1:CZ5000 の形 (日本語シート名はシングルクォートで囲む)
   const range = `'${sheetName}'!${rangePart}`;
 
+  // UNFORMATTED_VALUE で取得 → 日付セルは Excel シリアル値で返るため
+  // 「セル表示形式が "M/D" で年が見えない」問題を回避できる
+  // 文字列セル(会社名・ステータス等) はそのまま文字列で返る
   let values;
   try {
-    const resp = await sheets.spreadsheets.values.get({ spreadsheetId: cfg.projects_sheet_id, range });
+    const resp = await sheets.spreadsheets.values.get({
+      spreadsheetId: cfg.projects_sheet_id,
+      range,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+      dateTimeRenderOption: 'SERIAL_NUMBER',
+    });
     values = resp.data.values || [];
   } catch (e) {
     await markSync('error', e.message);
