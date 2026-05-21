@@ -36,15 +36,12 @@ async function getDailySummary({ from, to } = {}) {
   if (from) { where.push('stat_date >= ?'); params.push(from); }
   if (to)   { where.push('stat_date <= ?'); params.push(to); }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  // sent_count = 成功送信数, 試行数 = sent + error, error率 = error / (sent + error)
   const [rows] = await pool.query(
     `SELECT stat_date,
             SUM(sent_count)      AS sent,
-            SUM(success_count)   AS success,
             SUM(error_count)     AS errors,
-            SUM(busy_count)      AS busy,
-            SUM(no_answer_count) AS no_answer,
-            SUM(invalid_count)   AS invalid,
-            ROUND(SUM(error_count) / NULLIF(SUM(sent_count), 0) * 100, 2) AS error_rate
+            ROUND(SUM(error_count) / NULLIF(SUM(sent_count) + SUM(error_count), 0) * 100, 2) AS error_rate
        FROM fax_send_stats
        ${whereSql}
        GROUP BY stat_date
@@ -63,13 +60,12 @@ async function getPcSummary({ from, to } = {}) {
   if (from) { where.push('stat_date >= ?'); params.push(from); }
   if (to)   { where.push('stat_date <= ?'); params.push(to); }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  // sent_count = 成功送信数, 試行数 = sent + error
   const [rows] = await pool.query(
     `SELECT pc_number,
             SUM(sent_count)      AS sent,
-            SUM(success_count)   AS success,
             SUM(error_count)     AS errors,
-            ROUND(SUM(success_count) / NULLIF(SUM(sent_count), 0) * 100, 2) AS success_rate,
-            ROUND(SUM(error_count)   / NULLIF(SUM(sent_count), 0) * 100, 2) AS error_rate
+            ROUND(SUM(error_count) / NULLIF(SUM(sent_count) + SUM(error_count), 0) * 100, 2) AS error_rate
        FROM fax_send_stats
        ${whereSql}
        GROUP BY pc_number
@@ -379,18 +375,18 @@ function parsePivotSheet(values, opts = {}) {
       if (x.error > ABNORMAL_THRESHOLD) return false;
       return true;
     })
-    // error だけは clamp (0 以上 sent 以下) で補正し、sent は保持する
-    //   - シート上で『error > sent』のような日が散見されるが、それは入力ミス
-    //   - sent まで捨てると PC別の送信数合計が大きく目減りするため、 sent は保持
-    //   - error は信用できないが、UI上で『過小評価』になる方が安全 (見落とし防止のため)
+    // 仕様: シートの『送信件数』は既に成功数(=エラーを引いた値)、
+    //       『エラー数』は別の独立した数値。試行数 = sent + error。
+    //   - error の clamp は不要 (送信数とは独立した値のため)
+    //   - success_count は廃止(sent_count = 成功数のため冗長)、 互換のため sent と同値で残す
     .map((x) => {
-      const clampedError = Math.min(Math.max(x.error, 0), x.sent);
+      const error = Math.max(x.error, 0);
       return {
         stat_date: x.stat_date,
         pc_number: x.pc_number,
-        sent_count: x.sent,
-        success_count: x.sent - clampedError,
-        error_count: clampedError,
+        sent_count: x.sent,           // 成功送信数 (シートの「送信件数」 = エラーを引いた数値)
+        success_count: x.sent,        // (将来カラム廃止予定、 sent と同義)
+        error_count: error,
         busy_count: 0,
         no_answer_count: 0,
         invalid_count: 0,

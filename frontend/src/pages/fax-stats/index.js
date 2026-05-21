@@ -148,14 +148,15 @@ export default function FaxStatsPage() {
   }, [isDemo, reloadKey, filter.from, filter.to, filter.pcNumber]);
 
   const totals = useMemo(() => {
-    const t = { sent: 0, success: 0, errors: 0, days: daily.length };
+    // sent = 成功送信数, 試行数 = sent + errors
+    const t = { sent: 0, errors: 0, days: daily.length };
     for (const d of daily) {
       t.sent += Number(d.sent || 0);
-      t.success += Number(d.success || 0);
       t.errors += Number(d.errors || 0);
     }
-    t.success_rate = t.sent ? ((t.success / t.sent) * 100).toFixed(2) : '0.00';
-    t.error_rate = t.sent ? ((t.errors / t.sent) * 100).toFixed(2) : '0.00';
+    const attempts = t.sent + t.errors;
+    t.attempts = attempts;
+    t.error_rate = attempts ? ((t.errors / attempts) * 100).toFixed(2) : '0.00';
     return t;
   }, [daily]);
 
@@ -164,7 +165,6 @@ export default function FaxStatsPage() {
     return [...daily].reverse().map((d) => ({
       date: d.stat_date?.slice(5) || '',  // MM-DD
       送信: Number(d.sent || 0),
-      成功: Number(d.success || 0),
       エラー: Number(d.errors || 0),
     }));
   }, [daily]);
@@ -243,10 +243,9 @@ export default function FaxStatsPage() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <Stat label="集計日数" value={totals.days} unit="日" />
-        <Stat label="累計送信" value={totals.sent.toLocaleString()} />
-        <Stat label="成功" value={totals.success.toLocaleString()} color="text-emerald-700" />
+        <Stat label="送信数(成功)" value={totals.sent.toLocaleString()} color="text-emerald-700" />
         <Stat label="エラー" value={totals.errors.toLocaleString()} color="text-red-700" />
         <Stat label="エラー率" value={`${totals.error_rate}%`} />
       </div>
@@ -296,8 +295,7 @@ export default function FaxStatsPage() {
                 <YAxis tick={{ fontSize: 11, fill: '#71717a' }} />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line type="monotone" dataKey="送信"   stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="成功"   stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="送信"   stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
                 <Line type="monotone" dataKey="エラー" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
@@ -320,23 +318,19 @@ export default function FaxStatsPage() {
             <tr>
               <th className="text-left px-4 py-2 text-xs font-medium text-zinc-600 uppercase">PC</th>
               <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">送信数</th>
-              <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">成功</th>
               <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">エラー</th>
-              <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">成功率</th>
               <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">エラー率</th>
             </tr>
           </thead>
           <tbody>
             {byPc.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-10 text-center text-zinc-400">データがありません</td></tr>
+              <tr><td colSpan={4} className="px-4 py-10 text-center text-zinc-400">データがありません</td></tr>
             )}
             {byPc.map((p) => (
               <tr key={p.pc_number} className="border-t border-zinc-100">
                 <td className="px-4 py-2 font-mono text-xs">{p.pc_number}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{Number(p.sent || 0).toLocaleString()}</td>
-                <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{Number(p.success || 0).toLocaleString()}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{Number(p.sent || 0).toLocaleString()}</td>
                 <td className="px-4 py-2 text-right tabular-nums text-red-700">{Number(p.errors || 0).toLocaleString()}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{Number(p.success_rate || 0).toFixed(2)}%</td>
                 <td className="px-4 py-2 text-right tabular-nums">{Number(p.error_rate || 0).toFixed(2)}%</td>
               </tr>
             ))}
@@ -372,21 +366,17 @@ export default function FaxStatsPage() {
               <tr>
                 <th className="text-left px-4 py-2 text-xs font-medium text-zinc-600 uppercase">日付</th>
                 <th className="text-left px-4 py-2 text-xs font-medium text-zinc-600 uppercase">PC</th>
-                <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">送信</th>
-                <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">成功</th>
+                <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">送信数</th>
                 <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">エラー</th>
-                <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">話中</th>
-                <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">応答なし</th>
-                <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">番号無効</th>
                 <th className="text-left px-4 py-2 text-xs font-medium text-zinc-600 uppercase">取込元</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={9} className="px-4 py-10 text-center text-zinc-400">読み込み中…</td></tr>
+                <tr><td colSpan={5} className="px-4 py-10 text-center text-zinc-400">読み込み中…</td></tr>
               )}
               {!loading && detail.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-10 text-center text-zinc-400">
+                <tr><td colSpan={5} className="px-4 py-10 text-center text-zinc-400">
                   データがありません。「Sheets同期」または「CSV取込」を実行してください。
                 </td></tr>
               )}
@@ -394,12 +384,8 @@ export default function FaxStatsPage() {
                 <tr key={r.id} className="border-t border-zinc-100">
                   <td className="px-4 py-2 text-xs">{r.stat_date}</td>
                   <td className="px-4 py-2 font-mono text-xs">{r.pc_number}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{r.sent_count.toLocaleString()}</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{r.success_count.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{r.sent_count.toLocaleString()}</td>
                   <td className="px-4 py-2 text-right tabular-nums text-red-700">{r.error_count.toLocaleString()}</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-zinc-500">{r.busy_count}</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-zinc-500">{r.no_answer_count}</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-zinc-500">{r.invalid_count}</td>
                   <td className="px-4 py-2">
                     <span className="px-1.5 py-0.5 text-[10px] rounded bg-zinc-100 text-zinc-600">{r.source}</span>
                   </td>
