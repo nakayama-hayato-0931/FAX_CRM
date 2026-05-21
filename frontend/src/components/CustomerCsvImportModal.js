@@ -40,7 +40,11 @@ export default function CustomerCsvImportModal({ onClose, onCompleted }) {
             <div className="text-xs text-zinc-500 leading-relaxed mb-3">
               対応列(自動マッピング):<br />
               <code className="text-[11px]">会社名 / FAX / 電話番号 / 業種 / 都道府県 / 市区町村 / 住所 / 郵便番号 / URL / 従業員数 / 代表者 / 備考</code><br />
-              <strong>会社名 と FAX番号 は必須</strong>。FAX番号で重複判定し、既存行は更新されます。
+              <strong>会社名 と FAX番号 は必須</strong>。FAX番号で重複判定します。
+              <br />
+              <span className="text-emerald-700">
+                ※ 既存レコードは <strong>肉付けマージ</strong> されます(既存値は維持され、空欄項目のみCSVの値で埋まります)。既存データは上書きされません。
+              </span>
             </div>
             <input
               type="file" accept=".csv,text/csv"

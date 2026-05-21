@@ -94,6 +94,14 @@
 
 ## 5. データモデル設計の判断
 
+### 5.0.1 顧客CSVインポートは「肉付けマージ」(既存優先)
+
+- 同一 `fax_number` の重複インポートでは、**既存に値があれば残し、空欄(NULL)だけ新値で埋める**
+- 実装: `ON DUPLICATE KEY UPDATE col = COALESCE(col, VALUES(col))` (順序が逆だと新値優先になる、要注意)
+- 例外: `source_file` / `imported_at` は最新の取込履歴として常に上書き
+- 理由: 元データのほうが新しいCSVより正確、誤った上書きを防ぐ
+- 上書きしたい場合: 当該レコードを管理画面で個別編集する設計
+
 ### 5.1 customers の集計キャッシュ
 - `send_count / last_sent_at / last_pc_number / last_result / response_count / is_blacklisted` を customers にキャッシュ
 - 理由: 90万件規模で「直近結果」「送信回数」を一覧で見せたいが、毎回 incoming_call_reports をJOIN集計するのは重い

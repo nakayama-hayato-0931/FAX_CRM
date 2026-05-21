@@ -84,19 +84,22 @@ async function bulkUpsert(rows, sourceFile) {
         INSERT INTO customers (${cols.join(',')})
         VALUES ${placeholders.join(',')}
         ON DUPLICATE KEY UPDATE
-          company_name = VALUES(company_name),
-          phone_number = COALESCE(VALUES(phone_number), phone_number),
-          industry = COALESCE(VALUES(industry), industry),
-          prefecture = COALESCE(VALUES(prefecture), prefecture),
-          city = COALESCE(VALUES(city), city),
-          address = COALESCE(VALUES(address), address),
-          postal_code = COALESCE(VALUES(postal_code), postal_code),
-          url = COALESCE(VALUES(url), url),
-          employee_count = COALESCE(VALUES(employee_count), employee_count),
-          representative = COALESCE(VALUES(representative), representative),
-          note = COALESCE(VALUES(note), note),
-          source_file = VALUES(source_file),
-          imported_at = VALUES(imported_at)
+          -- 肉付けマージ: 既存に値があれば残し、空欄(NULL)だけ新値で埋める
+          -- ※ company_name は NOT NULL なので実質既存維持
+          company_name   = COALESCE(company_name,   VALUES(company_name)),
+          phone_number   = COALESCE(phone_number,   VALUES(phone_number)),
+          industry       = COALESCE(industry,       VALUES(industry)),
+          prefecture     = COALESCE(prefecture,     VALUES(prefecture)),
+          city           = COALESCE(city,           VALUES(city)),
+          address        = COALESCE(address,        VALUES(address)),
+          postal_code    = COALESCE(postal_code,    VALUES(postal_code)),
+          url            = COALESCE(url,            VALUES(url)),
+          employee_count = COALESCE(employee_count, VALUES(employee_count)),
+          representative = COALESCE(representative, VALUES(representative)),
+          note           = COALESCE(note,           VALUES(note)),
+          -- メタ情報は最新の取込履歴として上書き
+          source_file    = VALUES(source_file),
+          imported_at    = VALUES(imported_at)
       `;
       const [result] = await conn.query(sql, values);
       // affectedRows = inserted + 2 * updated_with_change
