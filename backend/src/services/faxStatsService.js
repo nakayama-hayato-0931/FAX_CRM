@@ -21,7 +21,7 @@ async function listStats({ from, to, pcNumber } = {}) {
             busy_count, no_answer_count, invalid_count, source, synced_at
        FROM fax_send_stats
        ${whereSql}
-       ORDER BY stat_date DESC, pc_number ASC
+       ORDER BY stat_date DESC, CAST(REGEXP_REPLACE(pc_number, '[^0-9]', '') AS UNSIGNED) ASC, pc_number ASC
        LIMIT 1000`,
     params
   );
@@ -73,7 +73,7 @@ async function getPcSummary({ from, to } = {}) {
        FROM fax_send_stats
        ${whereSql}
        GROUP BY pc_number
-       ORDER BY sent DESC`,
+       ORDER BY CAST(REGEXP_REPLACE(pc_number, '[^0-9]', '') AS UNSIGNED) ASC, pc_number ASC`,
     params
   );
   return rows;
