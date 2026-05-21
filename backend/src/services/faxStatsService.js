@@ -359,16 +359,19 @@ function parsePivotSheet(values, opts = {}) {
     }
   }
 
-  return Object.values(acc).map((x) => ({
-    stat_date: x.stat_date,
-    pc_number: x.pc_number,
-    sent_count: x.sent,
-    success_count: Math.max(x.sent - x.error, 0),
-    error_count: x.error,
-    busy_count: 0,
-    no_answer_count: 0,
-    invalid_count: 0,
-  }));
+  return Object.values(acc)
+    // データ整合性チェック: error > sent は誤データ(シート抽出ミス含む)とみなしスキップ
+    .filter((x) => x.error <= x.sent)
+    .map((x) => ({
+      stat_date: x.stat_date,
+      pc_number: x.pc_number,
+      sent_count: x.sent,
+      success_count: Math.max(x.sent - x.error, 0),
+      error_count: x.error,
+      busy_count: 0,
+      no_answer_count: 0,
+      invalid_count: 0,
+    }));
 }
 
 async function markSync(status, message) {
