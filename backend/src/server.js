@@ -42,6 +42,7 @@ const manuscriptsRouter = require('./routes/manuscripts');
 const incomingCallsRouter = require('./routes/incomingCalls');
 const faxStatsRouter = require('./routes/faxStats');
 const settingsRouter = require('./routes/settings');
+const contactEventsRouter = require('./routes/contactEvents');
 
 const app = express();
 
@@ -65,6 +66,7 @@ app.use('/api/manuscripts', manuscriptsRouter);
 app.use('/api/incoming-calls', incomingCallsRouter);
 app.use('/api/fax-stats', faxStatsRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/contact-events', contactEventsRouter);
 
 app.use(notFound);
 app.use(errorHandler);

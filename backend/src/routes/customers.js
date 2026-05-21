@@ -5,6 +5,7 @@ const fs = require('fs');
 
 const customerService = require('../services/customerService');
 const customerImport = require('../services/customerImportService');
+const contactEvents = require('../services/contactEventService');
 const { ok, created, fail } = require('../utils/response');
 
 const router = express.Router();
@@ -26,6 +27,23 @@ router.get('/', async (req, res, next) => {
 router.get('/facets/industries', async (_req, res, next) => {
   try { return ok(res, await customerService.getDistinctIndustries()); }
   catch (e) { next(e); }
+});
+
+// GET /api/customers/lookup?fax=&phone=&external_callcenter_id=&company_name=
+//   callcenter から fax-crm の customer_id を探す用
+router.get('/lookup', async (req, res, next) => {
+  try {
+    const candidates = await contactEvents.lookup(req.query);
+    return ok(res, candidates || []);
+  } catch (e) { next(e); }
+});
+
+// GET /api/customers/:id/timeline
+router.get('/:id(\\d+)/timeline', async (req, res, next) => {
+  try {
+    const rows = await contactEvents.getTimeline(req.params.id, req.query);
+    return ok(res, rows);
+  } catch (e) { next(e); }
 });
 
 router.get('/facets/prefectures', async (_req, res, next) => {

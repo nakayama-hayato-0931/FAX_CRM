@@ -36,10 +36,15 @@ CREATE TABLE IF NOT EXISTS customers (
   source_file VARCHAR(255) DEFAULT NULL,
   imported_at DATETIME DEFAULT NULL,
 
+  -- 外部システム連携 (callcenter-ai-system との顧客マッピング)
+  external_callcenter_id INT UNSIGNED DEFAULT NULL
+    COMMENT 'callcenter-ai-system 側の companies.id',
+
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   UNIQUE KEY uk_customers_fax (fax_number),
+  UNIQUE KEY uk_customers_external_callcenter (external_callcenter_id),
   INDEX idx_customers_industry (industry),
   INDEX idx_customers_prefecture (prefecture),
   INDEX idx_customers_industry_pref (industry, prefecture),
@@ -47,6 +52,34 @@ CREATE TABLE IF NOT EXISTS customers (
   INDEX idx_customers_blacklist (is_blacklisted),
   INDEX idx_customers_company_name (company_name)
 ) ENGINE=InnoDB COMMENT='顧客マスタ';
+
+-- --------------------------------------------
+-- 全チャネル横断のタッチポイントイベント (共通イベントハブ)
+-- 詳細仕様: docs/SHARED_CUSTOMER_MASTER.md
+-- --------------------------------------------
+CREATE TABLE IF NOT EXISTS contact_events (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  customer_id BIGINT UNSIGNED NOT NULL,
+  channel ENUM('fax', 'call', 'email', 'sns', 'meeting', 'other') NOT NULL,
+  event_type VARCHAR(40) NOT NULL COMMENT '例: send / response_inquiry / outbound / no_answer',
+  occurred_at DATETIME NOT NULL,
+  source_system ENUM('fax-crm', 'callcenter-ai', 'manual') NOT NULL DEFAULT 'fax-crm',
+  source_event_id BIGINT UNSIGNED DEFAULT NULL COMMENT '元システムでのイベントID(重複防止)',
+  operator_name VARCHAR(100) DEFAULT NULL,
+  pc_number VARCHAR(20) DEFAULT NULL,
+  manuscript_id INT UNSIGNED DEFAULT NULL,
+  manuscript_folder_date DATE DEFAULT NULL,
+  manuscript_slot TINYINT UNSIGNED DEFAULT NULL,
+  result_label VARCHAR(40) DEFAULT NULL,
+  memo TEXT DEFAULT NULL,
+  raw_payload JSON DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_ce_customer_occurred (customer_id, occurred_at DESC),
+  INDEX idx_ce_channel_occurred (channel, occurred_at DESC),
+  UNIQUE KEY uk_ce_source_dedup (source_system, source_event_id),
+  CONSTRAINT fk_ce_customer FOREIGN KEY (customer_id)
+    REFERENCES customers(id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='全チャネル横断のタッチポイントイベント';
 
 -- --------------------------------------------
 -- 原稿管理 (Drive上の 2026/0501/{1..22} 構造をDBで管理)

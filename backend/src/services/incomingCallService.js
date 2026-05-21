@@ -1,4 +1,5 @@
 const { getPool, isConfigured } = require('../../config/db');
+const contactEvents = require('./contactEventService');
 
 const VALID_RESULTS = new Set([
   'no_response', 'response_inquiry', 'response_order',
@@ -169,7 +170,33 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
     }
 
     await conn.commit();
-    return { saved };
+
+    // contact_events への自動連携(失敗しても元処理は成功扱い)
+    let contactEventsSynced = 0;
+    try {
+      for (const it of items) {
+        await contactEvents.createEvent({
+          customer_id: it.customerId,
+          channel: 'fax',
+          event_type: it.result === 'no_response' ? 'send' : it.result,
+          // no_response = 送信のみ、それ以外は受電あり
+          occurred_at: it.responded_at || `${sendDate}T00:00:00`,
+          source_system: 'fax-crm',
+          // source_event_id は incoming_call_reports.id を使いたいが手元に無いので
+          // (batchId * 1e7 + customer_id) で衝突しない一意キー生成
+          source_event_id: batchId ? batchId * 10000000 + Number(it.customerId) : null,
+          pc_number: pcNumber,
+          manuscript_id: manuscriptId || null,
+          manuscript_folder_date: manuscriptDate || null,
+          manuscript_slot: manuscriptSlot || null,
+          result_label: it.result,
+          memo: it.result_detail || null,
+        });
+        contactEventsSynced++;
+      }
+    } catch (_e) { /* swallow */ }
+
+    return { saved, contactEventsSynced };
   } catch (e) {
     await conn.rollback();
     throw e;
