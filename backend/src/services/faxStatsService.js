@@ -370,26 +370,32 @@ function parsePivotSheet(values, opts = {}) {
   const ABNORMAL_THRESHOLD = 1000;
 
   return Object.values(acc)
-    // データ整合性チェック:
-    //   - 送信数/エラー数 が マイナス → 異常 (シート上の計算式の誤りなど)
-    //   - 送信数/エラー数 が 1000超 → 異常 (各PCの日次値、累計値や合計値が混入した疑い)
-    //   - エラー数 > 送信数 → 整合性なし
+    // 行ごと除外する条件 (送信数が信用できない場合のみ)
+    //   - sent < 0 / sent > 1000 → 明らかな異常 (累計値混入など)
+    //   - error > 1000 → 累計値混入の疑い、 sent も信用できない可能性が高い
     .filter((x) => {
-      if (x.sent < 0 || x.error < 0) return false;
-      if (x.sent > ABNORMAL_THRESHOLD || x.error > ABNORMAL_THRESHOLD) return false;
-      if (x.error > x.sent) return false;
+      if (x.sent < 0) return false;
+      if (x.sent > ABNORMAL_THRESHOLD) return false;
+      if (x.error > ABNORMAL_THRESHOLD) return false;
       return true;
     })
-    .map((x) => ({
-      stat_date: x.stat_date,
-      pc_number: x.pc_number,
-      sent_count: x.sent,
-      success_count: Math.max(x.sent - x.error, 0),
-      error_count: x.error,
-      busy_count: 0,
-      no_answer_count: 0,
-      invalid_count: 0,
-    }));
+    // error だけは clamp (0 以上 sent 以下) で補正し、sent は保持する
+    //   - シート上で『error > sent』のような日が散見されるが、それは入力ミス
+    //   - sent まで捨てると PC別の送信数合計が大きく目減りするため、 sent は保持
+    //   - error は信用できないが、UI上で『過小評価』になる方が安全 (見落とし防止のため)
+    .map((x) => {
+      const clampedError = Math.min(Math.max(x.error, 0), x.sent);
+      return {
+        stat_date: x.stat_date,
+        pc_number: x.pc_number,
+        sent_count: x.sent,
+        success_count: x.sent - clampedError,
+        error_count: clampedError,
+        busy_count: 0,
+        no_answer_count: 0,
+        invalid_count: 0,
+      };
+    });
 }
 
 async function markSync(status, message) {
