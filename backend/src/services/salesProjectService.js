@@ -287,18 +287,49 @@ async function syncFromSheets() {
   return { ...stats, ...upsertResult };
 }
 
-async function list({ from, to, limit = 200 } = {}) {
+/**
+ * 案件一覧取得
+ * @param {object} opts
+ *   from, to         : acquired_date の範囲 (YYYY-MM-DD)
+ *   month            : YYYY-MM-01 を指定すると、その月初〜翌月初未満 にショートカット
+ *   status           : 'active' = 取消/辞退を除外、 'all' = 全件、 'cancelled' = 取消のみ など
+ *   limit            : 既定 200、最大 1000
+ */
+async function list({ from, to, month, status, limit = 200 } = {}) {
   const pool = getPool();
   if (!pool) return [];
   const where = [];
   const params = [];
-  if (from) { where.push('acquired_date >= ?'); params.push(from); }
-  if (to)   { where.push('acquired_date <= ?'); params.push(to); }
+
+  if (month) {
+    // YYYY-MM-01 → 当月初 <= acquired_date < 翌月初
+    where.push('acquired_date >= ?');
+    params.push(month);
+    where.push('acquired_date < DATE_ADD(?, INTERVAL 1 MONTH)');
+    params.push(month);
+  } else {
+    if (from) { where.push('acquired_date >= ?'); params.push(from); }
+    if (to)   { where.push('acquired_date <= ?'); params.push(to); }
+  }
+
+  if (status === 'active') {
+    where.push('is_cancelled = 0 AND is_declined = 0');
+  } else if (status === 'cancelled') {
+    where.push('is_cancelled = 1');
+  } else if (status === 'declined') {
+    where.push('is_declined = 1');
+  }
+
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const [rows] = await pool.query(
-    `SELECT * FROM sales_projects ${whereSql}
-       ORDER BY acquired_date DESC, id DESC
-       LIMIT ?`,
+    `SELECT
+       id, external_key, offer_date, acquired_date, job_number, company_name,
+       candidate_registration_no, sales_owner, industry,
+       first_payment, expected_revenue, payment_actual,
+       status_label, is_cancelled, is_declined, source_row
+     FROM sales_projects ${whereSql}
+     ORDER BY acquired_date DESC, id DESC
+     LIMIT ?`,
     [...params, Math.min(Number(limit) || 200, 1000)]
   );
   return rows;

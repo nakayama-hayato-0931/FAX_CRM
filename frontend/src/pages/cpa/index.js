@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
 import CpaImportModal from '@/components/CpaImportModal';
 import OutsourcedFaxSection from '@/components/OutsourcedFaxSection';
+import SalesProjectsDetailModal from '@/components/SalesProjectsDetailModal';
 
 // ROAS = first_payment / cost * 100
 const DEMO_ROWS = [
@@ -19,23 +20,23 @@ const yen = (v) => (v == null ? '—' : '¥' + Number(v).toLocaleString());
 const num = (v) => (v == null ? '—' : Number(v).toLocaleString());
 const pct = (v) => (v == null ? '—' : `${Number(v).toFixed(2)}%`);
 
-// 列定義: kind=raw(実数, 黒) / kind=derived(算出, 青背景)
+// 列定義: kind=raw(実数, 黒) / kind=derived(算出, 青背景) / clickable=trueでクリック可能セル
 const COLUMNS = [
-  { key: 'month',           label: '期間',     kind: 'raw',     format: (v) => formatMonth(v), align: 'left' },
-  { key: 'cost',            label: 'コスト',    kind: 'raw',     format: yen, align: 'right' },
-  { key: 'sends',           label: '送信数',    kind: 'raw',     format: num, align: 'right' },
-  { key: 'project_rate',    label: '案件化率',  kind: 'derived', format: pct, align: 'right' },
-  { key: 'projects',        label: '案件数',    kind: 'raw',     format: num, align: 'right' },
-  { key: 'project_cpa',     label: '案件CPA',   kind: 'derived', format: yen, align: 'right' },
-  { key: 'interviews',      label: '面接数',    kind: 'raw',     format: num, align: 'right' },
-  { key: 'interview_cpa',   label: '面接CPA',   kind: 'derived', format: yen, align: 'right' },
-  { key: 'interview_rate',  label: '面接実施率', kind: 'derived', format: pct, align: 'right' },
-  { key: 'offers',          label: '内定',     kind: 'raw',     format: num, align: 'right' },
-  { key: 'rejects',         label: '不合格',    kind: 'raw',     format: num, align: 'right' },
-  { key: 'cancels',         label: 'バラシ/失注', kind: 'raw',  format: num, align: 'right' },
-  { key: 'first_payment',   label: '初回入金',   kind: 'raw',    format: yen, align: 'right' },
-  { key: 'expected_revenue',label: '見込売上',   kind: 'raw',    format: yen, align: 'right' },
-  { key: 'roas',            label: 'ROAS',     kind: 'derived', format: pct, align: 'right' },
+  { key: 'month',           label: '期間',              kind: 'raw',     format: (v) => formatMonth(v), align: 'left' },
+  { key: 'cost',            label: 'コスト',             kind: 'raw',     format: yen, align: 'right' },
+  { key: 'sends',           label: '送信数',             kind: 'raw',     format: num, align: 'right' },
+  { key: 'project_rate',    label: '案件化率',           kind: 'derived', format: pct, align: 'right' },
+  { key: 'projects',        label: 'FAXからの総案件数',   kind: 'raw',     format: num, align: 'right' },
+  { key: 'project_cpa',     label: '案件CPA',            kind: 'derived', format: yen, align: 'right' },
+  { key: 'interviews',      label: '面接数',             kind: 'raw',     format: num, align: 'right' },
+  { key: 'interview_cpa',   label: '面接CPA',            kind: 'derived', format: yen, align: 'right' },
+  { key: 'interview_rate',  label: '面接実施率',          kind: 'derived', format: pct, align: 'right' },
+  { key: 'offers',          label: '内定社数',            kind: 'raw',     format: num, align: 'right', clickable: true },
+  { key: 'rejects',         label: '不合格',             kind: 'raw',     format: num, align: 'right' },
+  { key: 'cancels',         label: 'バラシ/失注',         kind: 'raw',     format: num, align: 'right' },
+  { key: 'first_payment',   label: '初回入金',            kind: 'raw',     format: yen, align: 'right' },
+  { key: 'expected_revenue',label: '見込売上',            kind: 'raw',     format: yen, align: 'right' },
+  { key: 'roas',            label: 'ROAS',              kind: 'derived', format: pct, align: 'right' },
 ];
 
 function formatMonth(v) {
@@ -52,6 +53,8 @@ export default function CpaPage() {
   const [loading, setLoading] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [syncingProjects, setSyncingProjects] = useState(false);
+  // 内定詳細モーダル: {month: 'YYYY-MM-01', monthLabel: '2026年5月', offersCount: 27}
+  const [detailMonth, setDetailMonth] = useState(null);
 
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((k) => k + 1);
@@ -175,18 +178,35 @@ export default function CpaPage() {
               )}
               {!loading && rows.map((row) => (
                 <tr key={row.month} className="border-t border-zinc-100 hover:bg-zinc-50/60">
-                  {COLUMNS.map((c) => (
-                    <td
-                      key={c.key}
-                      className={[
-                        'px-3 py-2.5 whitespace-nowrap tabular-nums',
-                        c.align === 'right' ? 'text-right' : 'text-left',
-                        c.kind === 'derived' ? 'bg-indigo-50/40 text-indigo-900 font-medium' : 'text-zinc-800',
-                      ].join(' ')}
-                    >
-                      {c.format(row[c.key])}
-                    </td>
-                  ))}
+                  {COLUMNS.map((c) => {
+                    const value = row[c.key];
+                    const isClickable = c.clickable && Number(value) > 0;
+                    const cellClass = [
+                      'px-3 py-2.5 whitespace-nowrap tabular-nums',
+                      c.align === 'right' ? 'text-right' : 'text-left',
+                      c.kind === 'derived' ? 'bg-indigo-50/40 text-indigo-900 font-medium' : 'text-zinc-800',
+                    ].join(' ');
+                    return (
+                      <td key={c.key} className={cellClass}>
+                        {isClickable ? (
+                          <button
+                            type="button"
+                            onClick={() => setDetailMonth({
+                              month: row.month,
+                              monthLabel: formatMonth(row.month),
+                              offersCount: Number(value),
+                            })}
+                            className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2 font-medium"
+                            title="内定社の内訳を表示"
+                          >
+                            {c.format(value)}
+                          </button>
+                        ) : (
+                          c.format(value)
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -200,8 +220,11 @@ export default function CpaPage() {
         <br />
         ※ 「コスト」「送信数」は <strong>自社FAX(Sheets同期)+ 委託FAX(下記の手入力分)</strong> の合算です。
         <br />
-        ※ 「案件数」「初回入金」「見込売上」は <strong>案件シート(『ビザ申請 進捗』)</strong> から同期されます。
-          月キーは BK列「案件取得日」。J列が「取消」「辞退」は金額0&amp;案件数からも除外。
+        ※ 「FAXからの総案件数」「内定社数」「初回入金」「見込売上」は <strong>案件シート(『ビザ申請 進捗』)</strong> から同期されます。
+        <br />
+        　・<strong>総案件数</strong> = FAX受電由来の全行(取消/辞退も含む)
+        　・<strong>内定社数</strong> = 取消/辞退を除いたアクティブ案件(クリックで詳細内訳を表示)
+        　・月キーは BK列「案件取得日」。取消/辞退の行は金額0扱い
       </div>
 
       {/* 委託送信 月別実績 */}
@@ -211,6 +234,15 @@ export default function CpaPage() {
         <CpaImportModal
           onClose={() => setShowImport(false)}
           onCompleted={() => { setShowImport(false); reload(); }}
+        />
+      )}
+
+      {detailMonth && (
+        <SalesProjectsDetailModal
+          month={detailMonth.month}
+          monthLabel={detailMonth.monthLabel}
+          expectedCount={detailMonth.offersCount}
+          onClose={() => setDetailMonth(null)}
         />
       )}
     </div>

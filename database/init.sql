@@ -321,11 +321,12 @@ CREATE TABLE IF NOT EXISTS performance_records (
 
 -- 月次ロールアップ VIEW (算出項目はここで計算)
 -- データソース:
---   cost / interviews / offers / rejects / cancels  ← performance_records (CSV)
---   sends (自社)                                    ← fax_send_stats (Sheets同期)
---   sends (委託) / cost (委託)                      ← outsourced_fax_records (手入力)
---   projects / first_payment / expected_revenue     ← sales_projects (案件シート同期)
---     - 取消(is_cancelled) / 辞退(is_declined) の行は projects カウントから除外
+--   cost / interviews / rejects / cancels            ← performance_records (CSV)
+--   sends (自社)                                     ← fax_send_stats (Sheets同期)
+--   sends (委託) / cost (委託)                       ← outsourced_fax_records (手入力)
+--   projects (FAXからの総案件数)                     ← sales_projects 全行
+--   offers (内定社数, アクティブ案件)                ← sales_projects WHERE NOT 取消 AND NOT 辞退
+--   first_payment / expected_revenue                 ← sales_projects (取消/辞退の行は0)
 --     - 月次キーは acquired_date (案件取得日)
 --   ROAS = 初回入金 / コスト合算
 -- 月キー: 上記4ソースのいずれかに存在する月をすべて FULL OUTER JOIN 的に拾う
@@ -349,7 +350,7 @@ SELECT
         / NULLIF(COALESCE(pr.interviews, 0), 0))                  AS interview_cpa,
   ROUND(COALESCE(pr.interviews, 0)
         / NULLIF(COALESCE(sp.projects, 0), 0) * 100, 2)           AS interview_rate,
-  COALESCE(pr.offers, 0)                                          AS offers,
+  COALESCE(sp.offers, 0)                                          AS offers,
   COALESCE(pr.rejects, 0)                                         AS rejects,
   COALESCE(pr.cancels, 0)                                         AS cancels,
   COALESCE(sp.first_payment, 0)                                   AS first_payment,
@@ -374,7 +375,6 @@ LEFT JOIN (
     DATE_FORMAT(period_date, '%Y-%m-01') AS month,
     SUM(cost)             AS cost,
     SUM(interview_count)  AS interviews,
-    SUM(offer_count)      AS offers,
     SUM(reject_count)     AS rejects,
     SUM(cancel_count)     AS cancels
   FROM performance_records
@@ -398,7 +398,8 @@ LEFT JOIN (
 LEFT JOIN (
   SELECT
     DATE_FORMAT(acquired_date, '%Y-%m-01') AS month,
-    SUM(CASE WHEN is_cancelled = 0 AND is_declined = 0 THEN 1 ELSE 0 END) AS projects,
+    COUNT(*)              AS projects,  -- FAXからの総案件数 (取消/辞退含む)
+    SUM(CASE WHEN is_cancelled = 0 AND is_declined = 0 THEN 1 ELSE 0 END) AS offers,  -- 内定社数
     SUM(first_payment)    AS first_payment,
     SUM(expected_revenue) AS expected_revenue
   FROM sales_projects
