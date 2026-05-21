@@ -91,10 +91,10 @@ export default function FaxStatsPage() {
   const [detail, setDetail] = useState([]);
   const [config, setConfig] = useState(null);
   const [filter, setFilter] = useState(() => ({
-    ...computePresetRange('last3months'),  // 初期表示: 直近3ヶ月
+    ...computePresetRange('thisMonth'),  // 初期表示: 当月
     pcNumber: '',
   }));
-  const [preset, setPreset] = useState('last3months');
+  const [preset, setPreset] = useState('thisMonth');
   const [syncing, setSyncing] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -167,6 +167,30 @@ export default function FaxStatsPage() {
       送信: Number(d.sent || 0),
       エラー: Number(d.errors || 0),
     }));
+  }, [daily]);
+
+  // 月別比較サマリ (直近3ヶ月などで使用)
+  const monthlySummary = useMemo(() => {
+    const byMonth = {};
+    for (const d of daily) {
+      const month = (d.stat_date || '').slice(0, 7);  // 'YYYY-MM'
+      if (!month) continue;
+      if (!byMonth[month]) byMonth[month] = { month, sent: 0, errors: 0, days: 0 };
+      byMonth[month].sent += Number(d.sent || 0);
+      byMonth[month].errors += Number(d.errors || 0);
+      byMonth[month].days += 1;
+    }
+    return Object.values(byMonth)
+      .map((m) => {
+        const attempts = m.sent + m.errors;
+        return {
+          ...m,
+          sent_avg: m.days ? Math.round(m.sent / m.days) : 0,
+          errors_avg: m.days ? Math.round(m.errors / m.days) : 0,
+          error_rate: attempts ? (m.errors / attempts) * 100 : 0,
+        };
+      })
+      .sort((a, b) => a.month.localeCompare(b.month));
   }, [daily]);
 
   const sync = async () => {
@@ -302,6 +326,54 @@ export default function FaxStatsPage() {
           )}
         </div>
       </div>
+
+      {/* 月別比較 (直近3ヶ月選択時のみ) */}
+      {preset === 'last3months' && monthlySummary.length > 0 && (
+        <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden mb-6">
+          <div className="px-4 py-3 border-b border-zinc-200">
+            <h3 className="text-sm font-semibold text-zinc-800">月別比較</h3>
+            <p className="text-[11px] text-zinc-500 mt-0.5">
+              直近3ヶ月の月ごとの合計と1日あたり平均
+            </p>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-zinc-50 border-b border-zinc-200 text-xs text-zinc-600 uppercase">
+              <tr>
+                <th className="text-left px-4 py-2">月</th>
+                <th className="text-right px-4 py-2">データ日数</th>
+                <th className="text-right px-4 py-2">送信数(合計)</th>
+                <th className="text-right px-4 py-2">送信数(日平均)</th>
+                <th className="text-right px-4 py-2">エラー(合計)</th>
+                <th className="text-right px-4 py-2">エラー(日平均)</th>
+                <th className="text-right px-4 py-2">エラー率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {monthlySummary.map((m) => (
+                <tr key={m.month} className="border-t border-zinc-100">
+                  <td className="px-4 py-2 font-medium">{m.month.replace(/-0?/, '年') + '月'}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-zinc-500">{m.days}日</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-emerald-700 font-semibold">
+                    {m.sent.toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {m.sent_avg.toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums text-red-700">
+                    {m.errors.toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {m.errors_avg.toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {m.error_rate.toFixed(2)}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* PC別サマリ */}
       <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden mb-6">
