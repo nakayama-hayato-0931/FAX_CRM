@@ -18,7 +18,7 @@ const DEMO_DATA = {
 
 const DEMO_SHEETS_CFG = {
   sheet_id: '1dm7UEBA-OcOmgtCva2xJZkPYEDBx9lTW2k4GFrsxjZQ',
-  sheet_range: 'A1:AZ500',
+  sheet_range: 'A1:ZZ500',
   last_synced_at: '2026-05-15T08:00:00Z',
   last_sync_status: 'ok',
   last_sync_message: 'pivot / 56件 新規 / 14件 更新',
@@ -30,7 +30,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [form, setForm] = useState({ drive_root_folder_id: '', drive_auto_upload: '0', manuscript_auto_create_folders: '0' });
-  const [sheetsForm, setSheetsForm] = useState({ sheet_id: '', sheet_range: 'A1:AZ500' });
+  const [sheetsForm, setSheetsForm] = useState({ sheet_id: '', sheet_range: 'A1:ZZ500' });
   const [sheetsCfg, setSheetsCfg] = useState(null);
   const [savingSheets, setSavingSheets] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -72,7 +72,7 @@ export default function SettingsPage() {
         const sc = resSheets.data?.data;
         if (sc) {
           setSheetsCfg(sc);
-          setSheetsForm({ sheet_id: sc.sheet_id || '', sheet_range: sc.sheet_range || 'A1:AZ500' });
+          setSheetsForm({ sheet_id: sc.sheet_id || '', sheet_range: sc.sheet_range || 'A1:ZZ500' });
         }
       } catch (e) {
         if (!cancelled) toast.error(e.userMessage || '読み込み失敗');
@@ -257,11 +257,11 @@ export default function SettingsPage() {
                    className="rep-input font-mono text-xs"
                    placeholder="1AbCdEfGhIjKlMnOpQrStUvWxYz..." />
           </Field>
-          <Field label="読み取り範囲(A1記法)" hint="ピボット形式は日付列が広いため A1:AZ500 程度を推奨">
+          <Field label="読み取り範囲(A1記法)" hint="ピボット形式は日付列が広いため A1:ZZ500 程度を推奨">
             <input type="text" value={sheetsForm.sheet_range}
                    onChange={(e) => setSheetsForm({ ...sheetsForm, sheet_range: e.target.value })}
                    className="rep-input font-mono text-xs"
-                   placeholder="A1:AZ500" />
+                   placeholder="A1:ZZ500" />
           </Field>
         </div>
 

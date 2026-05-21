@@ -220,7 +220,7 @@ INSERT IGNORE INTO system_settings (setting_key, setting_value, description) VAL
 CREATE TABLE IF NOT EXISTS sheets_config (
   id TINYINT UNSIGNED NOT NULL PRIMARY KEY DEFAULT 1,
   sheet_id VARCHAR(100) DEFAULT NULL COMMENT 'スプレッドシートID',
-  sheet_range VARCHAR(100) DEFAULT 'A1:AZ500' COMMENT '読み取り範囲(pivot形式: NO.1〜NO.23で約162行、マージン込み500行)',
+  sheet_range VARCHAR(100) DEFAULT 'A1:ZZ500' COMMENT '読み取り範囲(pivot形式: NO.1〜NO.23 約162行 × 日付列ZZ=2年分)',
   last_synced_at DATETIME DEFAULT NULL,
   last_sync_status ENUM('ok','error','never') NOT NULL DEFAULT 'never',
   last_sync_message TEXT DEFAULT NULL,

@@ -244,8 +244,9 @@ async function syncFromSheets() {
   });
   const sheets = google.sheets({ version: 'v4', auth });
   // pivot形式は日付列が横に多数並ぶため、デフォルトで広めに取る
-  // NO.1〜NO.23 で 23PC × 約7行/PC + ヘッダ ≒ 162行。マージン込み 500 行で安全
-  const range = cfg.sheet_range || 'A1:AZ500';
+  // 行数: NO.1〜NO.23 で 23PC × 約7行/PC + ヘッダ ≒ 162行。マージン込み 500 行
+  // 列数: 1日=1列、AZ(52列)だと2ヶ月分しか取れない。ZZ(702列)で約2年分の日付列に対応
+  const range = cfg.sheet_range || 'A1:ZZ500';
 
   let values;
   try {
@@ -365,10 +366,20 @@ function parsePivotSheet(values, opts = {}) {
     }
   }
 
+  // 異常値の閾値 (各PC×日次の値として、これを超えるのは集計値や計算ミス)
+  const ABNORMAL_THRESHOLD = 1000;
+
   return Object.values(acc)
     // データ整合性チェック:
-    //   error は 0以上 sent以下 でなければ誤データ(シート上の計算ミス等)とみなしスキップ
-    .filter((x) => x.error >= 0 && x.error <= x.sent)
+    //   - 送信数/エラー数 が マイナス → 異常 (シート上の計算式の誤りなど)
+    //   - 送信数/エラー数 が 1000超 → 異常 (各PCの日次値、累計値や合計値が混入した疑い)
+    //   - エラー数 > 送信数 → 整合性なし
+    .filter((x) => {
+      if (x.sent < 0 || x.error < 0) return false;
+      if (x.sent > ABNORMAL_THRESHOLD || x.error > ABNORMAL_THRESHOLD) return false;
+      if (x.error > x.sent) return false;
+      return true;
+    })
     .map((x) => ({
       stat_date: x.stat_date,
       pc_number: x.pc_number,
