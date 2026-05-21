@@ -5,12 +5,13 @@ import { api } from '@/utils/api';
 /**
  * 月別の内定社内訳(案件一覧)モーダル
  * Props:
- *   - month: 'YYYY-MM-01' (acquired_date の月初)
+ *   - month: 'YYYY-MM-01' (basis の月初)
  *   - monthLabel: 表示用 (例: '2026年5月')
  *   - expectedCount?: number (CPA表上の件数。整合確認用に表示)
+ *   - basis: 'acquired' (既定、BK列) / 'offer' (A列) - フィルタする日付列
  *   - onClose: () => void
  */
-export default function SalesProjectsDetailModal({ month, monthLabel, expectedCount, onClose }) {
+export default function SalesProjectsDetailModal({ month, monthLabel, expectedCount, basis = 'acquired', onClose }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -21,7 +22,7 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
       try {
         // 内定 = 取消/辞退も含む全件 (売上は0として記録済み)
         const { data } = await api.get('/api/sales-projects', {
-          params: { month, status: 'all', limit: 1000 },
+          params: { month, basis, status: 'all', limit: 1000 },
         });
         if (!cancelled) setRows(data.data || []);
       } catch (e) {
@@ -34,7 +35,7 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
       }
     })();
     return () => { cancelled = true; };
-  }, [month]);
+  }, [month, basis]);
 
   // ESCで閉じる
   useEffect(() => {
@@ -76,7 +77,9 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
               内定社内訳 — {monthLabel}
             </h2>
             <p className="text-xs text-zinc-500 mt-0.5">
-              案件シート(『ビザ申請 進捗』)より / 取消・辞退も含む全件 (売上は0で記録)
+              案件シート(『ビザ申請 進捗』)より /
+              基準: <strong className="text-zinc-700">{basis === 'offer' ? '内定日 (A列)' : '案件取得日 (BK列)'}</strong>
+              / 取消・辞退も含む全件 (売上は0で記録)
               {!loading && (
                 <span className="ml-2">
                   内定社 <strong className="text-zinc-700">{distinctCompanyCount}</strong> 社 / 候補者 {rows.length} 名

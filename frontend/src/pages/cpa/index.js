@@ -53,6 +53,8 @@ export default function CpaPage() {
   const [loading, setLoading] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [syncingProjects, setSyncingProjects] = useState(false);
+  // 月キーの基準列: 'acquired' (BK列=案件取得日、 既定) / 'offer' (A列=内定日)
+  const [basis, setBasis] = useState('acquired');
   // 内定詳細モーダル: {month: 'YYYY-MM-01', monthLabel: '2026年5月', offersCount: 27}
   const [detailMonth, setDetailMonth] = useState(null);
 
@@ -84,7 +86,7 @@ export default function CpaPage() {
       }
       setLoading(true);
       try {
-        const { data } = await api.get('/api/cpa/monthly', { params: { months: 12 } });
+        const { data } = await api.get('/api/cpa/monthly', { params: { months: 12, basis } });
         if (!cancelled) setRows(data.data || []);
       } catch (err) {
         if (!cancelled) {
@@ -96,7 +98,7 @@ export default function CpaPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [isDemo, reloadKey]);
+  }, [isDemo, reloadKey, basis]);
 
   return (
     <div>
@@ -108,6 +110,39 @@ export default function CpaPage() {
             期間比較 / 直近12ヶ月
             {isDemo && <span className="ml-2 px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">デモ表示</span>}
           </p>
+
+          {/* 集計基準トグル */}
+          <div className="mt-3 inline-flex items-center gap-2 text-xs">
+            <span className="text-zinc-500">月別集計の基準:</span>
+            <div className="inline-flex rounded-md border border-zinc-300 overflow-hidden bg-white" role="tablist">
+              <button
+                type="button"
+                onClick={() => setBasis('acquired')}
+                className={[
+                  'px-3 py-1.5 transition',
+                  basis === 'acquired'
+                    ? 'bg-indigo-600 text-white font-medium'
+                    : 'text-zinc-600 hover:bg-zinc-50',
+                ].join(' ')}
+                title="シート BK列「案件取得日」を基準に月集計"
+              >
+                案件取得日 (BK列)
+              </button>
+              <button
+                type="button"
+                onClick={() => setBasis('offer')}
+                className={[
+                  'px-3 py-1.5 transition border-l border-zinc-300',
+                  basis === 'offer'
+                    ? 'bg-indigo-600 text-white font-medium'
+                    : 'text-zinc-600 hover:bg-zinc-50',
+                ].join(' ')}
+                title="シート A列「内定日」を基準に月集計"
+              >
+                内定日 (A列)
+              </button>
+            </div>
+          </div>
         </div>
         <div className="flex gap-2">
           <button
@@ -226,7 +261,7 @@ export default function CpaPage() {
         　・<strong>内定社数</strong> = 同一求人番号は1社にまとめてカウント(取消/辞退も含む)
         　・<strong>内定社数</strong> をクリックすると、その月の内訳(求人番号でグルーピング)が一覧表示されます
         　・<strong>初回入金 / 見込売上</strong> は取消/辞退の行を ¥0 として集計
-        　・月キーは BK列「案件取得日」
+        　・月キーは上部トグルで <strong>BK列「案件取得日」 ⇔ A列「内定日」</strong> を切り替え可能 (現在: <strong>{basis === 'offer' ? '内定日' : '案件取得日'}</strong>)
       </div>
 
       {/* 委託送信 月別実績 */}
@@ -244,6 +279,7 @@ export default function CpaPage() {
           month={detailMonth.month}
           monthLabel={detailMonth.monthLabel}
           expectedCount={detailMonth.offersCount}
+          basis={basis}
           onClose={() => setDetailMonth(null)}
         />
       )}

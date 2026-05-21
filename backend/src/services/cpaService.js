@@ -79,13 +79,92 @@ function rowToRecord(row) {
   return rec;
 }
 
-async function getMonthly({ months = 12 } = {}) {
+// sales_projects の月次集計をどの列(BK列=acquired_date / A列=offer_date)を
+// 基準にするか。フロントの「ベース切替」トグル対応。
+function basisColumn(basis) {
+  return basis === 'offer' ? 'offer_date' : 'acquired_date';
+}
+
+/**
+ * CPA 月次ロールアップ
+ *   - 引数 basis: 'acquired' (BK列=案件取得日、 既定) / 'offer' (A列=内定日)
+ *   - View ではなく動的SQL で sales_projects 部分の集計列を切り替える
+ */
+async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
   const pool = getPool();
   if (!pool) return [];
-  const [rows] = await pool.query(
-    `SELECT * FROM v_cpa_monthly LIMIT ?`,
-    [Math.min(Number(months) || 12, 60)]
-  );
+  const col = basisColumn(basis);
+  const limit = Math.min(Number(months) || 12, 60);
+
+  // sales_projects の月キーになる列を basis に応じて差し替えた SQL
+  //   v_cpa_monthly View の定義と完全に揃える (cost/sends 等の組み立ては同じ)
+  const sql = `
+    SELECT
+      m.month,
+      COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0)        AS cost,
+      COALESCE(pr.cost, 0)                                            AS in_house_cost,
+      COALESCE(out_.outsourced_cost, 0)                               AS outsourced_cost,
+      COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0)      AS sends,
+      COALESCE(fs.sends, 0)                                           AS in_house_sends,
+      COALESCE(out_.outsourced_sends, 0)                              AS outsourced_sends,
+      ROUND(COALESCE(sp.projects, 0)
+            / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
+                                                                      AS project_rate,
+      COALESCE(sp.projects, 0)                                        AS projects,
+      ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
+            / NULLIF(COALESCE(sp.projects, 0), 0))                    AS project_cpa,
+      COALESCE(pr.interviews, 0)                                      AS interviews,
+      ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
+            / NULLIF(COALESCE(pr.interviews, 0), 0))                  AS interview_cpa,
+      ROUND(COALESCE(pr.interviews, 0)
+            / NULLIF(COALESCE(sp.projects, 0), 0) * 100, 2)           AS interview_rate,
+      COALESCE(sp.offers, 0)                                          AS offers,
+      COALESCE(pr.rejects, 0)                                         AS rejects,
+      COALESCE(pr.cancels, 0)                                         AS cancels,
+      COALESCE(sp.first_payment, 0)                                   AS first_payment,
+      COALESCE(sp.expected_revenue, 0)                                AS expected_revenue,
+      ROUND(COALESCE(sp.first_payment, 0)
+            / NULLIF(COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0), 0) * 100, 2)
+                                                                      AS roas
+    FROM (
+      SELECT DISTINCT month FROM (
+        SELECT DATE_FORMAT(period_date, '%Y-%m-01')          AS month FROM performance_records
+        UNION
+        SELECT DATE_FORMAT(stat_date, '%Y-%m-01')            AS month FROM fax_send_stats
+        UNION
+        SELECT DATE_FORMAT(report_month, '%Y-%m-01')         AS month FROM outsourced_fax_records
+        UNION
+        SELECT DATE_FORMAT(${col}, '%Y-%m-01')               AS month FROM sales_projects WHERE ${col} IS NOT NULL
+      ) u WHERE month IS NOT NULL
+    ) m
+    LEFT JOIN (
+      SELECT DATE_FORMAT(period_date, '%Y-%m-01') AS month,
+        SUM(cost) AS cost, SUM(interview_count) AS interviews,
+        SUM(reject_count) AS rejects, SUM(cancel_count) AS cancels
+      FROM performance_records GROUP BY 1
+    ) pr ON pr.month = m.month
+    LEFT JOIN (
+      SELECT DATE_FORMAT(stat_date, '%Y-%m-01') AS month, SUM(sent_count) AS sends
+      FROM fax_send_stats GROUP BY 1
+    ) fs ON fs.month = m.month
+    LEFT JOIN (
+      SELECT DATE_FORMAT(report_month, '%Y-%m-01') AS month,
+        SUM(send_count) AS outsourced_sends, SUM(cost) AS outsourced_cost
+      FROM outsourced_fax_records GROUP BY 1
+    ) out_ ON out_.month = m.month
+    LEFT JOIN (
+      SELECT DATE_FORMAT(${col}, '%Y-%m-01') AS month,
+        COUNT(*) AS projects,
+        COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS offers,
+        SUM(first_payment) AS first_payment,
+        SUM(expected_revenue) AS expected_revenue
+      FROM sales_projects WHERE ${col} IS NOT NULL
+      GROUP BY 1
+    ) sp ON sp.month = m.month
+    ORDER BY m.month DESC
+    LIMIT ?`;
+
+  const [rows] = await pool.query(sql, [limit]);
   return rows;
 }
 

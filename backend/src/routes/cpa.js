@@ -16,9 +16,15 @@ const upload = multer({
 });
 
 // GET /api/cpa/monthly
+//   query:
+//     months: 取得する月数 (既定 12、最大 60)
+//     basis : 'acquired' (BK列=案件取得日、既定) / 'offer' (A列=内定日)
 router.get('/monthly', async (req, res, next) => {
   try {
-    const rows = await cpa.getMonthly({ months: req.query.months });
+    const rows = await cpa.getMonthly({
+      months: req.query.months,
+      basis: req.query.basis === 'offer' ? 'offer' : 'acquired',
+    });
     return ok(res, rows);
   } catch (e) { next(e); }
 });

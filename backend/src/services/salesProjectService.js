@@ -290,26 +290,28 @@ async function syncFromSheets() {
 /**
  * 案件一覧取得
  * @param {object} opts
- *   from, to         : acquired_date の範囲 (YYYY-MM-DD)
+ *   from, to         : 範囲 (YYYY-MM-DD)。 basis に応じて acquired_date / offer_date を判定列に使う
  *   month            : YYYY-MM-01 を指定すると、その月初〜翌月初未満 にショートカット
+ *   basis            : 'acquired' (既定、 BK列) / 'offer' (A列)
  *   status           : 'active' = 取消/辞退を除外、 'all' = 全件、 'cancelled' = 取消のみ など
  *   limit            : 既定 200、最大 1000
  */
-async function list({ from, to, month, status, limit = 200 } = {}) {
+async function list({ from, to, month, basis = 'acquired', status, limit = 200 } = {}) {
   const pool = getPool();
   if (!pool) return [];
+  const dateCol = basis === 'offer' ? 'offer_date' : 'acquired_date';
   const where = [];
   const params = [];
 
   if (month) {
-    // YYYY-MM-01 → 当月初 <= acquired_date < 翌月初
-    where.push('acquired_date >= ?');
+    // YYYY-MM-01 → 当月初 <= dateCol < 翌月初
+    where.push(`${dateCol} >= ?`);
     params.push(month);
-    where.push('acquired_date < DATE_ADD(?, INTERVAL 1 MONTH)');
+    where.push(`${dateCol} < DATE_ADD(?, INTERVAL 1 MONTH)`);
     params.push(month);
   } else {
-    if (from) { where.push('acquired_date >= ?'); params.push(from); }
-    if (to)   { where.push('acquired_date <= ?'); params.push(to); }
+    if (from) { where.push(`${dateCol} >= ?`); params.push(from); }
+    if (to)   { where.push(`${dateCol} <= ?`); params.push(to); }
   }
 
   if (status === 'active') {
@@ -331,7 +333,7 @@ async function list({ from, to, month, status, limit = 200 } = {}) {
      FROM sales_projects ${whereSql}
      ORDER BY
        COALESCE(NULLIF(job_number, ''), company_name) ASC,  -- 同一求人を隣り合わせる
-       acquired_date DESC,
+       ${dateCol} DESC,
        id DESC
      LIMIT ?`,
     [...params, Math.min(Number(limit) || 200, 1000)]
