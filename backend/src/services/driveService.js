@@ -86,6 +86,9 @@ async function findOrCreateFolder({ name, parentId }) {
     q: q.join(' and '),
     fields: 'files(id,name,webViewLink)',
     pageSize: 1,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+    corpora: 'allDrives',
   });
   if (resp.data.files?.length) {
     return { ...resp.data.files[0], created: false };
@@ -102,6 +105,7 @@ async function createFolder({ name, parentId }) {
       parents: parentId ? [parentId] : undefined,
     },
     fields: 'id,name,webViewLink',
+    supportsAllDrives: true,
   });
   return { ...resp.data, created: true };
 }
@@ -123,6 +127,7 @@ async function uploadFile({ filePath, mimeType, name, parentId }) {
       body: fs.createReadStream(filePath),
     },
     fields: 'id,name,webViewLink,webContentLink',
+    supportsAllDrives: true,   // 共有ドライブ対応 (My Drive はサービスアカウントの quota 制限で書き込み不可、 共有ドライブなら OK)
   });
   return resp.data;
 }
@@ -134,7 +139,7 @@ async function uploadFile({ filePath, mimeType, name, parentId }) {
 async function downloadFileStream(fileId) {
   const drive = tryLoad();
   const resp = await drive.files.get(
-    { fileId, alt: 'media' },
+    { fileId, alt: 'media', supportsAllDrives: true },
     { responseType: 'stream' }
   );
   return resp.data; // stream
@@ -148,6 +153,7 @@ async function getFileMeta(fileId) {
   const resp = await drive.files.get({
     fileId,
     fields: 'id,name,mimeType,size,webViewLink,webContentLink',
+    supportsAllDrives: true,
   });
   return resp.data;
 }
@@ -157,7 +163,7 @@ async function getFileMeta(fileId) {
  */
 async function deleteFile(fileId) {
   const drive = tryLoad();
-  await drive.files.delete({ fileId });
+  await drive.files.delete({ fileId, supportsAllDrives: true });
   return { ok: true };
 }
 
