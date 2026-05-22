@@ -90,10 +90,10 @@ export default function CpaPage() {
     try {
       const { data } = await api.post('/api/job-postings/sync');
       const r = data.data || {};
-      toast.success(`求人同期OK: 取込${r.kept ?? 0} / 新規${r.inserted ?? 0} / 更新${r.updated ?? 0} (バラシ ${r.cancelledCount ?? 0})`);
+      toast.success(`案件同期OK: 取込${r.kept ?? 0} / 新規${r.inserted ?? 0} / 更新${r.updated ?? 0} (バラシ ${r.cancelledCount ?? 0})`);
       reload();
     } catch (e) {
-      toast.error(e.userMessage || '求人シート同期失敗。 設定画面でシートIDを確認してください');
+      toast.error(e.userMessage || '案件シート同期失敗。 設定画面でシートIDを確認してください');
     } finally { setSyncingJobs(false); }
   };
 
@@ -201,7 +201,7 @@ export default function CpaPage() {
             className="px-3 py-2 text-sm bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50"
             title="『求人情報』シートから案件・バラシを再同期"
           >
-            {syncingJobs ? '求人同期中…' : '求人シート同期'}
+            {syncingJobs ? '案件同期中…' : '案件シート同期'}
           </button>
           <button
             onClick={syncInterviews}
