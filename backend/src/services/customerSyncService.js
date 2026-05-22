@@ -64,7 +64,8 @@ async function pullFromCallcenter() {
     err.status = 400; err.code = 'NOT_CONFIGURED'; throw err;
   }
 
-  const companies = await cc.listAllCompanies({ pageSize: 200 });
+  // 営業リスト + オペレータリスト 両方 + 除外フラグ付きも取得
+  const companies = await cc.listAllCompaniesBothLists({ pageSize: 100, showExcluded: '1' });
   const pool = getPool();
   const conn = await pool.getConnection();
   const stats = { fetched: companies.length, linked: 0, updated: 0, inserted: 0, skippedNoPhone: 0 };

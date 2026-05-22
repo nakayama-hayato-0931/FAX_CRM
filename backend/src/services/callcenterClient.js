@@ -58,31 +58,64 @@ async function request(method, path, body) {
 
 /**
  * 全企業を取得 (ページング対応)
- *   callcenter の GET /api/companies は { data: [...], pagination: { page, total, totalPages } } を返す想定
- *   実装が単純配列を返す場合も safe-handle する
+ *   callcenter の GET /api/companies は ApiResponse.success 経由で:
+ *     { success, data: { companies: [...], pagination: { page, limit, total, totalPages } }, message, error }
+ *   を返す。 limit 最大値は 100 (callcenter 側でクランプされる)
+ *
+ *   オプション:
+ *     pageSize         ... 1ページあたり件数 (max 100)
+ *     maxPages         ... 安全装置 (デフォルト 200ページ = 20000件)
+ *     showExcluded     ... 1 で除外フラグ付き企業も取得 (デフォルト '1' で全件)
+ *     includeSpecial   ... 'special' で特別リスト、 何もしないと通常リスト
+ *     includeSalesList ... '1' で営業用リスト、 何もしないとオペレータ用リスト
  */
-async function listAllCompanies({ pageSize = 200, maxPages = 100 } = {}) {
+async function listAllCompanies(opts = {}) {
+  const pageSize = Math.min(Math.max(Number(opts.pageSize) || 100, 1), 100);
+  const maxPages = Number(opts.maxPages) || 200;
+  const showExcluded = opts.showExcluded ?? '1';  // 既定: 除外企業も取得
+  const listType = opts.includeSpecial === 'special' ? 'special' : null;
+  const isSalesList = opts.includeSalesList === '1' ? '1' : null;
+
+  const baseParams = new URLSearchParams();
+  baseParams.set('limit', String(pageSize));
+  if (showExcluded) baseParams.set('show_excluded', String(showExcluded));
+  if (listType) baseParams.set('list_type', listType);
+  if (isSalesList) baseParams.set('is_sales_list', isSalesList);
+
   const all = [];
   let page = 1;
   while (page <= maxPages) {
-    const resp = await request('GET', `/api/companies?page=${page}&limit=${pageSize}`);
-    // 想定: { success, data: [...], pagination: { ... } }
-    const items = Array.isArray(resp?.data) ? resp.data
-                : Array.isArray(resp?.data?.data) ? resp.data.data
-                : Array.isArray(resp) ? resp
+    baseParams.set('page', String(page));
+    const resp = await request('GET', `/api/companies?${baseParams.toString()}`);
+    // resp = { success, data: { companies: [...], pagination: {...} }, ... }
+    const block = resp?.data;
+    const items = Array.isArray(block?.companies) ? block.companies
+                : Array.isArray(block) ? block       // 単純配列フォールバック
                 : [];
     if (items.length === 0) break;
     all.push(...items);
-    const pagination = resp?.pagination || resp?.data?.pagination;
-    if (pagination) {
-      if (page >= (pagination.totalPages || page)) break;
-    } else if (items.length < pageSize) {
-      // pagination 情報無し + 1ページが満杯でなければ終了
-      break;
-    }
+    const pg = block?.pagination;
+    if (pg && pg.totalPages && page >= pg.totalPages) break;
+    if (items.length < pageSize) break;  // ページサイズ未満なら最終ページ
     page++;
   }
   return all;
+}
+
+/**
+ * オペレータ用リスト + 営業用リスト の両方を取得 (callcenter のフィルタが
+ * デフォルトで is_sales_list=0 になっているため、 サイドごとに2回呼ぶ)
+ */
+async function listAllCompaniesBothLists(opts = {}) {
+  const op = await listAllCompanies({ ...opts, includeSalesList: null });   // オペレータ用
+  const sales = await listAllCompanies({ ...opts, includeSalesList: '1' }); // 営業用
+  // id でユニーク化
+  const seen = new Set();
+  return [...op, ...sales].filter((c) => {
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return true;
+  });
 }
 
 async function getCompany(id) {
@@ -102,5 +135,6 @@ async function updateCompany(id, payload) {
 
 module.exports = {
   isConfigured,
-  listAllCompanies, getCompany, createCompany, updateCompany,
+  listAllCompanies, listAllCompaniesBothLists,
+  getCompany, createCompany, updateCompany,
 };
