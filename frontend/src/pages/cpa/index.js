@@ -5,6 +5,7 @@ import { api } from '@/utils/api';
 import CpaImportModal from '@/components/CpaImportModal';
 import OutsourcedFaxSection from '@/components/OutsourcedFaxSection';
 import SalesProjectsDetailModal from '@/components/SalesProjectsDetailModal';
+import InterviewsDetailModal from '@/components/InterviewsDetailModal';
 
 // ROAS = first_payment / cost * 100
 const DEMO_ROWS = [
@@ -28,10 +29,10 @@ const COLUMNS = [
   { key: 'project_rate',    label: '案件化率',           kind: 'derived', format: pct, align: 'right' },
   { key: 'projects',        label: '案件数',             kind: 'raw',     format: num, align: 'right' },
   { key: 'project_cpa',     label: '案件CPA',            kind: 'derived', format: yen, align: 'right' },
-  { key: 'interviews',      label: '面接数',             kind: 'raw',     format: num, align: 'right' },
+  { key: 'interviews',      label: '面接数',             kind: 'raw',     format: num, align: 'right', clickable: 'interviews' },
   { key: 'interview_cpa',   label: '面接CPA',            kind: 'derived', format: yen, align: 'right' },
   { key: 'interview_rate',  label: '面接実施率',          kind: 'derived', format: pct, align: 'right' },
-  { key: 'offers',          label: '内定社数',            kind: 'raw',     format: num, align: 'right', clickable: true },
+  { key: 'offers',          label: '内定社数',            kind: 'raw',     format: num, align: 'right', clickable: 'offers' },
   { key: 'rejects',         label: '不合格',             kind: 'raw',     format: num, align: 'right' },
   { key: 'cancels',         label: 'バラシ/失注',         kind: 'raw',     format: num, align: 'right' },
   { key: 'first_payment',   label: '初回入金',            kind: 'raw',     format: yen, align: 'right' },
@@ -53,10 +54,13 @@ export default function CpaPage() {
   const [loading, setLoading] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [syncingProjects, setSyncingProjects] = useState(false);
+  const [syncingInterviews, setSyncingInterviews] = useState(false);
   // 月キーの基準列: 'acquired' (BK列=案件取得日、 既定) / 'offer' (A列=内定日)
   const [basis, setBasis] = useState('acquired');
   // 内定詳細モーダル: {month: 'YYYY-MM-01', monthLabel: '2026年5月', offersCount: 27}
   const [detailMonth, setDetailMonth] = useState(null);
+  // 面接詳細モーダル: {month, monthLabel, interviewsCount}
+  const [interviewDetailMonth, setInterviewDetailMonth] = useState(null);
 
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((k) => k + 1);
@@ -73,6 +77,21 @@ export default function CpaPage() {
       toast.error(e.userMessage || '案件同期失敗。設定画面でシートIDを確認してください');
     } finally {
       setSyncingProjects(false);
+    }
+  };
+
+  const syncInterviews = async () => {
+    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    setSyncingInterviews(true);
+    try {
+      const { data } = await api.post('/api/interviews/sync');
+      const r = data.data || {};
+      toast.success(`面接同期OK: 取込${r.kept ?? 0} / 新規${r.inserted ?? 0} / 更新${r.updated ?? 0}`);
+      reload();
+    } catch (e) {
+      toast.error(e.userMessage || '面接同期失敗。 設定画面でシートIDを確認してください');
+    } finally {
+      setSyncingInterviews(false);
     }
   };
 
@@ -160,6 +179,14 @@ export default function CpaPage() {
             {syncingProjects ? '案件同期中…' : '案件シート同期'}
           </button>
           <button
+            onClick={syncInterviews}
+            disabled={syncingInterviews}
+            className="px-3 py-2 text-sm bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50"
+            title="『2024_面接内訳』シートから面接記録を再同期"
+          >
+            {syncingInterviews ? '面接同期中…' : '面接シート同期'}
+          </button>
+          <button
             onClick={() => setShowImport(true)}
             className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
           >
@@ -221,18 +248,31 @@ export default function CpaPage() {
                       c.align === 'right' ? 'text-right' : 'text-left',
                       c.kind === 'derived' ? 'bg-indigo-50/40 text-indigo-900 font-medium' : 'text-zinc-800',
                     ].join(' ');
+                    const onClickHandler = () => {
+                      if (c.clickable === 'offers') {
+                        setDetailMonth({
+                          month: row.month,
+                          monthLabel: formatMonth(row.month),
+                          offersCount: Number(value),
+                        });
+                      } else if (c.clickable === 'interviews') {
+                        setInterviewDetailMonth({
+                          month: row.month,
+                          monthLabel: formatMonth(row.month),
+                          interviewsCount: Number(value),
+                        });
+                      }
+                    };
+                    const titleText = c.clickable === 'offers' ? '内定社の内訳を表示'
+                                    : c.clickable === 'interviews' ? '面接の内訳を表示' : '';
                     return (
                       <td key={c.key} className={cellClass}>
                         {isClickable ? (
                           <button
                             type="button"
-                            onClick={() => setDetailMonth({
-                              month: row.month,
-                              monthLabel: formatMonth(row.month),
-                              offersCount: Number(value),
-                            })}
+                            onClick={onClickHandler}
                             className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2 font-medium"
-                            title="内定社の内訳を表示"
+                            title={titleText}
                           >
                             {c.format(value)}
                           </button>
@@ -281,6 +321,16 @@ export default function CpaPage() {
           expectedCount={detailMonth.offersCount}
           basis={basis}
           onClose={() => setDetailMonth(null)}
+        />
+      )}
+
+      {interviewDetailMonth && (
+        <InterviewsDetailModal
+          month={interviewDetailMonth.month}
+          monthLabel={interviewDetailMonth.monthLabel}
+          expectedCount={interviewDetailMonth.interviewsCount}
+          basis={basis}
+          onClose={() => setInterviewDetailMonth(null)}
         />
       )}
     </div>

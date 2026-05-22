@@ -94,6 +94,8 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
   const pool = getPool();
   if (!pool) return [];
   const col = basisColumn(basis);
+  // 面接の月キー: acquired→NS列(acquired_date)、 offer→NM列(interview_date)
+  const ivCol = basis === 'offer' ? 'interview_date' : 'acquired_date';
   const limit = Math.min(Number(months) || 12, 60);
 
   // sales_projects の月キーになる列を basis に応じて差し替えた SQL
@@ -113,10 +115,10 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       COALESCE(sp.projects, 0)                                        AS projects,
       ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
             / NULLIF(COALESCE(sp.projects, 0), 0))                    AS project_cpa,
-      COALESCE(pr.interviews, 0)                                      AS interviews,
+      COALESCE(iv.interviews, 0)                                      AS interviews,
       ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
-            / NULLIF(COALESCE(pr.interviews, 0), 0))                  AS interview_cpa,
-      ROUND(COALESCE(pr.interviews, 0)
+            / NULLIF(COALESCE(iv.interviews, 0), 0))                  AS interview_cpa,
+      ROUND(COALESCE(iv.interviews, 0)
             / NULLIF(COALESCE(sp.projects, 0), 0) * 100, 2)           AS interview_rate,
       COALESCE(sp.offers, 0)                                          AS offers,
       COALESCE(pr.rejects, 0)                                         AS rejects,
@@ -135,14 +137,26 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
         SELECT DATE_FORMAT(report_month, '%Y-%m-01')         AS month FROM outsourced_fax_records
         UNION
         SELECT DATE_FORMAT(${col}, '%Y-%m-01')               AS month FROM sales_projects WHERE ${col} IS NOT NULL
+        UNION
+        SELECT DATE_FORMAT(${ivCol}, '%Y-%m-01')              AS month FROM interview_records
+         WHERE ${ivCol} IS NOT NULL AND source_kind = 'FAX受電' AND interview_date <= CURDATE()
       ) u WHERE month IS NOT NULL
     ) m
     LEFT JOIN (
       SELECT DATE_FORMAT(period_date, '%Y-%m-01') AS month,
-        SUM(cost) AS cost, SUM(interview_count) AS interviews,
+        SUM(cost) AS cost,
         SUM(reject_count) AS rejects, SUM(cancel_count) AS cancels
       FROM performance_records GROUP BY 1
     ) pr ON pr.month = m.month
+    LEFT JOIN (
+      SELECT DATE_FORMAT(${ivCol}, '%Y-%m-01') AS month,
+        SUM(interview_count) AS interviews    -- NP列 (面接人数) の合計
+      FROM interview_records
+      WHERE ${ivCol} IS NOT NULL
+        AND source_kind = 'FAX受電'
+        AND interview_date <= CURDATE()
+      GROUP BY 1
+    ) iv ON iv.month = m.month
     LEFT JOIN (
       SELECT DATE_FORMAT(stat_date, '%Y-%m-01') AS month, SUM(sent_count) AS sends
       FROM fax_send_stats GROUP BY 1

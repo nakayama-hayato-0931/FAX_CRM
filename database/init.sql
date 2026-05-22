@@ -228,6 +228,13 @@ CREATE TABLE IF NOT EXISTS sheets_config (
   projects_last_synced_at DATETIME DEFAULT NULL,
   projects_last_sync_status ENUM('ok','error','never') NOT NULL DEFAULT 'never',
   projects_last_sync_message TEXT DEFAULT NULL,
+  -- 面接シート (例: 2024_面接内訳)
+  interviews_sheet_id VARCHAR(100) DEFAULT NULL COMMENT '面接シート スプレッドシートID',
+  interviews_sheet_name VARCHAR(100) DEFAULT '2024_面接内訳' COMMENT '面接シート名(タブ名)',
+  interviews_sheet_range VARCHAR(100) DEFAULT 'A1:OZ20000' COMMENT '面接シート 読み取り範囲 (NU列=384 まで読む)',
+  interviews_last_synced_at DATETIME DEFAULT NULL,
+  interviews_last_sync_status ENUM('ok','error','never') NOT NULL DEFAULT 'never',
+  interviews_last_sync_message TEXT DEFAULT NULL,
   last_synced_at DATETIME DEFAULT NULL,
   last_sync_status ENUM('ok','error','never') NOT NULL DEFAULT 'never',
   last_sync_message TEXT DEFAULT NULL,
@@ -297,6 +304,34 @@ CREATE TABLE IF NOT EXISTS sales_projects (
   INDEX idx_sales_projects_status (is_cancelled, is_declined)
 ) ENGINE=InnoDB COMMENT='案件マスタ(シート『ビザ申請 進捗』同期)';
 
+-- --------------------------------------------
+-- 面接記録 (シート『2024_面接内訳』 から同期)
+-- 抽出条件: NR列=「FAX受電」 AND NM列(面接日)<=今日
+-- 1行 = 1面接
+-- --------------------------------------------
+CREATE TABLE IF NOT EXISTS interview_records (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  external_key VARCHAR(100) NOT NULL COMMENT 'シート行を一意化するキー',
+  interview_date DATE DEFAULT NULL    COMMENT 'NM列: 面接日',
+  acquired_date DATE DEFAULT NULL     COMMENT 'NS列: 案件獲得日',
+  job_number VARCHAR(100) DEFAULT NULL COMMENT 'NN列: 求人番号',
+  company_name VARCHAR(255) DEFAULT NULL COMMENT 'NO列: 企業名',
+  sales_owner VARCHAR(100) DEFAULT NULL COMMENT 'NL列: 営業担当',
+  industry VARCHAR(100) DEFAULT NULL   COMMENT 'NU列: 業種',
+  interview_count INT NOT NULL DEFAULT 0 COMMENT 'NP列: 面接人数',
+  pass_count INT NOT NULL DEFAULT 0    COMMENT 'NQ列: 合格者数',
+  source_kind VARCHAR(40) DEFAULT NULL COMMENT 'NR列: FAX受電 等の案件区分',
+  source_row INT DEFAULT NULL,
+  synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_interview_external (external_key),
+  INDEX idx_interview_date (interview_date),
+  INDEX idx_interview_acquired (acquired_date),
+  INDEX idx_interview_kind (source_kind),
+  INDEX idx_interview_job (job_number)
+) ENGINE=InnoDB COMMENT='面接記録(シート『2024_面接内訳』同期)';
+
 -- 期間 × PC × セグメント の実績(CSVインポート対象)
 CREATE TABLE IF NOT EXISTS performance_records (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -321,7 +356,7 @@ CREATE TABLE IF NOT EXISTS performance_records (
 
 -- 月次ロールアップ VIEW (算出項目はここで計算)
 -- データソース:
---   cost / interviews / rejects / cancels            ← performance_records (CSV)
+--   cost / rejects / cancels                         ← performance_records (CSV)
 --   sends (自社)                                     ← fax_send_stats (Sheets同期)
 --   sends (委託) / cost (委託)                       ← outsourced_fax_records (手入力)
 --   projects (FAXからの総案件数)                     ← sales_projects 全行 (取消/辞退含む)
@@ -329,8 +364,12 @@ CREATE TABLE IF NOT EXISTS performance_records (
 --                                                      (求人番号が空の行は会社名で代用)
 --   first_payment / expected_revenue                 ← sales_projects (取消/辞退の行は0で記録)
 --     - 月次キーは acquired_date (案件取得日)
+--   interviews                                       ← interview_records (シート『2024_面接内訳』同期)
+--     - NR='FAX受電' AND NM<=today の行のみ
+--     - 月次キーは acquired_date (NS列)
+--     - SUM(interview_count) = NP列の合計
 --   ROAS = 初回入金 / コスト合算
--- 月キー: 上記4ソースのいずれかに存在する月をすべて FULL OUTER JOIN 的に拾う
+-- 月キー: 上記5ソースのいずれかに存在する月をすべて FULL OUTER JOIN 的に拾う
 CREATE OR REPLACE VIEW v_cpa_monthly AS
 SELECT
   m.month,
@@ -346,10 +385,10 @@ SELECT
   COALESCE(sp.projects, 0)                                        AS projects,
   ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
         / NULLIF(COALESCE(sp.projects, 0), 0))                    AS project_cpa,
-  COALESCE(pr.interviews, 0)                                      AS interviews,
+  COALESCE(iv.interviews, 0)                                      AS interviews,
   ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
-        / NULLIF(COALESCE(pr.interviews, 0), 0))                  AS interview_cpa,
-  ROUND(COALESCE(pr.interviews, 0)
+        / NULLIF(COALESCE(iv.interviews, 0), 0))                  AS interview_cpa,
+  ROUND(COALESCE(iv.interviews, 0)
         / NULLIF(COALESCE(sp.projects, 0), 0) * 100, 2)           AS interview_rate,
   COALESCE(sp.offers, 0)                                          AS offers,
   COALESCE(pr.rejects, 0)                                         AS rejects,
@@ -368,6 +407,9 @@ FROM (
     SELECT DATE_FORMAT(report_month, '%Y-%m-01')  AS month FROM outsourced_fax_records
     UNION
     SELECT DATE_FORMAT(acquired_date, '%Y-%m-01') AS month FROM sales_projects WHERE acquired_date IS NOT NULL
+    UNION
+    SELECT DATE_FORMAT(acquired_date, '%Y-%m-01') AS month FROM interview_records
+     WHERE acquired_date IS NOT NULL AND source_kind = 'FAX受電' AND interview_date <= CURDATE()
   ) u
   WHERE month IS NOT NULL
 ) m
@@ -375,12 +417,21 @@ LEFT JOIN (
   SELECT
     DATE_FORMAT(period_date, '%Y-%m-01') AS month,
     SUM(cost)             AS cost,
-    SUM(interview_count)  AS interviews,
     SUM(reject_count)     AS rejects,
     SUM(cancel_count)     AS cancels
   FROM performance_records
   GROUP BY 1
 ) pr ON pr.month = m.month
+LEFT JOIN (
+  SELECT
+    DATE_FORMAT(acquired_date, '%Y-%m-01') AS month,
+    SUM(interview_count) AS interviews   -- NP列の合計 (面接人数)
+  FROM interview_records
+  WHERE acquired_date IS NOT NULL
+    AND source_kind = 'FAX受電'
+    AND interview_date <= CURDATE()
+  GROUP BY 1
+) iv ON iv.month = m.month
 LEFT JOIN (
   SELECT
     DATE_FORMAT(stat_date, '%Y-%m-01') AS month,

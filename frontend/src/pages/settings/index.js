@@ -45,6 +45,16 @@ export default function SettingsPage() {
   const [savingProjects, setSavingProjects] = useState(false);
   const [syncingProjects, setSyncingProjects] = useState(false);
   const [projectsSyncResult, setProjectsSyncResult] = useState(null);
+  // 面接シート(『2024_面接内訳』)
+  const [interviewsForm, setInterviewsForm] = useState({
+    interviews_sheet_id: '',
+    interviews_sheet_name: '2024_面接内訳',
+    interviews_sheet_range: 'A1:OZ20000',
+  });
+  const [interviewsCfg, setInterviewsCfg] = useState(null);
+  const [savingInterviews, setSavingInterviews] = useState(false);
+  const [syncingInterviews, setSyncingInterviews] = useState(false);
+  const [interviewsSyncResult, setInterviewsSyncResult] = useState(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -67,10 +77,11 @@ export default function SettingsPage() {
       }
       setLoading(true);
       try {
-        const [resSettings, resSheets, resProjects] = await Promise.all([
+        const [resSettings, resSheets, resProjects, resInterviews] = await Promise.all([
           api.get('/api/settings'),
           api.get('/api/fax-stats/config').catch(() => ({ data: { data: null } })),
           api.get('/api/sales-projects/config').catch(() => ({ data: { data: null } })),
+          api.get('/api/interviews/config').catch(() => ({ data: { data: null } })),
         ]);
         if (cancelled) return;
         const d = resSettings.data.data || {};
@@ -92,6 +103,15 @@ export default function SettingsPage() {
             projects_sheet_id: pc.projects_sheet_id || '',
             projects_sheet_name: pc.projects_sheet_name || 'ビザ申請 進捗',
             projects_sheet_range: pc.projects_sheet_range || 'A1:CZ20000',
+          });
+        }
+        const ic = resInterviews.data?.data;
+        if (ic) {
+          setInterviewsCfg(ic);
+          setInterviewsForm({
+            interviews_sheet_id: ic.interviews_sheet_id || '',
+            interviews_sheet_name: ic.interviews_sheet_name || '2024_面接内訳',
+            interviews_sheet_range: ic.interviews_sheet_range || 'A1:OZ20000',
           });
         }
       } catch (e) {
@@ -180,6 +200,39 @@ export default function SettingsPage() {
       toast.error(e.userMessage || '同期失敗');
     } finally {
       setSyncingProjects(false);
+    }
+  };
+
+  const saveInterviews = async () => {
+    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); return; }
+    setSavingInterviews(true);
+    try {
+      await api.put('/api/interviews/config', interviewsForm);
+      toast.success('面接シート設定を保存しました');
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e.userMessage || '保存失敗');
+    } finally {
+      setSavingInterviews(false);
+    }
+  };
+
+  const syncInterviews = async () => {
+    if (isDemo) {
+      setInterviewsSyncResult({ totalRows: 0, kept: 0, inserted: 0, updated: 0 });
+      toast.success('(デモ) 同期OK');
+      return;
+    }
+    setSyncingInterviews(true); setInterviewsSyncResult(null);
+    try {
+      const { data: r } = await api.post('/api/interviews/sync');
+      setInterviewsSyncResult(r.data);
+      toast.success(`面接同期: 新規${r.data.inserted} / 更新${r.data.updated}`);
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e.userMessage || '同期失敗');
+    } finally {
+      setSyncingInterviews(false);
     }
   };
 
@@ -421,6 +474,77 @@ export default function SettingsPage() {
               ✓ 取込 {projectsSyncResult.kept} / 新規 {projectsSyncResult.inserted} / 更新 {projectsSyncResult.updated}
               <span className="text-zinc-500 ml-2">
                 (FAX以外 {projectsSyncResult.skippedNotFax} / ビザ {projectsSyncResult.skippedVisa} / キー無 {projectsSyncResult.skippedNoKey})
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 面接(『2024_面接内訳』) Sheets連携 */}
+      <div className="bg-white border border-zinc-200 rounded-lg p-5 mb-6">
+        <h2 className="text-sm font-semibold text-zinc-800 mb-1">面接シート連携 (『2024_面接内訳』)</h2>
+        <p className="text-xs text-zinc-500 mb-3 leading-relaxed">
+          面接シートから面接記録を取り込み、CPAの「面接数」「面接CPA」「面接実施率」 に反映します。
+          <br />
+          抽出条件: <strong>NR列 = 「FAX受電」 AND NM列(面接日) ≦ 当日</strong>。
+          月キーは「案件取得日(BK列)」基準のときは NS列、 「内定日(A列)」基準のときは NM列。
+          面接数 = NP列(面接人数) の合計。
+        </p>
+        <div className="space-y-3">
+          <Field label="スプレッドシートID" hint="URLの /d/ と /edit の間の文字列">
+            <input type="text" value={interviewsForm.interviews_sheet_id}
+                   onChange={(e) => setInterviewsForm({ ...interviewsForm, interviews_sheet_id: e.target.value })}
+                   className="rep-input font-mono text-xs"
+                   placeholder="1gHldK7GyXpP9WoeMDi0E5KV6Ql4Xlw1J0_7BrV8U0tA" />
+          </Field>
+          <Field label="シート(タブ)名" hint="既定: 2024_面接内訳">
+            <input type="text" value={interviewsForm.interviews_sheet_name}
+                   onChange={(e) => setInterviewsForm({ ...interviewsForm, interviews_sheet_name: e.target.value })}
+                   className="rep-input text-xs"
+                   placeholder="2024_面接内訳" />
+          </Field>
+          <Field label="読み取り範囲(A1記法)" hint="NU列(384)まで読む必要あり。 A1:OZ20000 程度を推奨">
+            <input type="text" value={interviewsForm.interviews_sheet_range}
+                   onChange={(e) => setInterviewsForm({ ...interviewsForm, interviews_sheet_range: e.target.value })}
+                   className="rep-input font-mono text-xs"
+                   placeholder="A1:OZ20000" />
+          </Field>
+        </div>
+
+        {interviewsCfg && (
+          <div className="mt-4 bg-zinc-50 border border-zinc-200 rounded p-3 text-xs">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-zinc-500">最終同期:</span>
+              <span>{interviewsCfg.interviews_last_synced_at ? new Date(interviewsCfg.interviews_last_synced_at).toLocaleString('ja-JP') : '未実行'}</span>
+              {interviewsCfg.interviews_last_sync_status && interviewsCfg.interviews_last_sync_status !== 'never' && (
+                <span className={[
+                  'px-1.5 py-0.5 rounded text-[10px]',
+                  interviewsCfg.interviews_last_sync_status === 'ok' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700',
+                ].join(' ')}>
+                  {interviewsCfg.interviews_last_sync_status === 'ok' ? 'OK' : 'ERROR'}
+                </span>
+              )}
+            </div>
+            {interviewsCfg.interviews_last_sync_message && (
+              <div className="mt-1 text-zinc-500 break-all">{interviewsCfg.interviews_last_sync_message}</div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 flex items-center gap-2 flex-wrap">
+          <button onClick={saveInterviews} disabled={savingInterviews}
+                  className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded hover:bg-zinc-50 disabled:opacity-50">
+            {savingInterviews ? '保存中…' : '面接シート設定を保存'}
+          </button>
+          <button onClick={syncInterviews} disabled={syncingInterviews || !interviewsForm.interviews_sheet_id}
+                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+            {syncingInterviews ? '同期中…' : '今すぐ同期'}
+          </button>
+          {interviewsSyncResult && (
+            <span className="text-xs text-emerald-700">
+              ✓ 取込 {interviewsSyncResult.kept} / 新規 {interviewsSyncResult.inserted} / 更新 {interviewsSyncResult.updated}
+              <span className="text-zinc-500 ml-2">
+                (FAX以外 {interviewsSyncResult.skippedNotFax} / 未来or無日付 {interviewsSyncResult.skippedFutureOrNoDate} / キー無 {interviewsSyncResult.skippedNoKey})
               </span>
             </span>
           )}
