@@ -35,6 +35,7 @@ export default function CustomersPage() {
   const [showImport, setShowImport] = useState(false);
   const [syncPulling, setSyncPulling] = useState(false);
   const [syncPushing, setSyncPushing] = useState(false);
+  const [syncingBoth, setSyncingBoth] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
 
   const reload = () => setReloadKey((k) => k + 1);
@@ -61,6 +62,31 @@ export default function CustomersPage() {
     } catch (e) {
       toast.error(e.userMessage || 'callcenter からの取り込み失敗');
     } finally { setSyncPulling(false); }
+  };
+
+  const syncBoth = async () => {
+    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (!syncStatus?.configured) {
+      toast.error('callcenter 連携が未設定 (環境変数 CALLCENTER_API_BASE_URL / CALLCENTER_API_TOKEN を設定してください)');
+      return;
+    }
+    setSyncingBoth(true);
+    try {
+      const { data } = await api.post('/api/customers/sync/both?limit=2000', null, { timeout: 300000 });
+      const r = data.data || {};
+      const pull = r.pull || {};
+      const push = r.push || {};
+      toast.success(
+        `双方向同期OK\n` +
+        `← 取込: ${pull.fetched ?? 0}件中 新規${pull.inserted ?? 0} / 紐付け${pull.linked ?? 0} / 更新${pull.updated ?? 0}\n` +
+        `→ 送信: ${push.total ?? 0}件中 新規${push.created ?? 0} / 更新${push.updated ?? 0} / エラー${push.errors ?? 0}`,
+        { duration: 8000 }
+      );
+      if (r.error) toast.error(r.error, { duration: 10000 });
+      reload();
+    } catch (e) {
+      toast.error(e.userMessage || '双方向同期失敗');
+    } finally { setSyncingBoth(false); }
   };
 
   const pushToCallcenter = async () => {
@@ -148,25 +174,39 @@ export default function CustomersPage() {
             再読み込み
           </button>
           <button
-            onClick={pullFromCallcenter}
-            disabled={syncPulling || (syncStatus && !syncStatus.configured)}
+            onClick={syncBoth}
+            disabled={syncingBoth || syncPulling || syncPushing || (syncStatus && !syncStatus.configured)}
             className="px-3 py-2 text-sm bg-sky-600 text-white rounded-md hover:bg-sky-700 disabled:opacity-50"
             title={syncStatus?.configured
-              ? 'callcenter-ai-system の企業マスタを取り込み (肉付けマージ)'
+              ? 'callcenter と双方向同期 (pull → push 順次、 ワンクリック)'
               : 'callcenter 連携 未設定 (env: CALLCENTER_API_BASE_URL / CALLCENTER_API_TOKEN)'}
           >
-            {syncPulling ? '取込中…' : 'callcenter から取込'}
+            {syncingBoth ? '双方向同期中…' : 'callcenter と双方向同期'}
           </button>
-          <button
-            onClick={pushToCallcenter}
-            disabled={syncPushing || (syncStatus && !syncStatus.configured)}
-            className="px-3 py-2 text-sm bg-sky-700 text-white rounded-md hover:bg-sky-800 disabled:opacity-50"
-            title={syncStatus?.configured
-              ? 'fax-crm の顧客を callcenter へ送信 (新規作成 or 更新)'
-              : 'callcenter 連携 未設定'}
-          >
-            {syncPushing ? '送信中…' : 'callcenter へ送信'}
-          </button>
+          {/* 個別操作 (折り畳み) */}
+          <details className="inline-block">
+            <summary className="cursor-pointer px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50 list-none select-none">
+              ▼ 個別
+            </summary>
+            <div className="absolute mt-1 bg-white border border-zinc-200 rounded-md shadow-lg p-2 flex flex-col gap-1 z-10">
+              <button
+                onClick={pullFromCallcenter}
+                disabled={syncPulling || syncingBoth || (syncStatus && !syncStatus.configured)}
+                className="px-3 py-1.5 text-xs bg-white border border-zinc-200 text-zinc-700 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap"
+                title="callcenter → fax-crm (取込のみ)"
+              >
+                {syncPulling ? '取込中…' : '← callcenter から取込のみ'}
+              </button>
+              <button
+                onClick={pushToCallcenter}
+                disabled={syncPushing || syncingBoth || (syncStatus && !syncStatus.configured)}
+                className="px-3 py-1.5 text-xs bg-white border border-zinc-200 text-zinc-700 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap"
+                title="fax-crm → callcenter (送信のみ、 confirm あり)"
+              >
+                {syncPushing ? '送信中…' : '→ callcenter へ送信のみ'}
+              </button>
+            </div>
+          </details>
           <button onClick={() => setShowImport(true)}
                   className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
             CSVインポート

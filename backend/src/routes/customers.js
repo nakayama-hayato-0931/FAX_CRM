@@ -110,4 +110,13 @@ router.post('/sync/push', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/customers/sync/both — 双方向同期 (pull → push 順次)
+router.post('/sync/both', async (req, res, next) => {
+  try {
+    const pushLimit = Number(req.query.limit) || 2000;
+    const stats = await customerSync.syncBothDirections({ pushLimit });
+    return created(res, stats);
+  } catch (e) { next(e); }
+});
+
 module.exports = router;

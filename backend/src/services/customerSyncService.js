@@ -203,8 +203,36 @@ async function pushAllToCallcenter({ limit = 1000 } = {}) {
   return stats;
 }
 
+/**
+ * 双方向同期 (pull → push を順次実行)
+ *   - pull で external_callcenter_id 紐付けを更新してから push することで
+ *     既存顧客の重複作成を防ぐ
+ *   - 個別のステージが失敗しても他方を試みる (best-effort)
+ */
+async function syncBothDirections({ pushLimit = 2000 } = {}) {
+  const result = { pull: null, push: null, error: null };
+
+  try {
+    result.pull = await pullFromCallcenter();
+  } catch (e) {
+    result.error = `pull失敗: ${e.message}`;
+    console.error('[customerSync] pull error:', e.message);
+  }
+
+  try {
+    result.push = await pushAllToCallcenter({ limit: pushLimit });
+  } catch (e) {
+    const msg = `push失敗: ${e.message}`;
+    result.error = result.error ? `${result.error} | ${msg}` : msg;
+    console.error('[customerSync] push error:', e.message);
+  }
+
+  return result;
+}
+
 module.exports = {
   pullFromCallcenter,
   pushCustomerToCallcenter,
   pushAllToCallcenter,
+  syncBothDirections,
 };
