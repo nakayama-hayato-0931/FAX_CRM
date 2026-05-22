@@ -53,6 +53,9 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
   const totalInterviewers = rows.reduce((a, r) => a + Number(r.interview_count || 0), 0);
   const totalPasses = rows.reduce((a, r) => a + Number(r.pass_count || 0), 0);
   const passRate = totalInterviewers > 0 ? Math.round((totalPasses / totalInterviewers) * 1000) / 10 : null;
+  // 面接した会社数 = DISTINCT 求人番号 (CPA表の「面接数」 と一致するロジック)
+  const distinctJobKeys = new Set(rows.map((r) => r.job_number || r.company_name || `__row${r.id}`));
+  const distinctCompanyCount = distinctJobKeys.size;
 
   const basisLabel = basis === 'offer' ? '面接日(NM列)' : '案件取得日(NS列)';
 
@@ -75,11 +78,11 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
               『2024_面接内訳』 シートより / 抽出条件: NR='FAX受電' AND 面接日≦当日 / 月キー: {basisLabel}
               {!loading && (
                 <span className="ml-2">
-                  面接人数合計 <strong className="text-zinc-700">{totalInterviewers}</strong> 名
-                  / 合格 <strong className="text-zinc-700">{totalPasses}</strong> 名
+                  面接 <strong className="text-zinc-700">{distinctCompanyCount}</strong> 社
+                  / 面接人数 {totalInterviewers} 名 / 合格 {totalPasses} 名
                   {passRate != null && <span className="ml-1">(合格率 {passRate}%)</span>}
-                  {expectedCount != null && expectedCount !== totalInterviewers && (
-                    <span className="text-amber-600 ml-2">(CPA表: {expectedCount} 名)</span>
+                  {expectedCount != null && expectedCount !== distinctCompanyCount && (
+                    <span className="text-amber-600 ml-2">(CPA表: {expectedCount} 社)</span>
                   )}
                 </span>
               )}
@@ -119,24 +122,39 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-t border-zinc-100 hover:bg-zinc-50/60">
-                    <Td>{date(r.interview_date)}</Td>
-                    <Td>{date(r.acquired_date)}</Td>
-                    <Td className="font-mono">{r.job_number || '—'}</Td>
-                    <Td className="max-w-[260px] truncate" title={r.company_name || ''}>
-                      {r.company_name || '—'}
-                    </Td>
-                    <Td>{r.sales_owner || '—'}</Td>
-                    <Td>{r.industry || '—'}</Td>
-                    <Td align="right" className="tabular-nums">{num(r.interview_count)}</Td>
-                    <Td align="right" className="tabular-nums">{num(r.pass_count)}</Td>
-                  </tr>
-                ))}
+                {rows.map((r, idx) => {
+                  const key = r.job_number || r.company_name || `__row${r.id}`;
+                  const prevKey = idx > 0 ? (rows[idx - 1].job_number || rows[idx - 1].company_name || `__row${rows[idx - 1].id}`) : null;
+                  const isGroupStart = key !== prevKey;
+                  return (
+                    <tr
+                      key={r.id}
+                      className={[
+                        isGroupStart ? 'border-t-2 border-zinc-300' : 'border-t border-zinc-100/50',
+                        'hover:bg-zinc-50/60',
+                      ].join(' ')}
+                    >
+                      <Td>{date(r.interview_date)}</Td>
+                      <Td>{date(r.acquired_date)}</Td>
+                      <Td className="font-mono">
+                        {isGroupStart ? (r.job_number || '—') : <span className="text-zinc-300">″</span>}
+                      </Td>
+                      <Td className="max-w-[260px] truncate" title={r.company_name || ''}>
+                        {isGroupStart ? (r.company_name || '—') : <span className="text-zinc-300">″</span>}
+                      </Td>
+                      <Td>{r.sales_owner || '—'}</Td>
+                      <Td>{isGroupStart ? (r.industry || '—') : <span className="text-zinc-300">″</span>}</Td>
+                      <Td align="right" className="tabular-nums">{num(r.interview_count)}</Td>
+                      <Td align="right" className="tabular-nums">{num(r.pass_count)}</Td>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot className="bg-zinc-50 border-t-2 border-zinc-300 sticky bottom-0">
                 <tr className="font-semibold">
-                  <Td colSpan={6} align="right" className="text-zinc-700">合計 ({rows.length}件)</Td>
+                  <Td colSpan={6} align="right" className="text-zinc-700">
+                    面接 <strong>{distinctCompanyCount}</strong> 社 / 行 {rows.length} 件
+                  </Td>
                   <Td align="right" className="tabular-nums">{num(totalInterviewers)}</Td>
                   <Td align="right" className="tabular-nums">{num(totalPasses)}</Td>
                 </tr>

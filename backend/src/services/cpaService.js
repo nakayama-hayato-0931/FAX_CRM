@@ -150,7 +150,7 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
     ) pr ON pr.month = m.month
     LEFT JOIN (
       SELECT DATE_FORMAT(${ivCol}, '%Y-%m-01') AS month,
-        SUM(interview_count) AS interviews    -- NP列 (面接人数) の合計
+        COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS interviews  -- 面接した会社数 (同一求人は1社カウント)
       FROM interview_records
       WHERE ${ivCol} IS NOT NULL
         AND source_kind = 'FAX受電'

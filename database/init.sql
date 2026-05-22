@@ -367,7 +367,7 @@ CREATE TABLE IF NOT EXISTS performance_records (
 --   interviews                                       ← interview_records (シート『2024_面接内訳』同期)
 --     - NR='FAX受電' AND NM<=today の行のみ
 --     - 月次キーは acquired_date (NS列)
---     - SUM(interview_count) = NP列の合計
+--     - COUNT(DISTINCT job_number) = 面接した会社数 (同一求人の複数候補者は1社カウント)
 --   ROAS = 初回入金 / コスト合算
 -- 月キー: 上記5ソースのいずれかに存在する月をすべて FULL OUTER JOIN 的に拾う
 CREATE OR REPLACE VIEW v_cpa_monthly AS
@@ -425,7 +425,7 @@ LEFT JOIN (
 LEFT JOIN (
   SELECT
     DATE_FORMAT(acquired_date, '%Y-%m-01') AS month,
-    SUM(interview_count) AS interviews   -- NP列の合計 (面接人数)
+    COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS interviews  -- 面接した会社数 (同一求人は1社カウント)
   FROM interview_records
   WHERE acquired_date IS NOT NULL
     AND source_kind = 'FAX受電'

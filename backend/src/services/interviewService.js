@@ -284,7 +284,10 @@ async function list({ month, basis = 'acquired', limit = 1000 } = {}) {
        id, external_key, interview_date, acquired_date, job_number, company_name,
        sales_owner, industry, interview_count, pass_count, source_kind, source_row
      FROM interview_records ${whereSql}
-     ORDER BY interview_date DESC, id DESC
+     ORDER BY
+       COALESCE(NULLIF(job_number, ''), company_name) ASC,  -- 同一求人を隣り合わせる
+       interview_date DESC,
+       id DESC
      LIMIT ?`,
     [...params, Math.min(Number(limit) || 1000, 5000)]
   );
