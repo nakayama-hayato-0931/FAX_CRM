@@ -407,4 +407,5 @@ LEFT JOIN (
   WHERE acquired_date IS NOT NULL
   GROUP BY 1
 ) sp ON sp.month = m.month
+WHERE m.month <= DATE_FORMAT(CURDATE(), '%Y-%m-01')   -- 未来月は除外
 ORDER BY m.month DESC;

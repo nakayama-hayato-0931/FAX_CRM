@@ -161,6 +161,7 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       FROM sales_projects WHERE ${col} IS NOT NULL
       GROUP BY 1
     ) sp ON sp.month = m.month
+    WHERE m.month <= DATE_FORMAT(CURDATE(), '%Y-%m-01')   -- 未来月は除外 (シートに空欄日付列があっても出さない)
     ORDER BY m.month DESC
     LIMIT ?`;
 
