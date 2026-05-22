@@ -26,7 +26,7 @@ const COLUMNS = [
   { key: 'cost',            label: 'コスト',             kind: 'raw',     format: yen, align: 'right' },
   { key: 'sends',           label: '送信数',             kind: 'raw',     format: num, align: 'right' },
   { key: 'project_rate',    label: '案件化率',           kind: 'derived', format: pct, align: 'right' },
-  { key: 'projects',        label: 'FAXからの総案件数',   kind: 'raw',     format: num, align: 'right' },
+  { key: 'projects',        label: '案件数',             kind: 'raw',     format: num, align: 'right' },
   { key: 'project_cpa',     label: '案件CPA',            kind: 'derived', format: yen, align: 'right' },
   { key: 'interviews',      label: '面接数',             kind: 'raw',     format: num, align: 'right' },
   { key: 'interview_cpa',   label: '面接CPA',            kind: 'derived', format: yen, align: 'right' },
@@ -255,9 +255,9 @@ export default function CpaPage() {
         <br />
         ※ 「コスト」「送信数」は <strong>自社FAX(Sheets同期)+ 委託FAX(下記の手入力分)</strong> の合算です。
         <br />
-        ※ 「FAXからの総案件数」「内定社数」「初回入金」「見込売上」は <strong>案件シート(『ビザ申請 進捗』)</strong> から同期されます。
+        ※ 「案件数」「内定社数」「初回入金」「見込売上」は <strong>案件シート(『ビザ申請 進捗』)</strong> から同期されます。
         <br />
-        　・<strong>総案件数</strong> = FAX受電由来の全行(候補者単位、取消/辞退も含む)
+        　・<strong>案件数</strong> = FAX受電由来の全行(候補者単位、取消/辞退も含む)
         　・<strong>内定社数</strong> = 同一求人番号は1社にまとめてカウント(取消/辞退も含む)
         　・<strong>内定社数</strong> をクリックすると、その月の内訳(求人番号でグルーピング)が一覧表示されます
         　・<strong>初回入金 / 見込売上</strong> は取消/辞退の行を ¥0 として集計
