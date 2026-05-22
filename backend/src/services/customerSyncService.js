@@ -62,7 +62,10 @@ async function findExistingCustomer(conn, { external_id, fax_number, phone_numbe
 }
 
 /**
- * callcenter → fax-crm pull (全件)
+ * callcenter → fax-crm pull (streaming + batch upsert で 200万件規模対応)
+ *   - cc.streamAllCompanies で並列ページ取得
+ *   - 各ページごとに 1 multi-row INSERT...ON DUPLICATE KEY UPDATE で upsert
+ *   - 既存マッチは external_callcenter_id (UNIQUE) または fax_number (UNIQUE) でMySQLが自動判定
  */
 async function pullFromCallcenter() {
   if (!dbConfigured()) {
@@ -73,73 +76,68 @@ async function pullFromCallcenter() {
     err.status = 400; err.code = 'NOT_CONFIGURED'; throw err;
   }
 
-  // 営業リスト + オペレータリスト 両方 + 除外フラグ付きも取得
-  const companies = await cc.listAllCompaniesBothLists({ pageSize: 100, showExcluded: '1' });
   const pool = getPool();
-  const conn = await pool.getConnection();
-  const stats = { fetched: companies.length, linked: 0, updated: 0, inserted: 0, skippedNoPhone: 0 };
+  const stats = { fetched: 0, upserted: 0, skipped: 0 };
+  const startedAt = Date.now();
 
-  try {
-    for (const c of companies) {
-      // callcenter の主要フィールド (snake_case で来る想定) + DB上限に合わせて clip
-      const ccId       = Number(c.id);
-      const name       = clip(c.company_name || c.name, 255);
-      const phone      = normPhone(c.phone_number || c.phone);
-      const industry   = clip(c.industry, 100);
-      const region     = clip(c.region, 100);    // customers.prefecture VARCHAR(100)
-      const address    = clip(c.address, 65000); // TEXT
+  // 既存 (sales_list = 0) と 営業 (sales_list = 1) の両系統を順次 stream
+  for (const isSalesList of [null, '1']) {
+    await cc.streamAllCompanies(
+      { pageSize: 100, concurrency: 5, showExcluded: '1', includeSalesList: isSalesList, maxPages: 25000 },
+      async (items, meta) => {
+        stats.fetched += items.length;
+        const rows = items.map((c) => {
+          const ccId  = Number(c.id);
+          const name  = clip(c.company_name || c.name, 255) || '(未設定)';
+          const phone = normPhone(c.phone_number || c.phone);
+          if (!ccId || (!phone && !name)) { stats.skipped++; return null; }
+          return {
+            company_name: name,
+            fax_number: phone || `__cc_${ccId}__`,  // UNIQUE 制約用、 phone があれば優先
+            phone_number: phone,
+            industry: clip(c.industry, 100),
+            prefecture: clip(c.region, 100),
+            address: clip(c.address, 65000),
+            external_callcenter_id: ccId,
+          };
+        }).filter(Boolean);
+        if (rows.length === 0) return;
 
-      if (!phone && !name) { stats.skippedNoPhone++; continue; }
-
-      const existing = await findExistingCustomer(conn, {
-        external_id: ccId,
-        phone_number: phone,
-        // callcenter には fax_number は無いので skip
-      });
-
-      if (existing) {
-        // 肉付けマージ: 既存値を保持、 空欄のみ callcenter 由来で埋める。 external_callcenter_id は必ずセット
-        await conn.query(
-          `UPDATE customers SET
-             external_callcenter_id = COALESCE(external_callcenter_id, ?),
-             company_name  = COALESCE(NULLIF(company_name, ''), ?),
-             phone_number  = COALESCE(NULLIF(phone_number, ''), ?),
-             industry      = COALESCE(NULLIF(industry, ''), ?),
-             prefecture    = COALESCE(NULLIF(prefecture, ''), ?),
-             address       = COALESCE(NULLIF(address, ''), ?)
-           WHERE id = ?`,
-          [ccId, name, phone, industry, region, address, existing.id]
-        );
-        if (existing.matchedBy === 'external_id') stats.updated++;
-        else stats.linked++;  // 既存行に external_id を初めて紐付け
-      } else {
-        // 新規: phone を fax_number にも仮置き (重複防止のため fax_number は phone と同値で挿入)
-        //   ※ UNIQUE KEY uk_customers_fax があるため空文字や NULL 連続でも入る形にする
-        const faxNumberForUniq = phone || `__cc_${ccId}__`;  // 一意性確保用のダミー
+        // multi-row INSERT...ON DUPLICATE KEY UPDATE (肉付けマージ)
+        const placeholders = rows.map(() => '(?, ?, ?, ?, ?, ?, ?, NOW(), \'callcenter-sync\')').join(', ');
+        const values = rows.flatMap((r) => [
+          r.company_name, r.fax_number, r.phone_number, r.industry, r.prefecture, r.address, r.external_callcenter_id,
+        ]);
+        const sql = `
+          INSERT INTO customers (
+            company_name, fax_number, phone_number, industry, prefecture, address,
+            external_callcenter_id, imported_at, source_file
+          ) VALUES ${placeholders}
+          ON DUPLICATE KEY UPDATE
+            external_callcenter_id = COALESCE(customers.external_callcenter_id, VALUES(external_callcenter_id)),
+            company_name  = COALESCE(NULLIF(customers.company_name, ''), VALUES(company_name)),
+            phone_number  = COALESCE(NULLIF(customers.phone_number, ''), VALUES(phone_number)),
+            industry      = COALESCE(NULLIF(customers.industry, ''), VALUES(industry)),
+            prefecture    = COALESCE(NULLIF(customers.prefecture, ''), VALUES(prefecture)),
+            address       = COALESCE(NULLIF(customers.address, ''), VALUES(address))
+        `;
         try {
-          await conn.query(
-            `INSERT INTO customers (
-               company_name, fax_number, phone_number, industry, prefecture, address,
-               external_callcenter_id, imported_at, source_file
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 'callcenter-sync')`,
-            [name || '(未設定)', faxNumberForUniq, phone, industry, region, address, ccId]
-          );
-          stats.inserted++;
+          const [result] = await pool.query(sql, values);
+          stats.upserted += result.affectedRows || 0;
         } catch (e) {
-          if (e.code === 'ER_DUP_ENTRY') {
-            // 競合: 同 fax_number で既に登録あり → 紐付けのみ実施
-            await conn.query(
-              `UPDATE customers
-                  SET external_callcenter_id = COALESCE(external_callcenter_id, ?)
-                WHERE fax_number = ? AND external_callcenter_id IS NULL`,
-              [ccId, faxNumberForUniq]
-            );
-            stats.linked++;
-          } else { throw e; }
+          console.error(`[customerSync] batch failed page=${meta.page} size=${rows.length}: ${e.message}`);
+          throw e;
+        }
+        // 進捗を時々ログ (50ページごと)
+        if (meta.page % 50 === 0) {
+          const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
+          console.log(`[customerSync] page=${meta.page} fetched=${stats.fetched} upserted=${stats.upserted} (${elapsed}s)`);
         }
       }
-    }
-  } finally { conn.release(); }
+    );
+  }
+
+  stats.elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
   return stats;
 }
 

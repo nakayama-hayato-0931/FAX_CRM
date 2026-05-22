@@ -55,9 +55,9 @@ export default function CustomersPage() {
     }
     setSyncPulling(true);
     try {
-      const { data } = await api.post('/api/customers/sync/pull');
+      const { data } = await api.post('/api/customers/sync/pull', null, { timeout: 30 * 60 * 1000 });
       const r = data.data || {};
-      toast.success(`callcenter→fax-crm: 取得${r.fetched ?? 0} / 新規${r.inserted ?? 0} / 紐付け${r.linked ?? 0} / 更新${r.updated ?? 0}`);
+      toast.success(`callcenter → fax-crm: 取得${r.fetched ?? 0}件 / upsert${r.upserted ?? 0}件 (${r.elapsedSec ?? '?'}s)`, { duration: 8000 });
       reload();
     } catch (e) {
       toast.error(e.userMessage || 'callcenter からの取り込み失敗');
@@ -72,15 +72,16 @@ export default function CustomersPage() {
     }
     setSyncingBoth(true);
     try {
-      const { data } = await api.post('/api/customers/sync/both?limit=2000', null, { timeout: 300000 });
+      // 200万件規模の可能性があるため timeout を 30分まで延長
+      const { data } = await api.post('/api/customers/sync/both?limit=2000', null, { timeout: 30 * 60 * 1000 });
       const r = data.data || {};
       const pull = r.pull || {};
       const push = r.push || {};
       toast.success(
         `双方向同期OK\n` +
-        `← 取込: ${pull.fetched ?? 0}件中 新規${pull.inserted ?? 0} / 紐付け${pull.linked ?? 0} / 更新${pull.updated ?? 0}\n` +
+        `← 取込: ${pull.fetched ?? 0}件 (upsert ${pull.upserted ?? 0}件 / skip ${pull.skipped ?? 0}件、 ${pull.elapsedSec ?? '?'}s)\n` +
         `→ 送信: ${push.total ?? 0}件中 新規${push.created ?? 0} / 更新${push.updated ?? 0} / エラー${push.errors ?? 0}`,
-        { duration: 8000 }
+        { duration: 10000 }
       );
       if (r.error) toast.error(r.error, { duration: 10000 });
       reload();

@@ -57,24 +57,33 @@ async function request(method, path, body) {
 }
 
 /**
- * 全企業を取得 (ページング対応)
+ * 全企業を取得 (ページング対応 + 並行取得)
  *   callcenter の GET /api/companies は ApiResponse.success 経由で:
  *     { success, data: { companies: [...], pagination: { page, limit, total, totalPages } }, message, error }
  *   を返す。 limit 最大値は 100 (callcenter 側でクランプされる)
  *
  *   オプション:
  *     pageSize         ... 1ページあたり件数 (max 100)
- *     maxPages         ... 安全装置 (デフォルト 1000ページ = 100000件)
+ *     maxPages         ... 安全装置 (デフォルト 25000ページ = 250万件、 200万件規模対応)
+ *     concurrency      ... 並行リクエスト数 (デフォルト 5、 callcenter 負荷とのバランス)
  *     showExcluded     ... 1 で除外フラグ付き企業も取得 (デフォルト '1' で全件)
  *     includeSpecial   ... 'special' で特別リスト、 何もしないと通常リスト
  *     includeSalesList ... '1' で営業用リスト、 何もしないとオペレータ用リスト
+ *     onProgress       ... (loadedCount, totalIfKnown) のコールバック (任意)
+ *
+ *   実装メモ:
+ *     1ページ目を直列で取得して pagination.totalPages を確定
+ *     → 残りページを並行 (concurrency 単位) で fetch、 メモリ膨張を抑える
+ *     totalPages 不明な場合は直列フォールバック (空ページで終了判定)
  */
 async function listAllCompanies(opts = {}) {
   const pageSize = Math.min(Math.max(Number(opts.pageSize) || 100, 1), 100);
-  const maxPages = Number(opts.maxPages) || 1000;
-  const showExcluded = opts.showExcluded ?? '1';  // 既定: 除外企業も取得
+  const maxPages = Number(opts.maxPages) || 25000;
+  const concurrency = Math.min(Math.max(Number(opts.concurrency) || 5, 1), 20);
+  const showExcluded = opts.showExcluded ?? '1';
   const listType = opts.includeSpecial === 'special' ? 'special' : null;
   const isSalesList = opts.includeSalesList === '1' ? '1' : null;
+  const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
 
   const baseParams = new URLSearchParams();
   baseParams.set('limit', String(pageSize));
@@ -82,22 +91,57 @@ async function listAllCompanies(opts = {}) {
   if (listType) baseParams.set('list_type', listType);
   if (isSalesList) baseParams.set('is_sales_list', isSalesList);
 
-  const all = [];
-  let page = 1;
-  while (page <= maxPages) {
-    baseParams.set('page', String(page));
-    const resp = await request('GET', `/api/companies?${baseParams.toString()}`);
-    // resp = { success, data: { companies: [...], pagination: {...} }, ... }
-    const block = resp?.data;
-    const items = Array.isArray(block?.companies) ? block.companies
-                : Array.isArray(block) ? block       // 単純配列フォールバック
-                : [];
-    if (items.length === 0) break;
-    all.push(...items);
-    const pg = block?.pagination;
-    if (pg && pg.totalPages && page >= pg.totalPages) break;
-    if (items.length < pageSize) break;  // ページサイズ未満なら最終ページ
-    page++;
+  // ---- 1) 1ページ目 (totalPages 確定用) ----
+  baseParams.set('page', '1');
+  const first = await request('GET', `/api/companies?${baseParams.toString()}`);
+  const firstBlock = first?.data;
+  const firstItems = Array.isArray(firstBlock?.companies) ? firstBlock.companies
+                   : Array.isArray(firstBlock) ? firstBlock : [];
+  if (firstItems.length === 0) return [];
+  const all = [...firstItems];
+  if (onProgress) onProgress(all.length, firstBlock?.pagination?.total ?? null);
+
+  const totalPages = firstBlock?.pagination?.totalPages || null;
+  const stopPage = totalPages ? Math.min(totalPages, maxPages) : maxPages;
+  if (stopPage <= 1) return all;
+
+  // ---- 2) 残りページを並行取得 ----
+  if (totalPages) {
+    // totalPages 既知 → ページ番号一覧を作って worker pool で並列
+    const queue = [];
+    for (let p = 2; p <= stopPage; p++) queue.push(p);
+    let cursor = 0;
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (cursor < queue.length) {
+        const myIdx = cursor++;
+        const p = queue[myIdx];
+        const params = new URLSearchParams(baseParams);
+        params.set('page', String(p));
+        const resp = await request('GET', `/api/companies?${params.toString()}`);
+        const block = resp?.data;
+        const items = Array.isArray(block?.companies) ? block.companies
+                    : Array.isArray(block) ? block : [];
+        all.push(...items);
+        if (onProgress) onProgress(all.length, firstBlock?.pagination?.total ?? null);
+      }
+    });
+    await Promise.all(workers);
+  } else {
+    // totalPages 不明 → 直列フォールバック (空ページで終了判定)
+    let page = 2;
+    while (page <= stopPage) {
+      const params = new URLSearchParams(baseParams);
+      params.set('page', String(page));
+      const resp = await request('GET', `/api/companies?${params.toString()}`);
+      const block = resp?.data;
+      const items = Array.isArray(block?.companies) ? block.companies
+                  : Array.isArray(block) ? block : [];
+      if (items.length === 0) break;
+      all.push(...items);
+      if (items.length < pageSize) break;
+      if (onProgress) onProgress(all.length, null);
+      page++;
+    }
   }
   return all;
 }
@@ -133,8 +177,86 @@ async function updateCompany(id, payload) {
   return resp?.data || resp;
 }
 
+/**
+ * 全企業をページ単位で stream 処理 (メモリ膨張回避)
+ *   onBatch(items, meta) を各ページごとに呼ぶ
+ *   - 200万件規模ではこちらを使う (listAllCompanies は全件 array で持つ)
+ *   - 内部実装は listAllCompanies と同等の並行取得
+ */
+async function streamAllCompanies(opts, onBatch) {
+  if (typeof onBatch !== 'function') throw new Error('onBatch required');
+  const pageSize = Math.min(Math.max(Number(opts.pageSize) || 100, 1), 100);
+  const maxPages = Number(opts.maxPages) || 25000;
+  const concurrency = Math.min(Math.max(Number(opts.concurrency) || 5, 1), 20);
+  const showExcluded = opts.showExcluded ?? '1';
+  const listType = opts.includeSpecial === 'special' ? 'special' : null;
+  const isSalesList = opts.includeSalesList === '1' ? '1' : null;
+
+  const baseParams = new URLSearchParams();
+  baseParams.set('limit', String(pageSize));
+  if (showExcluded) baseParams.set('show_excluded', String(showExcluded));
+  if (listType) baseParams.set('list_type', listType);
+  if (isSalesList) baseParams.set('is_sales_list', isSalesList);
+
+  // 1ページ目で totalPages 確定
+  baseParams.set('page', '1');
+  const first = await request('GET', `/api/companies?${baseParams.toString()}`);
+  const firstBlock = first?.data;
+  const firstItems = Array.isArray(firstBlock?.companies) ? firstBlock.companies
+                   : Array.isArray(firstBlock) ? firstBlock : [];
+  const total = firstBlock?.pagination?.total ?? null;
+  if (firstItems.length === 0) return { totalProcessed: 0, totalKnown: total };
+
+  let processed = 0;
+  await onBatch(firstItems, { page: 1, total });
+  processed += firstItems.length;
+
+  const totalPages = firstBlock?.pagination?.totalPages || null;
+  const stopPage = totalPages ? Math.min(totalPages, maxPages) : maxPages;
+  if (stopPage <= 1) return { totalProcessed: processed, totalKnown: total };
+
+  if (totalPages) {
+    const queue = [];
+    for (let p = 2; p <= stopPage; p++) queue.push(p);
+    let cursor = 0;
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (cursor < queue.length) {
+        const myIdx = cursor++;
+        const p = queue[myIdx];
+        const params = new URLSearchParams(baseParams);
+        params.set('page', String(p));
+        const resp = await request('GET', `/api/companies?${params.toString()}`);
+        const block = resp?.data;
+        const items = Array.isArray(block?.companies) ? block.companies
+                    : Array.isArray(block) ? block : [];
+        if (items.length > 0) {
+          await onBatch(items, { page: p, total });
+          processed += items.length;
+        }
+      }
+    });
+    await Promise.all(workers);
+  } else {
+    let page = 2;
+    while (page <= stopPage) {
+      const params = new URLSearchParams(baseParams);
+      params.set('page', String(page));
+      const resp = await request('GET', `/api/companies?${params.toString()}`);
+      const block = resp?.data;
+      const items = Array.isArray(block?.companies) ? block.companies
+                  : Array.isArray(block) ? block : [];
+      if (items.length === 0) break;
+      await onBatch(items, { page, total });
+      processed += items.length;
+      if (items.length < pageSize) break;
+      page++;
+    }
+  }
+  return { totalProcessed: processed, totalKnown: total };
+}
+
 module.exports = {
   isConfigured,
-  listAllCompanies, listAllCompaniesBothLists,
+  listAllCompanies, listAllCompaniesBothLists, streamAllCompanies,
   getCompany, createCompany, updateCompany,
 };
