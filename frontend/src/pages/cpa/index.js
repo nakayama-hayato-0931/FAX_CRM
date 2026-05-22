@@ -174,9 +174,9 @@ export default function CpaPage() {
             onClick={syncProjects}
             disabled={syncingProjects}
             className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50"
-            title="『ビザ申請 進捗』シートから内定案件を再同期"
+            title="『ビザ申請 進捗』シートから内定案件 (案件数/内定社数/初回入金/見込売上) を再同期"
           >
-            {syncingProjects ? '案件同期中…' : '案件シート同期'}
+            {syncingProjects ? '売上同期中…' : '売上シート同期'}
           </button>
           <button
             onClick={syncInterviews}
