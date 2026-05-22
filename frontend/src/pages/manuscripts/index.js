@@ -74,9 +74,9 @@ export default function ManuscriptsIndex() {
     <div>
       <div className="flex items-end justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900">原稿管理</h1>
+          <h1 className="text-2xl font-bold text-zinc-900">ドライブ格納</h1>
           <p className="text-zinc-500 mt-1 text-sm">
-            日付ごとに23スロットの原稿フォルダを管理 (Drive の 2026/0501/{'{'}1..23{'}'} に対応)
+            日付ごとに23スロットの Drive フォルダを管理 (旧「原稿管理」 / Drive の 2026/0501/{'{'}1..23{'}'} に対応)
             {isDemo && <span className="ml-2 px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">デモ表示</span>}
           </p>
         </div>

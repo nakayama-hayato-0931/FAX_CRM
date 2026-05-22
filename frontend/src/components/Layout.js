@@ -6,7 +6,8 @@ const NAV = [
   { href: '/', label: 'ホーム' },
   { href: '/customers', label: '顧客マスタ' },
   { href: '/lists', label: 'リスト抽出' },
-  { href: '/manuscripts', label: '原稿管理' },
+  { href: '/scripts', label: '原稿管理' },         // 新: PDF登録 + メタデータ + 使用記録
+  { href: '/manuscripts', label: 'ドライブ格納' },  // 旧「原稿管理」: Drive フォルダスロット管理
   { href: '/reports', label: '受電報告' },
   { href: '/fax-stats', label: 'FAX送信実績' },
   { href: '/cpa', label: 'CPA指標' },

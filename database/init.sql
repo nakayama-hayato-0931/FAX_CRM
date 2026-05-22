@@ -102,6 +102,52 @@ CREATE TABLE IF NOT EXISTS manuscripts (
 ) ENGINE=InnoDB COMMENT='原稿(日付別×23スロット)';
 
 -- --------------------------------------------
+-- 原稿管理 (PDFファイル + メタデータ) ※旧「原稿管理」(Drive スロット) は ドライブ格納 に改名
+-- --------------------------------------------
+CREATE TABLE IF NOT EXISTS manuscript_contents (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  title VARCHAR(255) DEFAULT NULL,
+  registration_no VARCHAR(100) DEFAULT NULL COMMENT '登録番号',
+  nationality VARCHAR(20) DEFAULT NULL COMMENT 'ベトナム/ミャンマー/ネパール/モンゴル/スリランカ/バングラディシュ',
+  gender VARCHAR(4) DEFAULT NULL COMMENT '男/女',
+  industry_category VARCHAR(20) DEFAULT NULL COMMENT '飲食/製造/小売/宿泊/建設/その他',
+  pdf_file_path VARCHAR(500) DEFAULT NULL COMMENT 'サーバ上の相対パス',
+  pdf_original_name VARCHAR(255) DEFAULT NULL,
+  pdf_size_bytes BIGINT DEFAULT NULL,
+  pdf_drive_url VARCHAR(500) DEFAULT NULL,
+  thumbnail_url VARCHAR(500) DEFAULT NULL,
+  memo TEXT DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_mc_registration (registration_no),
+  INDEX idx_mc_nationality (nationality),
+  INDEX idx_mc_industry (industry_category),
+  INDEX idx_mc_gender (gender),
+  INDEX idx_mc_created (created_at DESC)
+) ENGINE=InnoDB COMMENT='原稿(PDF)とメタデータ';
+
+-- 1原稿 × 送信日 × PC = 1行、 各受電結果別件数を記録
+CREATE TABLE IF NOT EXISTS manuscript_content_usage (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  manuscript_content_id INT UNSIGNED NOT NULL,
+  send_date DATE NOT NULL,
+  pc_number VARCHAR(20) NOT NULL,
+  sent_count INT NOT NULL DEFAULT 0,
+  no_response_count INT NOT NULL DEFAULT 0,
+  response_inquiry_count INT NOT NULL DEFAULT 0,
+  response_order_count INT NOT NULL DEFAULT 0,
+  refusal_count INT NOT NULL DEFAULT 0,
+  invalid_number_count INT NOT NULL DEFAULT 0,
+  other_count INT NOT NULL DEFAULT 0,
+  note TEXT DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_mcu (manuscript_content_id, send_date, pc_number),
+  INDEX idx_mcu_date_pc (send_date, pc_number),
+  CONSTRAINT fk_mcu_manuscript FOREIGN KEY (manuscript_content_id) REFERENCES manuscript_contents(id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='原稿の送信日×PC別 受電結果集計';
+
+-- --------------------------------------------
 -- リスト抽出バッチ (Excelファイル1個に相当)
 -- --------------------------------------------
 CREATE TABLE IF NOT EXISTS extraction_batches (
