@@ -87,15 +87,29 @@ router.delete('/:id(\\d+)', async (req, res, next) => {
 });
 
 // GET /api/manuscript-contents/:id/pdf — PDFダウンロード/プレビュー
+//   Drive 保存があれば Drive から stream、 無ければローカル fallback
 router.get('/:id(\\d+)/pdf', async (req, res, next) => {
   try {
     const r = await svc.getById(req.params.id);
     if (!r) return fail(res, 404, 'NOT_FOUND', '原稿が見つかりません');
-    const full = svc.getPdfPath(r);
-    if (!full) return fail(res, 404, 'NO_PDF', 'PDFファイルが保存されていません');
+    const src = await svc.getPdfSource(r);
+    if (!src) return fail(res, 404, 'NO_PDF', 'PDFファイルが保存されていません');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(r.pdf_original_name || `manuscript-${r.id}.pdf`)}"`);
-    fs.createReadStream(full).pipe(res);
+    if (src.source === 'drive') {
+      src.stream.pipe(res);
+    } else {
+      fs.createReadStream(src.path).pipe(res);
+    }
+  } catch (e) { next(e); }
+});
+
+// POST /api/manuscript-contents/migrate-to-drive — 既存ローカルPDF を Drive に一括移行
+router.post('/migrate-to-drive', async (req, res, next) => {
+  try {
+    const limit = Number(req.query.limit) || 1000;
+    const stats = await svc.migrateLocalToDrive({ limit });
+    return ok(res, stats);
   } catch (e) { next(e); }
 });
 

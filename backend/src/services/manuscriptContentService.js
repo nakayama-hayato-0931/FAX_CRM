@@ -10,9 +10,31 @@
 const fs = require('fs');
 const path = require('path');
 const { getPool, isConfigured } = require('../../config/db');
+const settings = require('./settingsService');
+const drive = require('./driveService');
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve(__dirname, '../../uploads');
 const PDF_SUBDIR = 'manuscripts';
+
+/**
+ * 原稿PDFを格納する Drive 親フォルダ ID を取得
+ *   1) manuscript_pdf_drive_folder_id が設定済 → それを使う
+ *   2) 未設定 → drive_root_folder_id 配下に 'manuscripts' フォルダを findOrCreate
+ *   3) どちらも未設定 → null (= Drive 保存しない、 ローカルfallback)
+ */
+async function getPdfDriveFolderId() {
+  const direct = await settings.get('manuscript_pdf_drive_folder_id');
+  if (direct) return direct;
+  const root = await settings.get('drive_root_folder_id');
+  if (!root) return null;
+  try {
+    const folder = await drive.findOrCreateFolder({ name: 'manuscripts', parentId: root });
+    return folder.id;
+  } catch (e) {
+    console.error('[manuscriptContent] manuscripts フォルダ作成失敗:', e.message);
+    return null;
+  }
+}
 
 const NATIONALITIES = ['ベトナム','ミャンマー','ネパール','モンゴル','スリランカ','バングラディシュ'];
 const GENDERS = ['男','女'];
@@ -127,22 +149,52 @@ async function create({ title, registration_no, nationality, gender, industry_ca
   );
   const newId = r1.insertId;
 
-  // PDF を id 確定後にリネーム保存
+  // PDF: 1) Drive にアップロード (設定済なら) 2) ローカルにも一旦保存 (fallback)
   if (file && file.path && fs.existsSync(file.path)) {
-    const dir = ensurePdfDir();
-    const dst = path.join(dir, `${newId}.pdf`);
-    try {
-      fs.renameSync(file.path, dst);
-    } catch (e) {
-      // ボリュームまたぎで rename 失敗時は copy + unlink
-      fs.copyFileSync(file.path, dst);
-      try { fs.unlinkSync(file.path); } catch (_) {}
+    const folderId = await getPdfDriveFolderId();
+    const niceName = `${newId}_${file.originalname || `manuscript-${newId}.pdf`}`.replace(/[\r\n\t]/g, '');
+
+    if (folderId) {
+      // Drive に upload
+      try {
+        const driveFile = await drive.uploadFile({
+          filePath: file.path,
+          mimeType: 'application/pdf',
+          name: niceName,
+          parentId: folderId,
+        });
+        await pool.query(
+          'UPDATE manuscript_contents SET pdf_drive_file_id = ?, pdf_drive_url = ? WHERE id = ?',
+          [driveFile.id, driveFile.webViewLink || null, newId]
+        );
+        // upload 成功したらローカル一時ファイルは削除
+        try { fs.unlinkSync(file.path); } catch (_) {}
+      } catch (e) {
+        console.error(`[manuscriptContent] Drive upload 失敗、 ローカル fallback: ${e.message}`);
+        // fallback to local
+        await saveLocal(pool, newId, file);
+      }
+    } else {
+      // Drive 未設定 → ローカル保存
+      await saveLocal(pool, newId, file);
     }
-    const relPath = path.join(PDF_SUBDIR, `${newId}.pdf`).replace(/\\/g, '/');
-    await pool.query('UPDATE manuscript_contents SET pdf_file_path = ? WHERE id = ?', [relPath, newId]);
   }
 
   return getById(newId);
+}
+
+// fallback: ローカル uploads/manuscripts/<id>.pdf に保存
+async function saveLocal(pool, id, file) {
+  const dir = ensurePdfDir();
+  const dst = path.join(dir, `${id}.pdf`);
+  try {
+    fs.renameSync(file.path, dst);
+  } catch (_e) {
+    fs.copyFileSync(file.path, dst);
+    try { fs.unlinkSync(file.path); } catch (_) {}
+  }
+  const relPath = path.join(PDF_SUBDIR, `${id}.pdf`).replace(/\\/g, '/');
+  await pool.query('UPDATE manuscript_contents SET pdf_file_path = ? WHERE id = ?', [relPath, id]);
 }
 
 async function update(id, patch) {
@@ -167,10 +219,16 @@ async function update(id, patch) {
 
 async function remove(id) {
   const pool = getPool();
-  // PDF ファイルも削除
-  const [rows] = await pool.query('SELECT pdf_file_path FROM manuscript_contents WHERE id = ?', [id]);
-  if (rows[0]?.pdf_file_path) {
-    const full = path.resolve(UPLOAD_DIR, rows[0].pdf_file_path);
+  const [rows] = await pool.query('SELECT pdf_file_path, pdf_drive_file_id FROM manuscript_contents WHERE id = ?', [id]);
+  const r = rows[0];
+  // Drive 上のファイル削除 (失敗しても DB delete は続行)
+  if (r?.pdf_drive_file_id) {
+    try { await drive.deleteFile(r.pdf_drive_file_id); }
+    catch (e) { console.error(`[manuscriptContent] Drive delete failed: ${e.message}`); }
+  }
+  // ローカル fallback も削除
+  if (r?.pdf_file_path) {
+    const full = path.resolve(UPLOAD_DIR, r.pdf_file_path);
     try { fs.unlinkSync(full); } catch (_) {}
   }
   await pool.query('DELETE FROM manuscript_contents WHERE id = ?', [id]);
@@ -178,8 +236,28 @@ async function remove(id) {
 }
 
 /**
- * PDF ファイルストリーム (download / preview)
+ * PDF ファイル取得ヘルパー
+ *   - Drive 保存があれば Drive から stream を返す ({ source: 'drive', stream })
+ *   - 無ければローカルファイルパスを返す ({ source: 'local', path })
+ *   - どちらも無ければ null
  */
+async function getPdfSource(record) {
+  if (record?.pdf_drive_file_id) {
+    try {
+      const stream = await drive.downloadFileStream(record.pdf_drive_file_id);
+      return { source: 'drive', stream };
+    } catch (e) {
+      console.error(`[manuscriptContent] Drive download失敗、 local fallback: ${e.message}`);
+    }
+  }
+  if (record?.pdf_file_path) {
+    const full = path.resolve(UPLOAD_DIR, record.pdf_file_path);
+    if (fs.existsSync(full)) return { source: 'local', path: full };
+  }
+  return null;
+}
+
+// 旧API互換 (deprecated)
 function getPdfPath(record) {
   if (!record?.pdf_file_path) return null;
   const full = path.resolve(UPLOAD_DIR, record.pdf_file_path);
@@ -239,9 +317,53 @@ async function deleteUsage(usageId) {
   return { ok: true };
 }
 
+/**
+ * 既存のローカル保存 PDF を Drive に一括移行 (drive folder 設定済の場合のみ)
+ *   pdf_file_path がある & pdf_drive_file_id が無い 全レコードを処理
+ */
+async function migrateLocalToDrive({ limit = 1000 } = {}) {
+  if (!isConfigured()) { const e = new Error('DB未設定'); e.status = 500; throw e; }
+  const folderId = await getPdfDriveFolderId();
+  if (!folderId) {
+    const e = new Error('Drive 親フォルダ未設定 (settings: drive_root_folder_id / manuscript_pdf_drive_folder_id)');
+    e.status = 400; throw e;
+  }
+  const pool = getPool();
+  const [rows] = await pool.query(
+    `SELECT id, pdf_file_path, pdf_original_name FROM manuscript_contents
+      WHERE pdf_drive_file_id IS NULL AND pdf_file_path IS NOT NULL
+      LIMIT ?`,
+    [Math.min(Number(limit) || 1000, 5000)]
+  );
+  const stats = { target: rows.length, uploaded: 0, missing: 0, errors: 0 };
+  for (const r of rows) {
+    const full = path.resolve(UPLOAD_DIR, r.pdf_file_path);
+    if (!fs.existsSync(full)) { stats.missing++; continue; }
+    try {
+      const f = await drive.uploadFile({
+        filePath: full,
+        mimeType: 'application/pdf',
+        name: `${r.id}_${r.pdf_original_name || `manuscript-${r.id}.pdf`}`.replace(/[\r\n\t]/g, ''),
+        parentId: folderId,
+      });
+      await pool.query(
+        'UPDATE manuscript_contents SET pdf_drive_file_id = ?, pdf_drive_url = ? WHERE id = ?',
+        [f.id, f.webViewLink || null, r.id]
+      );
+      // local 削除は別途
+      stats.uploaded++;
+    } catch (e) {
+      console.error(`[manuscriptContent] migrate id=${r.id} failed: ${e.message}`);
+      stats.errors++;
+    }
+  }
+  return stats;
+}
+
 module.exports = {
   list, getById, create, update, remove,
-  getPdfPath,
+  getPdfPath, getPdfSource,
   listUsage, upsertUsage, deleteUsage,
+  migrateLocalToDrive, getPdfDriveFolderId,
   NATIONALITIES, GENDERS, INDUSTRY_CATEGORIES,
 };

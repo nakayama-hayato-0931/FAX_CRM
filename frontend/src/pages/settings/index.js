@@ -29,7 +29,9 @@ export default function SettingsPage() {
   const isDemo = router.query.demo === '1';
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
-  const [form, setForm] = useState({ drive_root_folder_id: '', drive_auto_upload: '0', manuscript_auto_create_folders: '0' });
+  const [form, setForm] = useState({ drive_root_folder_id: '', drive_auto_upload: '0', manuscript_auto_create_folders: '0', manuscript_pdf_drive_folder_id: '' });
+  const [migratingPdfs, setMigratingPdfs] = useState(false);
+  const [pdfMigrateResult, setPdfMigrateResult] = useState(null);
   const [sheetsForm, setSheetsForm] = useState({ sheet_id: '', sheet_range: 'A1:ZZ500' });
   const [sheetsCfg, setSheetsCfg] = useState(null);
   const [savingSheets, setSavingSheets] = useState(false);
@@ -101,6 +103,7 @@ export default function SettingsPage() {
           drive_root_folder_id: d.settings?.drive_root_folder_id?.value || '',
           drive_auto_upload: d.settings?.drive_auto_upload?.value || '0',
           manuscript_auto_create_folders: d.settings?.manuscript_auto_create_folders?.value || '0',
+          manuscript_pdf_drive_folder_id: d.settings?.manuscript_pdf_drive_folder_id?.value || '',
         });
         const sc = resSheets.data?.data;
         if (sc) {
@@ -284,6 +287,23 @@ export default function SettingsPage() {
     }
   };
 
+  const migrateLocalPdfsToDrive = async () => {
+    if (isDemo) { toast('デモ表示中は移行できません', { icon: 'ℹ' }); return; }
+    if (!form.drive_root_folder_id && !form.manuscript_pdf_drive_folder_id) {
+      toast.error('先に Drive ルートフォルダ ID か 原稿PDF Drive フォルダ ID を設定してください');
+      return;
+    }
+    if (!window.confirm('既存のローカル保存 PDF を Google Drive に一括移行します。 進めますか？')) return;
+    setMigratingPdfs(true); setPdfMigrateResult(null);
+    try {
+      const { data } = await api.post('/api/manuscript-contents/migrate-to-drive?limit=5000', null, { timeout: 30 * 60 * 1000 });
+      setPdfMigrateResult(data.data);
+      toast.success(`PDF移行: 対象${data.data.target} / 成功${data.data.uploaded} / エラー${data.data.errors} / 欠損${data.data.missing}`);
+    } catch (e) {
+      toast.error(e.userMessage || 'PDF移行失敗');
+    } finally { setMigratingPdfs(false); }
+  };
+
   const testConnection = async () => {
     if (isDemo) {
       setTestResult({ ok: true, sample: { id: 'demo123', name: 'demo-folder' } });
@@ -383,6 +403,33 @@ export default function SettingsPage() {
                   hint="ONにすると 2026/05/15/1〜23 のフォルダを自動作成。手動の場合は引き続きDrive URLを各スロットに入力"
                   checked={form.manuscript_auto_create_folders === '1'}
                   onChange={(v) => setForm({ ...form, manuscript_auto_create_folders: v ? '1' : '0' })} />
+
+          <Field label="原稿PDF Drive フォルダID (任意)"
+                 hint="新「原稿管理」 で PDF を保存する Drive フォルダ。 未設定なら 'ルートフォルダ/manuscripts' を自動作成">
+            <input type="text" value={form.manuscript_pdf_drive_folder_id}
+                   onChange={(e) => setForm({ ...form, manuscript_pdf_drive_folder_id: e.target.value })}
+                   className="rep-input font-mono text-xs"
+                   placeholder="1XYZ..." />
+          </Field>
+
+          <div className="bg-zinc-50 border border-zinc-200 rounded p-3 text-xs">
+            <div className="font-medium text-zinc-700 mb-1">原稿PDF を Drive に一括移行</div>
+            <p className="text-zinc-500 leading-relaxed mb-2">
+              ローカル <code>uploads/manuscripts/</code> に保存された既存の PDF を Drive に upload します。
+              <strong> Railway デプロイで消える前に必ず移行</strong>してください。
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={migrateLocalPdfsToDrive} disabled={migratingPdfs}
+                      className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
+                {migratingPdfs ? '移行中…' : 'ローカル PDF を Drive に移行'}
+              </button>
+              {pdfMigrateResult && (
+                <span className="text-xs text-emerald-700">
+                  ✓ 対象 {pdfMigrateResult.target} / 成功 {pdfMigrateResult.uploaded} / エラー {pdfMigrateResult.errors} / 欠損 {pdfMigrateResult.missing}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

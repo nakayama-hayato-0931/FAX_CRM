@@ -5,6 +5,7 @@ const ALLOWED_KEYS = new Set([
   'drive_root_folder_id',
   'drive_auto_upload',
   'manuscript_auto_create_folders',
+  'manuscript_pdf_drive_folder_id',  // 原稿PDFを保存する Drive 親フォルダ ID
 ]);
 
 async function getAll() {

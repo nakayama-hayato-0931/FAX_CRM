@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS manuscript_contents (
   pdf_original_name VARCHAR(255) DEFAULT NULL,
   pdf_size_bytes BIGINT DEFAULT NULL,
   pdf_drive_url VARCHAR(500) DEFAULT NULL,
+  pdf_drive_file_id VARCHAR(100) DEFAULT NULL COMMENT 'Drive 上のファイルID (永続保存用)',
   thumbnail_url VARCHAR(500) DEFAULT NULL,
   memo TEXT DEFAULT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -261,6 +262,7 @@ INSERT IGNORE INTO system_settings (setting_key, setting_value, description) VAL
   ('drive_root_folder_id', NULL, 'Drive上のルートフォルダID(リスト・原稿の親)'),
   ('drive_auto_upload',    '0',  'リスト抽出時にExcelをDriveへ自動アップロード(1=ON)'),
   ('manuscript_auto_create_folders', '0', '原稿日付登録時にDriveに23フォルダを自動作成(1=ON)'),
+  ('manuscript_pdf_drive_folder_id', NULL, '原稿PDF を保存する Google Drive 親フォルダ ID (未設定なら drive_root_folder_id の下に manuscripts/ を自動作成)'),
   ('callcenter_last_synced_at', NULL, 'callcenter 顧客マスタの最終同期日時 (ISO8601)。 増分同期のフィルタに使う');
 
 -- --------------------------------------------

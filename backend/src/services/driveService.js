@@ -127,10 +127,47 @@ async function uploadFile({ filePath, mimeType, name, parentId }) {
   return resp.data;
 }
 
+/**
+ * Drive ファイルをストリームで取得 (PDF プレビュー / ダウンロード用)
+ *   res: Express の Response を渡せばそのまま pipe して返せる
+ */
+async function downloadFileStream(fileId) {
+  const drive = tryLoad();
+  const resp = await drive.files.get(
+    { fileId, alt: 'media' },
+    { responseType: 'stream' }
+  );
+  return resp.data; // stream
+}
+
+/**
+ * Drive ファイルのメタデータ (size / mime 等) を取得
+ */
+async function getFileMeta(fileId) {
+  const drive = tryLoad();
+  const resp = await drive.files.get({
+    fileId,
+    fields: 'id,name,mimeType,size,webViewLink,webContentLink',
+  });
+  return resp.data;
+}
+
+/**
+ * Drive ファイル削除
+ */
+async function deleteFile(fileId) {
+  const drive = tryLoad();
+  await drive.files.delete({ fileId });
+  return { ok: true };
+}
+
 module.exports = {
   getStatus,
   testConnection,
   findOrCreateFolder,
   createFolder,
   uploadFile,
+  downloadFileStream,
+  getFileMeta,
+  deleteFile,
 };
