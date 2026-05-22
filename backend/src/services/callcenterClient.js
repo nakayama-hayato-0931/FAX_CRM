@@ -64,14 +64,14 @@ async function request(method, path, body) {
  *
  *   オプション:
  *     pageSize         ... 1ページあたり件数 (max 100)
- *     maxPages         ... 安全装置 (デフォルト 200ページ = 20000件)
+ *     maxPages         ... 安全装置 (デフォルト 1000ページ = 100000件)
  *     showExcluded     ... 1 で除外フラグ付き企業も取得 (デフォルト '1' で全件)
  *     includeSpecial   ... 'special' で特別リスト、 何もしないと通常リスト
  *     includeSalesList ... '1' で営業用リスト、 何もしないとオペレータ用リスト
  */
 async function listAllCompanies(opts = {}) {
   const pageSize = Math.min(Math.max(Number(opts.pageSize) || 100, 1), 100);
-  const maxPages = Number(opts.maxPages) || 200;
+  const maxPages = Number(opts.maxPages) || 1000;
   const showExcluded = opts.showExcluded ?? '1';  // 既定: 除外企業も取得
   const listType = opts.includeSpecial === 'special' ? 'special' : null;
   const isSalesList = opts.includeSalesList === '1' ? '1' : null;
