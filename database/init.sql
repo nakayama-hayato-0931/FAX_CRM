@@ -235,6 +235,13 @@ CREATE TABLE IF NOT EXISTS sheets_config (
   interviews_last_synced_at DATETIME DEFAULT NULL,
   interviews_last_sync_status ENUM('ok','error','never') NOT NULL DEFAULT 'never',
   interviews_last_sync_message TEXT DEFAULT NULL,
+  -- 求人情報シート (CPA 案件数のソース)
+  jobs_sheet_id VARCHAR(100) DEFAULT NULL COMMENT '求人情報シート スプレッドシートID',
+  jobs_sheet_name VARCHAR(100) DEFAULT '求人情報' COMMENT '求人情報シート名(タブ名)',
+  jobs_sheet_range VARCHAR(100) DEFAULT 'A1:BZ20000' COMMENT '求人情報シート 読み取り範囲 (AJ列=35 まで読む)',
+  jobs_last_synced_at DATETIME DEFAULT NULL,
+  jobs_last_sync_status ENUM('ok','error','never') NOT NULL DEFAULT 'never',
+  jobs_last_sync_message TEXT DEFAULT NULL,
   last_synced_at DATETIME DEFAULT NULL,
   last_sync_status ENUM('ok','error','never') NOT NULL DEFAULT 'never',
   last_sync_message TEXT DEFAULT NULL,
@@ -305,6 +312,33 @@ CREATE TABLE IF NOT EXISTS sales_projects (
 ) ENGINE=InnoDB COMMENT='案件マスタ(シート『ビザ申請 進捗』同期)';
 
 -- --------------------------------------------
+-- 求人情報 (シート『求人情報』 から同期、 CPA 案件数のソース)
+-- 抽出条件: H列='FAX受電' AND AJ列(案件獲得日) で月集計
+-- 1行 = 1求人
+-- --------------------------------------------
+CREATE TABLE IF NOT EXISTS job_postings (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  external_key VARCHAR(100) NOT NULL COMMENT '求人番号 (重複時は __row{n} suffix)',
+  acquired_date DATE DEFAULT NULL      COMMENT 'AJ列: 案件獲得日',
+  job_number VARCHAR(100) DEFAULT NULL COMMENT 'C列: 求人番号',
+  company_name VARCHAR(255) DEFAULT NULL COMMENT 'D列: 会社名',
+  sales_owner VARCHAR(100) DEFAULT NULL COMMENT 'B列: 営業担当者 (サフィックス除去済)',
+  industry VARCHAR(100) DEFAULT NULL   COMMENT 'I列: 業種',
+  source_kind VARCHAR(40) DEFAULT NULL COMMENT 'H列: FAX受電 等',
+  status_label VARCHAR(40) DEFAULT NULL COMMENT 'AI列: バラシ等のステータス原文',
+  is_cancelled TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'AI列=バラシ',
+  source_row INT DEFAULT NULL,
+  synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_job_postings_external (external_key),
+  INDEX idx_job_postings_acquired (acquired_date),
+  INDEX idx_job_postings_kind (source_kind),
+  INDEX idx_job_postings_job (job_number),
+  INDEX idx_job_postings_cancelled (is_cancelled)
+) ENGINE=InnoDB COMMENT='求人情報(シート『求人情報』同期、 CPA案件数・バラシの集計元)';
+
+-- --------------------------------------------
 -- 面接記録 (シート『2024_面接内訳』 から同期)
 -- 抽出条件: NR列=「FAX受電」 AND NM列(面接日)<=今日
 -- 1行 = 1面接
@@ -356,11 +390,13 @@ CREATE TABLE IF NOT EXISTS performance_records (
 
 -- 月次ロールアップ VIEW (算出項目はここで計算)
 -- データソース:
---   cost / rejects / cancels                         ← performance_records (CSV)
+--   cost / rejects                                   ← performance_records (CSV)
+--   cancels (バラシ)                                 ← job_postings WHERE H='FAX受電' AND AI='バラシ'
 --   sends (自社)                                     ← fax_send_stats (Sheets同期)
 --   sends (委託) / cost (委託)                       ← outsourced_fax_records (手入力)
---   projects (FAXからの総案件数)                     ← sales_projects 全行 (取消/辞退含む)
---   offers (内定社数)                                ← COUNT(DISTINCT job_number) - 同一求人は1社カウント
+--   projects (案件数)                                ← job_postings (シート『求人情報』 H='FAX受電')
+--                                                      月キーは AJ列(案件獲得日)
+--   offers (内定社数)                                ← sales_projects から COUNT(DISTINCT job_number)
 --                                                      (求人番号が空の行は会社名で代用)
 --   first_payment / expected_revenue                 ← sales_projects (取消/辞退の行は0で記録)
 --     - 月次キーは acquired_date (案件取得日)
@@ -379,20 +415,20 @@ SELECT
   COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0)      AS sends,
   COALESCE(fs.sends, 0)                                           AS in_house_sends,
   COALESCE(out_.outsourced_sends, 0)                              AS outsourced_sends,
-  ROUND(COALESCE(sp.projects, 0)
+  ROUND(COALESCE(jp.projects, 0)
         / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
                                                                   AS project_rate,
-  COALESCE(sp.projects, 0)                                        AS projects,
+  COALESCE(jp.projects, 0)                                        AS projects,
   ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
-        / NULLIF(COALESCE(sp.projects, 0), 0))                    AS project_cpa,
+        / NULLIF(COALESCE(jp.projects, 0), 0))                    AS project_cpa,
   COALESCE(iv.interviews, 0)                                      AS interviews,
   ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
         / NULLIF(COALESCE(iv.interviews, 0), 0))                  AS interview_cpa,
   ROUND(COALESCE(iv.interviews, 0)
-        / NULLIF(COALESCE(sp.projects, 0), 0) * 100, 2)           AS interview_rate,
+        / NULLIF(COALESCE(jp.projects, 0), 0) * 100, 2)           AS interview_rate,
   COALESCE(sp.offers, 0)                                          AS offers,
   COALESCE(pr.rejects, 0)                                         AS rejects,
-  COALESCE(pr.cancels, 0)                                         AS cancels,
+  COALESCE(jp.cancels, 0)                                         AS cancels,
   COALESCE(sp.first_payment, 0)                                   AS first_payment,
   COALESCE(sp.expected_revenue, 0)                                AS expected_revenue,
   ROUND(COALESCE(sp.first_payment, 0)
@@ -410,6 +446,9 @@ FROM (
     UNION
     SELECT DATE_FORMAT(acquired_date, '%Y-%m-01') AS month FROM interview_records
      WHERE acquired_date IS NOT NULL AND source_kind = 'FAX受電' AND interview_date <= CURDATE()
+    UNION
+    SELECT DATE_FORMAT(acquired_date, '%Y-%m-01') AS month FROM job_postings
+     WHERE acquired_date IS NOT NULL AND source_kind = 'FAX受電'
   ) u
   WHERE month IS NOT NULL
 ) m
@@ -417,8 +456,7 @@ LEFT JOIN (
   SELECT
     DATE_FORMAT(period_date, '%Y-%m-01') AS month,
     SUM(cost)             AS cost,
-    SUM(reject_count)     AS rejects,
-    SUM(cancel_count)     AS cancels
+    SUM(reject_count)     AS rejects
   FROM performance_records
   GROUP BY 1
 ) pr ON pr.month = m.month
@@ -450,7 +488,6 @@ LEFT JOIN (
 LEFT JOIN (
   SELECT
     DATE_FORMAT(acquired_date, '%Y-%m-01') AS month,
-    COUNT(*)                                                       AS projects,  -- FAXからの総案件数 (取消/辞退含む全行)
     COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS offers,    -- 内定社数 = 同一求人番号は1社カウント (取消/辞退含む)
     SUM(first_payment)                                             AS first_payment,
     SUM(expected_revenue)                                          AS expected_revenue
@@ -458,5 +495,14 @@ LEFT JOIN (
   WHERE acquired_date IS NOT NULL
   GROUP BY 1
 ) sp ON sp.month = m.month
+LEFT JOIN (
+  SELECT
+    DATE_FORMAT(acquired_date, '%Y-%m-01') AS month,
+    COUNT(*)                                                AS projects,  -- 案件数 = 求人情報シート 1行=1求人
+    SUM(CASE WHEN is_cancelled = 1 THEN 1 ELSE 0 END)       AS cancels    -- バラシ = AI列='バラシ'
+  FROM job_postings
+  WHERE acquired_date IS NOT NULL AND source_kind = 'FAX受電'
+  GROUP BY 1
+) jp ON jp.month = m.month
 WHERE m.month <= DATE_FORMAT(CURDATE(), '%Y-%m-01')   -- 未来月は除外
 ORDER BY m.month DESC;

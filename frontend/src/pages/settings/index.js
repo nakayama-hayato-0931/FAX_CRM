@@ -45,6 +45,16 @@ export default function SettingsPage() {
   const [savingProjects, setSavingProjects] = useState(false);
   const [syncingProjects, setSyncingProjects] = useState(false);
   const [projectsSyncResult, setProjectsSyncResult] = useState(null);
+  // 求人情報シート (CPA 案件数 / バラシのソース)
+  const [jobsForm, setJobsForm] = useState({
+    jobs_sheet_id: '',
+    jobs_sheet_name: '求人情報',
+    jobs_sheet_range: 'A1:BZ20000',
+  });
+  const [jobsCfg, setJobsCfg] = useState(null);
+  const [savingJobs, setSavingJobs] = useState(false);
+  const [syncingJobs, setSyncingJobs] = useState(false);
+  const [jobsSyncResult, setJobsSyncResult] = useState(null);
   // 面接シート(『2024_面接内訳』)
   const [interviewsForm, setInterviewsForm] = useState({
     interviews_sheet_id: '',
@@ -77,11 +87,12 @@ export default function SettingsPage() {
       }
       setLoading(true);
       try {
-        const [resSettings, resSheets, resProjects, resInterviews] = await Promise.all([
+        const [resSettings, resSheets, resProjects, resInterviews, resJobs] = await Promise.all([
           api.get('/api/settings'),
           api.get('/api/fax-stats/config').catch(() => ({ data: { data: null } })),
           api.get('/api/sales-projects/config').catch(() => ({ data: { data: null } })),
           api.get('/api/interviews/config').catch(() => ({ data: { data: null } })),
+          api.get('/api/job-postings/config').catch(() => ({ data: { data: null } })),
         ]);
         if (cancelled) return;
         const d = resSettings.data.data || {};
@@ -112,6 +123,15 @@ export default function SettingsPage() {
             interviews_sheet_id: ic.interviews_sheet_id || '',
             interviews_sheet_name: ic.interviews_sheet_name || '2024_面接内訳',
             interviews_sheet_range: ic.interviews_sheet_range || 'A1:OZ20000',
+          });
+        }
+        const jc = resJobs.data?.data;
+        if (jc) {
+          setJobsCfg(jc);
+          setJobsForm({
+            jobs_sheet_id: jc.jobs_sheet_id || '',
+            jobs_sheet_name: jc.jobs_sheet_name || '求人情報',
+            jobs_sheet_range: jc.jobs_sheet_range || 'A1:BZ20000',
           });
         }
       } catch (e) {
@@ -201,6 +221,34 @@ export default function SettingsPage() {
     } finally {
       setSyncingProjects(false);
     }
+  };
+
+  const saveJobs = async () => {
+    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); return; }
+    setSavingJobs(true);
+    try {
+      await api.put('/api/job-postings/config', jobsForm);
+      toast.success('求人シート設定を保存しました');
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e.userMessage || '保存失敗');
+    } finally { setSavingJobs(false); }
+  };
+
+  const syncJobs = async () => {
+    if (isDemo) {
+      setJobsSyncResult({ totalRows: 0, kept: 0, inserted: 0, updated: 0, cancelledCount: 0 });
+      toast.success('(デモ) 同期OK'); return;
+    }
+    setSyncingJobs(true); setJobsSyncResult(null);
+    try {
+      const { data: r } = await api.post('/api/job-postings/sync');
+      setJobsSyncResult(r.data);
+      toast.success(`求人同期: 新規${r.data.inserted} / 更新${r.data.updated} (バラシ ${r.data.cancelledCount ?? 0})`);
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e.userMessage || '同期失敗');
+    } finally { setSyncingJobs(false); }
   };
 
   const saveInterviews = async () => {
@@ -474,6 +522,75 @@ export default function SettingsPage() {
               ✓ 取込 {projectsSyncResult.kept} / 新規 {projectsSyncResult.inserted} / 更新 {projectsSyncResult.updated}
               <span className="text-zinc-500 ml-2">
                 (FAX以外 {projectsSyncResult.skippedNotFax} / ビザ {projectsSyncResult.skippedVisa} / キー無 {projectsSyncResult.skippedNoKey})
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 求人情報(『求人情報』) Sheets連携 — CPA 案件数 / バラシのソース */}
+      <div className="bg-white border border-zinc-200 rounded-lg p-5 mb-6">
+        <h2 className="text-sm font-semibold text-zinc-800 mb-1">求人情報シート連携 (『求人情報』)</h2>
+        <p className="text-xs text-zinc-500 mb-3 leading-relaxed">
+          求人情報シートから案件・バラシを取り込み、CPAの「案件数」「バラシ」 に反映します。
+          <br />
+          抽出条件: <strong>H列 = 「FAX受電」</strong>。 月キーは AJ列「案件獲得日」。
+          AI列 = 「バラシ」 の行は <strong>バラシ</strong> としてカウント。
+          営業担当(B列) は「寺西 T」 のような末尾英字は自動除去。
+        </p>
+        <div className="space-y-3">
+          <Field label="スプレッドシートID" hint="URLの /d/ と /edit の間の文字列 (売上シートと同じスプレッドシートでも可)">
+            <input type="text" value={jobsForm.jobs_sheet_id}
+                   onChange={(e) => setJobsForm({ ...jobsForm, jobs_sheet_id: e.target.value })}
+                   className="rep-input font-mono text-xs"
+                   placeholder="1wPH1sud7dAwJQihiR6qDrH-otJ3ygAgcCAg-e4ituvw" />
+          </Field>
+          <Field label="シート(タブ)名" hint="既定: 求人情報">
+            <input type="text" value={jobsForm.jobs_sheet_name}
+                   onChange={(e) => setJobsForm({ ...jobsForm, jobs_sheet_name: e.target.value })}
+                   className="rep-input text-xs"
+                   placeholder="求人情報" />
+          </Field>
+          <Field label="読み取り範囲(A1記法)" hint="AJ列(35)まで読む必要あり。 A1:BZ20000 程度を推奨">
+            <input type="text" value={jobsForm.jobs_sheet_range}
+                   onChange={(e) => setJobsForm({ ...jobsForm, jobs_sheet_range: e.target.value })}
+                   className="rep-input font-mono text-xs"
+                   placeholder="A1:BZ20000" />
+          </Field>
+        </div>
+
+        {jobsCfg && (
+          <div className="mt-4 bg-zinc-50 border border-zinc-200 rounded p-3 text-xs">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-zinc-500">最終同期:</span>
+              <span>{jobsCfg.jobs_last_synced_at ? new Date(jobsCfg.jobs_last_synced_at).toLocaleString('ja-JP') : '未実行'}</span>
+              {jobsCfg.jobs_last_sync_status && jobsCfg.jobs_last_sync_status !== 'never' && (
+                <span className={['px-1.5 py-0.5 rounded text-[10px]',
+                  jobsCfg.jobs_last_sync_status === 'ok' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'].join(' ')}>
+                  {jobsCfg.jobs_last_sync_status === 'ok' ? 'OK' : 'ERROR'}
+                </span>
+              )}
+            </div>
+            {jobsCfg.jobs_last_sync_message && (
+              <div className="mt-1 text-zinc-500 break-all">{jobsCfg.jobs_last_sync_message}</div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 flex items-center gap-2 flex-wrap">
+          <button onClick={saveJobs} disabled={savingJobs}
+                  className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded hover:bg-zinc-50 disabled:opacity-50">
+            {savingJobs ? '保存中…' : '求人シート設定を保存'}
+          </button>
+          <button onClick={syncJobs} disabled={syncingJobs || !jobsForm.jobs_sheet_id}
+                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+            {syncingJobs ? '同期中…' : '今すぐ同期'}
+          </button>
+          {jobsSyncResult && (
+            <span className="text-xs text-emerald-700">
+              ✓ 取込 {jobsSyncResult.kept} / 新規 {jobsSyncResult.inserted} / 更新 {jobsSyncResult.updated}
+              <span className="text-zinc-500 ml-2">
+                (FAX以外 {jobsSyncResult.skippedNotFax} / キー無 {jobsSyncResult.skippedNoKey} / バラシ {jobsSyncResult.cancelledCount ?? 0})
               </span>
             </span>
           )}

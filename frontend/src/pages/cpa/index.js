@@ -6,6 +6,7 @@ import CpaImportModal from '@/components/CpaImportModal';
 import OutsourcedFaxSection from '@/components/OutsourcedFaxSection';
 import SalesProjectsDetailModal from '@/components/SalesProjectsDetailModal';
 import InterviewsDetailModal from '@/components/InterviewsDetailModal';
+import JobPostingsDetailModal from '@/components/JobPostingsDetailModal';
 
 // ROAS = first_payment / cost * 100
 const DEMO_ROWS = [
@@ -27,14 +28,14 @@ const COLUMNS = [
   { key: 'cost',            label: 'コスト',             kind: 'raw',     format: yen, align: 'right' },
   { key: 'sends',           label: '送信数',             kind: 'raw',     format: num, align: 'right' },
   { key: 'project_rate',    label: '案件化率',           kind: 'derived', format: pct, align: 'right' },
-  { key: 'projects',        label: '案件数',             kind: 'raw',     format: num, align: 'right' },
+  { key: 'projects',        label: '案件数',             kind: 'raw',     format: num, align: 'right', clickable: 'projects' },
   { key: 'project_cpa',     label: '案件CPA',            kind: 'derived', format: yen, align: 'right' },
   { key: 'interviews',      label: '面接数',             kind: 'raw',     format: num, align: 'right', clickable: 'interviews' },
   { key: 'interview_cpa',   label: '面接CPA',            kind: 'derived', format: yen, align: 'right' },
   { key: 'interview_rate',  label: '面接実施率',          kind: 'derived', format: pct, align: 'right' },
   { key: 'offers',          label: '内定社数',            kind: 'raw',     format: num, align: 'right', clickable: 'offers' },
   { key: 'rejects',         label: '不合格',             kind: 'raw',     format: num, align: 'right' },
-  { key: 'cancels',         label: 'バラシ/失注',         kind: 'raw',     format: num, align: 'right' },
+  { key: 'cancels',         label: 'バラシ',             kind: 'raw',     format: num, align: 'right', clickable: 'cancels' },
   { key: 'first_payment',   label: '初回入金',            kind: 'raw',     format: yen, align: 'right' },
   { key: 'expected_revenue',label: '見込売上',            kind: 'raw',     format: yen, align: 'right' },
   { key: 'roas',            label: 'ROAS',              kind: 'derived', format: pct, align: 'right' },
@@ -61,6 +62,9 @@ export default function CpaPage() {
   const [detailMonth, setDetailMonth] = useState(null);
   // 面接詳細モーダル: {month, monthLabel, interviewsCount}
   const [interviewDetailMonth, setInterviewDetailMonth] = useState(null);
+  // 求人詳細モーダル: {month, monthLabel, filter:'all'|'cancelled', expectedCount}
+  const [jobsDetail, setJobsDetail] = useState(null);
+  const [syncingJobs, setSyncingJobs] = useState(false);
 
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((k) => k + 1);
@@ -78,6 +82,19 @@ export default function CpaPage() {
     } finally {
       setSyncingProjects(false);
     }
+  };
+
+  const syncJobs = async () => {
+    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    setSyncingJobs(true);
+    try {
+      const { data } = await api.post('/api/job-postings/sync');
+      const r = data.data || {};
+      toast.success(`求人同期OK: 取込${r.kept ?? 0} / 新規${r.inserted ?? 0} / 更新${r.updated ?? 0} (バラシ ${r.cancelledCount ?? 0})`);
+      reload();
+    } catch (e) {
+      toast.error(e.userMessage || '求人シート同期失敗。 設定画面でシートIDを確認してください');
+    } finally { setSyncingJobs(false); }
   };
 
   const syncInterviews = async () => {
@@ -179,6 +196,14 @@ export default function CpaPage() {
             {syncingProjects ? '売上同期中…' : '売上シート同期'}
           </button>
           <button
+            onClick={syncJobs}
+            disabled={syncingJobs}
+            className="px-3 py-2 text-sm bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50"
+            title="『求人情報』シートから案件・バラシを再同期"
+          >
+            {syncingJobs ? '求人同期中…' : '求人シート同期'}
+          </button>
+          <button
             onClick={syncInterviews}
             disabled={syncingInterviews}
             className="px-3 py-2 text-sm bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50"
@@ -261,10 +286,26 @@ export default function CpaPage() {
                           monthLabel: formatMonth(row.month),
                           interviewsCount: Number(value),
                         });
+                      } else if (c.clickable === 'projects') {
+                        setJobsDetail({
+                          month: row.month,
+                          monthLabel: formatMonth(row.month),
+                          filter: 'all',
+                          expectedCount: Number(value),
+                        });
+                      } else if (c.clickable === 'cancels') {
+                        setJobsDetail({
+                          month: row.month,
+                          monthLabel: formatMonth(row.month),
+                          filter: 'cancelled',
+                          expectedCount: Number(value),
+                        });
                       }
                     };
                     const titleText = c.clickable === 'offers' ? '内定社の内訳を表示'
-                                    : c.clickable === 'interviews' ? '面接の内訳を表示' : '';
+                                    : c.clickable === 'interviews' ? '面接の内訳を表示'
+                                    : c.clickable === 'projects' ? '案件の内訳を表示'
+                                    : c.clickable === 'cancels' ? 'バラシの内訳を表示' : '';
                     return (
                       <td key={c.key} className={cellClass}>
                         {isClickable ? (
@@ -331,6 +372,16 @@ export default function CpaPage() {
           expectedCount={interviewDetailMonth.interviewsCount}
           basis={basis}
           onClose={() => setInterviewDetailMonth(null)}
+        />
+      )}
+
+      {jobsDetail && (
+        <JobPostingsDetailModal
+          month={jobsDetail.month}
+          monthLabel={jobsDetail.monthLabel}
+          filter={jobsDetail.filter}
+          expectedCount={jobsDetail.expectedCount}
+          onClose={() => setJobsDetail(null)}
         />
       )}
     </div>

@@ -109,20 +109,20 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0)      AS sends,
       COALESCE(fs.sends, 0)                                           AS in_house_sends,
       COALESCE(out_.outsourced_sends, 0)                              AS outsourced_sends,
-      ROUND(COALESCE(sp.projects, 0)
+      ROUND(COALESCE(jp.projects, 0)
             / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
                                                                       AS project_rate,
-      COALESCE(sp.projects, 0)                                        AS projects,
+      COALESCE(jp.projects, 0)                                        AS projects,
       ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
-            / NULLIF(COALESCE(sp.projects, 0), 0))                    AS project_cpa,
+            / NULLIF(COALESCE(jp.projects, 0), 0))                    AS project_cpa,
       COALESCE(iv.interviews, 0)                                      AS interviews,
       ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
             / NULLIF(COALESCE(iv.interviews, 0), 0))                  AS interview_cpa,
       ROUND(COALESCE(iv.interviews, 0)
-            / NULLIF(COALESCE(sp.projects, 0), 0) * 100, 2)           AS interview_rate,
+            / NULLIF(COALESCE(jp.projects, 0), 0) * 100, 2)           AS interview_rate,
       COALESCE(sp.offers, 0)                                          AS offers,
       COALESCE(pr.rejects, 0)                                         AS rejects,
-      COALESCE(pr.cancels, 0)                                         AS cancels,
+      COALESCE(jp.cancels, 0)                                         AS cancels,
       COALESCE(sp.first_payment, 0)                                   AS first_payment,
       COALESCE(sp.expected_revenue, 0)                                AS expected_revenue,
       ROUND(COALESCE(sp.first_payment, 0)
@@ -140,12 +140,15 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
         UNION
         SELECT DATE_FORMAT(${ivCol}, '%Y-%m-01')              AS month FROM interview_records
          WHERE ${ivCol} IS NOT NULL AND source_kind = 'FAX受電' AND interview_date <= CURDATE()
+        UNION
+        SELECT DATE_FORMAT(acquired_date, '%Y-%m-01')         AS month FROM job_postings
+         WHERE acquired_date IS NOT NULL AND source_kind = 'FAX受電'
       ) u WHERE month IS NOT NULL
     ) m
     LEFT JOIN (
       SELECT DATE_FORMAT(period_date, '%Y-%m-01') AS month,
         SUM(cost) AS cost,
-        SUM(reject_count) AS rejects, SUM(cancel_count) AS cancels
+        SUM(reject_count) AS rejects
       FROM performance_records GROUP BY 1
     ) pr ON pr.month = m.month
     LEFT JOIN (
@@ -168,13 +171,20 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
     ) out_ ON out_.month = m.month
     LEFT JOIN (
       SELECT DATE_FORMAT(${col}, '%Y-%m-01') AS month,
-        COUNT(*) AS projects,
         COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS offers,
         SUM(first_payment) AS first_payment,
         SUM(expected_revenue) AS expected_revenue
       FROM sales_projects WHERE ${col} IS NOT NULL
       GROUP BY 1
     ) sp ON sp.month = m.month
+    LEFT JOIN (
+      SELECT DATE_FORMAT(acquired_date, '%Y-%m-01') AS month,
+        COUNT(*) AS projects,                                    -- 案件数 (求人情報シート)
+        SUM(CASE WHEN is_cancelled = 1 THEN 1 ELSE 0 END) AS cancels  -- バラシ (AI='バラシ')
+      FROM job_postings
+      WHERE acquired_date IS NOT NULL AND source_kind = 'FAX受電'
+      GROUP BY 1
+    ) jp ON jp.month = m.month
     WHERE m.month <= DATE_FORMAT(CURDATE(), '%Y-%m-01')   -- 未来月は除外 (シートに空欄日付列があっても出さない)
     ORDER BY m.month DESC
     LIMIT ?`;

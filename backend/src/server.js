@@ -46,6 +46,7 @@ const contactEventsRouter = require('./routes/contactEvents');
 const outsourcedFaxRouter = require('./routes/outsourcedFax');
 const salesProjectsRouter = require('./routes/salesProjects');
 const interviewsRouter = require('./routes/interviews');
+const jobPostingsRouter = require('./routes/jobPostings');
 
 const app = express();
 
@@ -73,6 +74,7 @@ app.use('/api/contact-events', contactEventsRouter);
 app.use('/api/outsourced-fax', outsourcedFaxRouter);
 app.use('/api/sales-projects', salesProjectsRouter);
 app.use('/api/interviews', interviewsRouter);
+app.use('/api/job-postings', jobPostingsRouter);
 
 app.use(notFound);
 app.use(errorHandler);
