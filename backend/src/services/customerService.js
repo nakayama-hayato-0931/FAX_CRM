@@ -21,13 +21,13 @@ async function listCustomers(query = {}) {
 
   if (query.q) {
     const like = `%${query.q}%`;
-    where.push(`(${SEARCHABLE.map((c) => `${c} LIKE ?`).join(' OR ')})`);
+    where.push(`(${SEARCHABLE.map((col) => `c.${col} LIKE ?`).join(' OR ')})`);
     SEARCHABLE.forEach(() => params.push(like));
   }
-  if (query.industry)   { where.push('industry = ?');   params.push(query.industry); }
-  if (query.prefecture) { where.push('prefecture = ?'); params.push(query.prefecture); }
-  if (query.blacklisted === 'true')  where.push('is_blacklisted = 1');
-  if (query.blacklisted === 'false') where.push('is_blacklisted = 0');
+  if (query.industry)   { where.push('c.industry = ?');   params.push(query.industry); }
+  if (query.prefecture) { where.push('c.prefecture = ?'); params.push(query.prefecture); }
+  if (query.blacklisted === 'true')  where.push('c.is_blacklisted = 1');
+  if (query.blacklisted === 'false') where.push('c.is_blacklisted = 0');
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const sortCol = SORT_MAP[query.sortBy] || 'updated_at';
@@ -38,16 +38,23 @@ async function listCustomers(query = {}) {
   const offset = (page - 1) * limit;
 
   const [rows] = await pool.query(
-    `SELECT id, company_name, fax_number, phone_number, industry, prefecture, city,
-            send_count, last_sent_at, last_pc_number, last_result, response_count,
-            is_blacklisted, updated_at
-       FROM customers
+    `SELECT c.id, c.company_name, c.fax_number, c.phone_number, c.industry, c.prefecture, c.city,
+            c.send_count, c.last_sent_at, c.last_pc_number, c.last_result, c.response_count,
+            c.is_blacklisted, c.updated_at, c.external_callcenter_id,
+            COALESCE(cc.call_count, 0) AS call_count
+       FROM customers c
+       LEFT JOIN (
+         SELECT customer_id, COUNT(*) AS call_count
+           FROM contact_events
+          WHERE channel = 'call'
+          GROUP BY customer_id
+       ) cc ON cc.customer_id = c.id
        ${whereSql}
-       ORDER BY ${sortCol} ${dir}
+       ORDER BY c.${sortCol} ${dir}
        LIMIT ? OFFSET ?`,
     [...params, limit, offset]
   );
-  const [cnt] = await pool.query(`SELECT COUNT(*) AS total FROM customers ${whereSql}`, params);
+  const [cnt] = await pool.query(`SELECT COUNT(*) AS total FROM customers c ${whereSql}`, params);
   const total = cnt[0].total;
 
   return {

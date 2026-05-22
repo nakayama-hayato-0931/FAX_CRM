@@ -4,6 +4,7 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
 import CustomerCsvImportModal from '@/components/CustomerCsvImportModal';
+import CustomerDetailModal from '@/components/CustomerDetailModal';
 
 const DEMO_CUSTOMERS = [
   { id: 1, company_name: '株式会社サンプル製作所', fax_number: '0312345678', industry: '製造業', prefecture: '東京都', city: '千代田区', send_count: 4, last_sent_at: '2026-04-22T10:00:00Z', last_pc_number: 'PC03', last_result: 'no_response', response_count: 0, is_blacklisted: 0, updated_at: '2026-04-22T10:00:00Z' },
@@ -33,6 +34,8 @@ export default function CustomersPage() {
   const [prefectures, setPrefectures] = useState([]);
   const [reloadKey, setReloadKey] = useState(0);
   const [showImport, setShowImport] = useState(false);
+  // 詳細モーダル: { id, initialTab, channelFilter }
+  const [detail, setDetail] = useState(null);
   const [syncPulling, setSyncPulling] = useState(false);
   const [syncPushing, setSyncPushing] = useState(false);
   const [syncingBoth, setSyncingBoth] = useState(false);
@@ -302,6 +305,7 @@ export default function CustomersPage() {
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">電話</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">業種</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">都道府県</th>
+                <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">架電</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">送信回数</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">最終送信</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">直近結果</th>
@@ -310,25 +314,42 @@ export default function CustomersPage() {
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-zinc-400">読み込み中…</td></tr>
+                <tr><td colSpan={10} className="px-4 py-12 text-center text-zinc-400">読み込み中…</td></tr>
               )}
               {!loading && items.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-zinc-400">
+                <tr><td colSpan={10} className="px-4 py-12 text-center text-zinc-400">
                   顧客データがありません。「CSVインポート」から取り込んでください。
                 </td></tr>
               )}
               {!loading && items.map((c) => (
                 <tr key={c.id} className="border-t border-zinc-100 hover:bg-zinc-50/60">
                   <td className="px-4 py-2.5">
-                    <Link href={`/customers/${c.id}${isDemo ? '?demo=1' : ''}`}
-                          className="text-indigo-700 hover:underline font-medium">
+                    <button
+                      type="button"
+                      onClick={() => setDetail({ id: c.id, initialTab: 'overview' })}
+                      className="text-indigo-700 hover:underline font-medium text-left"
+                    >
                       {c.company_name}
-                    </Link>
+                    </button>
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-zinc-700">{c.fax_number || <span className="text-zinc-300">—</span>}</td>
                   <td className="px-4 py-2.5 font-mono text-xs text-zinc-700">{c.phone_number || <span className="text-zinc-300">—</span>}</td>
                   <td className="px-4 py-2.5 text-zinc-700">{c.industry || '—'}</td>
                   <td className="px-4 py-2.5 text-zinc-700">{c.prefecture || '—'}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">
+                    {Number(c.call_count) > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setDetail({ id: c.id, initialTab: 'calls', channelFilter: 'call' })}
+                        className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2 font-medium"
+                        title="架電結果の詳細を表示"
+                      >
+                        {c.call_count}
+                      </button>
+                    ) : (
+                      <span className="text-zinc-400">0</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{c.send_count}</td>
                   <td className="px-4 py-2.5 text-zinc-500 text-xs">
                     {c.last_sent_at ? new Date(c.last_sent_at).toLocaleDateString('ja-JP') : '—'}
@@ -360,6 +381,15 @@ export default function CustomersPage() {
         <CustomerCsvImportModal
           onClose={() => setShowImport(false)}
           onCompleted={() => { setShowImport(false); reload(); }}
+        />
+      )}
+
+      {detail && (
+        <CustomerDetailModal
+          customerId={detail.id}
+          initialTab={detail.initialTab}
+          channelFilter={detail.channelFilter}
+          onClose={() => setDetail(null)}
         />
       )}
     </div>

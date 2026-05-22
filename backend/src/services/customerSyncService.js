@@ -29,6 +29,40 @@ function clip(s, maxLen) {
   return t.length > maxLen ? t.slice(0, maxLen) : t;
 }
 
+// 都道府県47件 (北海道 / 東京都 / 大阪府 / 京都府 / 43県)
+const PREFECTURES = [
+  '北海道',
+  '青森県','岩手県','宮城県','秋田県','山形県','福島県',
+  '茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県',
+  '新潟県','富山県','石川県','福井県','山梨県','長野県',
+  '岐阜県','静岡県','愛知県','三重県',
+  '滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県',
+  '鳥取県','島根県','岡山県','広島県','山口県',
+  '徳島県','香川県','愛媛県','高知県',
+  '福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県',
+];
+
+/**
+ * 住所文字列から都道府県名を抽出
+ *   "山形県米沢市東..." → "山形県"
+ *   "東京都新宿区..."   → "東京都"
+ *   "北海道札幌市..."   → "北海道"
+ *   "東北" などの広域名や住所無しなら null (callcenter の region フィールド由来は採用しない)
+ */
+function extractPrefecture(address) {
+  if (!address) return null;
+  const s = String(address).trim();
+  if (!s) return null;
+  // 47都道府県を順次チェック
+  for (const pref of PREFECTURES) {
+    if (s.startsWith(pref) || s.includes(pref)) return pref;
+  }
+  // 汎用パターン: 最初の "XX都/道/府/県" を抽出 (補助、 都道府県名に登録されていない異字体対応)
+  const m = s.match(/^([^\s\d]+?[都道府県])/);
+  if (m && m[1].length <= 6) return m[1];
+  return null;
+}
+
 /**
  * 既存 customer を見つける (external_callcenter_id → fax → phone の順)
  */
@@ -139,6 +173,12 @@ async function pullFromCallcenter(opts = {}) {
           const name  = clip(c.company_name || c.name, 255) || '(未設定)';
           const phone = normPhone(c.phone_number || c.phone);
           if (!ccId || (!phone && !name)) { stats.skipped++; return null; }
+          const address = clip(c.address, 65000);
+          // 都道府県: 住所から県名を抽出 (callcenter の region は "東北"/"関東" 等の広域なので採用しない)
+          //   address から取れなければ region をフォールバックで使う (47都道府県マッチした場合のみ)
+          const prefFromAddr = extractPrefecture(address);
+          const prefFromRegion = extractPrefecture(c.region);
+          const prefecture = prefFromAddr || prefFromRegion || null;
           return {
             company_name: name,
             // callcenter には fax_number 列が存在しないので必ず NULL。
@@ -146,8 +186,8 @@ async function pullFromCallcenter(opts = {}) {
             fax_number: null,
             phone_number: phone,
             industry: clip(c.industry, 100),
-            prefecture: clip(c.region, 100),
-            address: clip(c.address, 65000),
+            prefecture: clip(prefecture, 100),
+            address,
             external_callcenter_id: ccId,
           };
         }).filter(Boolean);
@@ -302,4 +342,5 @@ module.exports = {
   syncBothDirections,
   getLastSyncedAt,
   setLastSyncedAt,
+  extractPrefecture,
 };
