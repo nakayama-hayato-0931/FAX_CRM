@@ -335,7 +335,7 @@ async function migrateLocalToDrive({ limit = 1000 } = {}) {
       LIMIT ?`,
     [Math.min(Number(limit) || 1000, 5000)]
   );
-  const stats = { target: rows.length, uploaded: 0, missing: 0, errors: 0 };
+  const stats = { target: rows.length, uploaded: 0, missing: 0, errors: 0, errorSamples: [], folderId };
   for (const r of rows) {
     const full = path.resolve(UPLOAD_DIR, r.pdf_file_path);
     if (!fs.existsSync(full)) { stats.missing++; continue; }
@@ -350,11 +350,13 @@ async function migrateLocalToDrive({ limit = 1000 } = {}) {
         'UPDATE manuscript_contents SET pdf_drive_file_id = ?, pdf_drive_url = ? WHERE id = ?',
         [f.id, f.webViewLink || null, r.id]
       );
-      // local 削除は別途
       stats.uploaded++;
     } catch (e) {
       console.error(`[manuscriptContent] migrate id=${r.id} failed: ${e.message}`);
       stats.errors++;
+      if (stats.errorSamples.length < 3) {
+        stats.errorSamples.push({ id: r.id, error: e.message });
+      }
     }
   }
   return stats;
