@@ -17,7 +17,16 @@ const cc = require('./callcenterClient');
 
 function normPhone(s) {
   if (!s) return null;
-  return String(s).replace(/[^0-9]/g, '') || null;
+  // 改行・空白除去 + 32文字 (DB列上限) に丸める
+  return String(s).replace(/[\s\r\n]/g, '').slice(0, 32) || null;
+}
+
+// 各カラムの DB 上限に合わせて clip。 callcenter が長い値を持ってきた場合の保険
+function clip(s, maxLen) {
+  if (s === undefined || s === null) return null;
+  const t = String(s).trim();
+  if (!t) return null;
+  return t.length > maxLen ? t.slice(0, maxLen) : t;
 }
 
 /**
@@ -72,13 +81,13 @@ async function pullFromCallcenter() {
 
   try {
     for (const c of companies) {
-      // callcenter の主要フィールド (snake_case で来る想定)
+      // callcenter の主要フィールド (snake_case で来る想定) + DB上限に合わせて clip
       const ccId       = Number(c.id);
-      const name       = c.company_name || c.name || null;
-      const phone      = c.phone_number || c.phone || null;
-      const industry   = c.industry || null;
-      const region     = c.region || null;
-      const address    = c.address || null;
+      const name       = clip(c.company_name || c.name, 255);
+      const phone      = normPhone(c.phone_number || c.phone);
+      const industry   = clip(c.industry, 100);
+      const region     = clip(c.region, 100);    // customers.prefecture VARCHAR(100)
+      const address    = clip(c.address, 65000); // TEXT
 
       if (!phone && !name) { stats.skippedNoPhone++; continue; }
 
