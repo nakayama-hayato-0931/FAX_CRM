@@ -126,7 +126,8 @@ export default function CustomerDetailModal({ customerId, initialTab = 'overview
                 <div className="bg-white">
                   <dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                     <Row k="電話番号" v={customer.phone_number} />
-                    <Row k="業種"     v={customer.industry} />
+                    <Row k="業種カテゴリ" v={customer.industry_category} />
+                    <Row k="業種(詳細)" v={customer.industry} />
                     <Row k="都道府県" v={customer.prefecture} />
                     <Row k="市区町村" v={customer.city} />
                     <Row k="住所"     v={customer.address} />

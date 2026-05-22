@@ -303,7 +303,7 @@ export default function CustomersPage() {
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">会社名</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">FAX</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">電話</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">業種</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider" title="詳細業種にマウスホバーで表示">業種</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">都道府県</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">架電</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">送信回数</th>
@@ -334,7 +334,9 @@ export default function CustomersPage() {
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-zinc-700">{c.fax_number || <span className="text-zinc-300">—</span>}</td>
                   <td className="px-4 py-2.5 font-mono text-xs text-zinc-700">{c.phone_number || <span className="text-zinc-300">—</span>}</td>
-                  <td className="px-4 py-2.5 text-zinc-700">{c.industry || '—'}</td>
+                  <td className="px-4 py-2.5 text-zinc-700" title={c.industry || ''}>
+                    {c.industry_category || c.industry || '—'}
+                  </td>
                   <td className="px-4 py-2.5 text-zinc-700">{c.prefecture || '—'}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">
                     {Number(c.call_count) > 0 ? (

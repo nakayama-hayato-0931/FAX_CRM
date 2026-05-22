@@ -24,7 +24,11 @@ async function listCustomers(query = {}) {
     where.push(`(${SEARCHABLE.map((col) => `c.${col} LIKE ?`).join(' OR ')})`);
     SEARCHABLE.forEach(() => params.push(like));
   }
-  if (query.industry)   { where.push('c.industry = ?');   params.push(query.industry); }
+  // industry フィルタは「業種カテゴリ (6種)」のいずれかに正規化された値で絞る
+  if (query.industry) {
+    where.push('c.industry_category = ?');
+    params.push(query.industry);
+  }
   if (query.prefecture) { where.push('c.prefecture = ?'); params.push(query.prefecture); }
   if (query.blacklisted === 'true')  where.push('c.is_blacklisted = 1');
   if (query.blacklisted === 'false') where.push('c.is_blacklisted = 0');
@@ -38,7 +42,8 @@ async function listCustomers(query = {}) {
   const offset = (page - 1) * limit;
 
   const [rows] = await pool.query(
-    `SELECT c.id, c.company_name, c.fax_number, c.phone_number, c.industry, c.prefecture, c.city,
+    `SELECT c.id, c.company_name, c.fax_number, c.phone_number,
+            c.industry, c.industry_category, c.prefecture, c.city,
             c.send_count, c.last_sent_at, c.last_pc_number, c.last_result, c.response_count,
             c.is_blacklisted, c.updated_at, c.external_callcenter_id,
             COALESCE(cc.call_count, 0) AS call_count
@@ -70,13 +75,18 @@ async function getById(id) {
   return rows[0] || null;
 }
 
+/**
+ * 業種カテゴリ (6種固定) の件数を返す
+ *   旧仕様の「industry 詳細を全件 distinct」 から、 6カテゴリ集約に変更
+ */
 async function getDistinctIndustries() {
   const pool = getPool();
   if (!pool) return [];
   const [rows] = await pool.query(
-    `SELECT industry, COUNT(*) AS cnt FROM customers
-      WHERE industry IS NOT NULL AND industry <> ''
-      GROUP BY industry ORDER BY cnt DESC LIMIT 200`
+    `SELECT industry_category AS industry, COUNT(*) AS cnt FROM customers
+      WHERE industry_category IS NOT NULL AND industry_category <> ''
+      GROUP BY industry_category
+      ORDER BY FIELD(industry_category, '飲食','製造','小売','宿泊','建設','その他')`
   );
   return rows;
 }

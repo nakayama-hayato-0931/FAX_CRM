@@ -14,6 +14,7 @@
  */
 const { getPool, isConfigured: dbConfigured } = require('../../config/db');
 const cc = require('./callcenterClient');
+const { normalizeIndustry } = require('../utils/industryCategory');
 
 function normPhone(s) {
   if (!s) return null;
@@ -179,13 +180,15 @@ async function pullFromCallcenter(opts = {}) {
           const prefFromAddr = extractPrefecture(address);
           const prefFromRegion = extractPrefecture(c.region);
           const prefecture = prefFromAddr || prefFromRegion || null;
+          const industry = clip(c.industry, 100);
           return {
             company_name: name,
             // callcenter には fax_number 列が存在しないので必ず NULL。
             //   fax_number を勝手に phone で埋めると 「電話番号がFAX欄に入る」 状態になるため。
             fax_number: null,
             phone_number: phone,
-            industry: clip(c.industry, 100),
+            industry,
+            industry_category: normalizeIndustry(industry),
             prefecture: clip(prefecture, 100),
             address,
             external_callcenter_id: ccId,
@@ -196,22 +199,24 @@ async function pullFromCallcenter(opts = {}) {
         // multi-row INSERT...ON DUPLICATE KEY UPDATE (肉付けマージ)
         //   重複判定は UNIQUE KEY uk_customers_external_callcenter のみ
         //   (fax_number は NULL なので UNIQUE 衝突しない)
-        const placeholders = rows.map(() => '(?, ?, ?, ?, ?, ?, ?, NOW(), \'callcenter-sync\')').join(', ');
+        const placeholders = rows.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, NOW(), \'callcenter-sync\')').join(', ');
         const values = rows.flatMap((r) => [
-          r.company_name, r.fax_number, r.phone_number, r.industry, r.prefecture, r.address, r.external_callcenter_id,
+          r.company_name, r.fax_number, r.phone_number, r.industry, r.industry_category,
+          r.prefecture, r.address, r.external_callcenter_id,
         ]);
         const sql = `
           INSERT INTO customers (
-            company_name, fax_number, phone_number, industry, prefecture, address,
-            external_callcenter_id, imported_at, source_file
+            company_name, fax_number, phone_number, industry, industry_category,
+            prefecture, address, external_callcenter_id, imported_at, source_file
           ) VALUES ${placeholders}
           ON DUPLICATE KEY UPDATE
             external_callcenter_id = COALESCE(customers.external_callcenter_id, VALUES(external_callcenter_id)),
-            company_name  = COALESCE(NULLIF(customers.company_name, ''), VALUES(company_name)),
-            phone_number  = COALESCE(NULLIF(customers.phone_number, ''), VALUES(phone_number)),
-            industry      = COALESCE(NULLIF(customers.industry, ''), VALUES(industry)),
-            prefecture    = COALESCE(NULLIF(customers.prefecture, ''), VALUES(prefecture)),
-            address       = COALESCE(NULLIF(customers.address, ''), VALUES(address))
+            company_name      = COALESCE(NULLIF(customers.company_name, ''), VALUES(company_name)),
+            phone_number      = COALESCE(NULLIF(customers.phone_number, ''), VALUES(phone_number)),
+            industry          = COALESCE(NULLIF(customers.industry, ''), VALUES(industry)),
+            industry_category = VALUES(industry_category),
+            prefecture        = COALESCE(NULLIF(customers.prefecture, ''), VALUES(prefecture)),
+            address           = COALESCE(NULLIF(customers.address, ''), VALUES(address))
             -- fax_number は意図的に更新対象から除外 (callcenter には FAX 情報がないため、
             -- fax-crm 側で別途登録された FAX番号を上書きしないように保護)
         `;
