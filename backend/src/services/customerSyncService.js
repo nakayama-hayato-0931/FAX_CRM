@@ -62,12 +62,42 @@ async function findExistingCustomer(conn, { external_id, fax_number, phone_numbe
 }
 
 /**
+ * 最終同期日時 (callcenter_last_synced_at) を取得
+ */
+async function getLastSyncedAt() {
+  const pool = getPool();
+  if (!pool) return null;
+  const [rows] = await pool.query(
+    "SELECT setting_value FROM system_settings WHERE setting_key = 'callcenter_last_synced_at'"
+  );
+  return rows[0]?.setting_value || null;
+}
+
+/**
+ * 最終同期日時を NOW() に更新
+ */
+async function setLastSyncedAt(iso) {
+  const pool = getPool();
+  if (!pool) return;
+  await pool.query(
+    `INSERT INTO system_settings (setting_key, setting_value, description)
+     VALUES ('callcenter_last_synced_at', ?, 'callcenter 顧客マスタの最終同期日時 (ISO8601)。 増分同期のフィルタに使う')
+     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+    [iso]
+  );
+}
+
+/**
  * callcenter → fax-crm pull (streaming + batch upsert で 200万件規模対応)
  *   - cc.streamAllCompanies で並列ページ取得
  *   - 各ページごとに 1 multi-row INSERT...ON DUPLICATE KEY UPDATE で upsert
  *   - 既存マッチは external_callcenter_id (UNIQUE) または fax_number (UNIQUE) でMySQLが自動判定
+ *
+ * @param {object} opts
+ *   full           ... true で全件強制 (差分フィルタを無視)、 falseで差分 (デフォルト false)
+ *   updatedSince   ... ISO8601 を直接指定する場合 (full=true なら無視)
  */
-async function pullFromCallcenter() {
+async function pullFromCallcenter(opts = {}) {
   if (!dbConfigured()) {
     const err = new Error('DBが未設定です'); err.status = 500; throw err;
   }
@@ -76,14 +106,32 @@ async function pullFromCallcenter() {
     err.status = 400; err.code = 'NOT_CONFIGURED'; throw err;
   }
 
+  // 差分基準時刻を決定 (full=true なら無視)
+  let updatedSince = null;
+  if (!opts.full) {
+    updatedSince = opts.updatedSince || await getLastSyncedAt();
+  }
+  // 同期開始時刻を記録 (sync中に更新された行を取りこぼさないよう、 開始時の時刻で次回基準にする)
+  const syncStartedIso = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
   const pool = getPool();
-  const stats = { fetched: 0, upserted: 0, skipped: 0 };
+  const stats = {
+    mode: updatedSince ? 'incremental' : 'full',
+    updated_since: updatedSince,
+    fetched: 0, upserted: 0, skipped: 0,
+  };
   const startedAt = Date.now();
 
   // 既存 (sales_list = 0) と 営業 (sales_list = 1) の両系統を順次 stream
   for (const isSalesList of [null, '1']) {
     await cc.streamAllCompanies(
-      { pageSize: 100, concurrency: 5, showExcluded: '1', includeSalesList: isSalesList, maxPages: 25000 },
+      {
+        pageSize: 100, concurrency: 5,
+        showExcluded: '1',
+        includeSalesList: isSalesList,
+        maxPages: 25000,
+        updatedSince,
+      },
       async (items, meta) => {
         stats.fetched += items.length;
         const rows = items.map((c) => {
@@ -143,6 +191,9 @@ async function pullFromCallcenter() {
     );
   }
 
+  // 成功時のみ最終同期時刻を更新 (途中失敗時は前回値を維持して次回もう一度フェッチ)
+  await setLastSyncedAt(syncStartedIso);
+  stats.synced_at = syncStartedIso;
   stats.elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
   return stats;
 }
@@ -223,11 +274,11 @@ async function pushAllToCallcenter({ limit = 1000 } = {}) {
  *     既存顧客の重複作成を防ぐ
  *   - 個別のステージが失敗しても他方を試みる (best-effort)
  */
-async function syncBothDirections({ pushLimit = 2000 } = {}) {
+async function syncBothDirections({ pushLimit = 2000, full = false } = {}) {
   const result = { pull: null, push: null, error: null };
 
   try {
-    result.pull = await pullFromCallcenter();
+    result.pull = await pullFromCallcenter({ full });
   } catch (e) {
     result.error = `pull失敗: ${e.message}`;
     console.error('[customerSync] pull error:', e.message);
@@ -249,4 +300,6 @@ module.exports = {
   pushCustomerToCallcenter,
   pushAllToCallcenter,
   syncBothDirections,
+  getLastSyncedAt,
+  setLastSyncedAt,
 };

@@ -57,10 +57,26 @@ export default function CustomersPage() {
     try {
       const { data } = await api.post('/api/customers/sync/pull', null, { timeout: 30 * 60 * 1000 });
       const r = data.data || {};
-      toast.success(`callcenter → fax-crm: 取得${r.fetched ?? 0}件 / upsert${r.upserted ?? 0}件 (${r.elapsedSec ?? '?'}s)`, { duration: 8000 });
+      const modeLabel = r.mode === 'incremental' ? `差分 (since ${r.updated_since?.slice(0, 19) || '?'})` : '全件';
+      toast.success(`callcenter → fax-crm [${modeLabel}]: 取得${r.fetched ?? 0}件 / upsert${r.upserted ?? 0}件 (${r.elapsedSec ?? '?'}s)`, { duration: 8000 });
       reload();
     } catch (e) {
       toast.error(e.userMessage || 'callcenter からの取り込み失敗');
+    } finally { setSyncPulling(false); }
+  };
+
+  const pullFullFromCallcenter = async () => {
+    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (!syncStatus?.configured) { toast.error('callcenter 連携が未設定'); return; }
+    if (!window.confirm('差分フィルタを無視して callcenter から全件 pull します。 200万件規模だと数十分かかる可能性があります。 進めますか？')) return;
+    setSyncPulling(true);
+    try {
+      const { data } = await api.post('/api/customers/sync/pull?full=1', null, { timeout: 60 * 60 * 1000 });
+      const r = data.data || {};
+      toast.success(`全件同期OK: 取得${r.fetched ?? 0}件 / upsert${r.upserted ?? 0}件 (${r.elapsedSec ?? '?'}s)`, { duration: 10000 });
+      reload();
+    } catch (e) {
+      toast.error(e.userMessage || '全件同期失敗');
     } finally { setSyncPulling(false); }
   };
 
@@ -77,9 +93,10 @@ export default function CustomersPage() {
       const r = data.data || {};
       const pull = r.pull || {};
       const push = r.push || {};
+      const modeLabel = pull.mode === 'incremental' ? `差分 since ${pull.updated_since?.slice(0, 19) || '?'}` : '全件';
       toast.success(
         `双方向同期OK\n` +
-        `← 取込: ${pull.fetched ?? 0}件 (upsert ${pull.upserted ?? 0}件 / skip ${pull.skipped ?? 0}件、 ${pull.elapsedSec ?? '?'}s)\n` +
+        `← 取込 [${modeLabel}]: ${pull.fetched ?? 0}件 (upsert ${pull.upserted ?? 0} / skip ${pull.skipped ?? 0}、 ${pull.elapsedSec ?? '?'}s)\n` +
         `→ 送信: ${push.total ?? 0}件中 新規${push.created ?? 0} / 更新${push.updated ?? 0} / エラー${push.errors ?? 0}`,
         { duration: 10000 }
       );
@@ -167,6 +184,11 @@ export default function CustomersPage() {
           <h1 className="text-2xl font-bold text-zinc-900">顧客マスタ</h1>
           <p className="text-zinc-500 mt-1 text-sm">
             {pagination.total.toLocaleString()} 件
+            {syncStatus?.last_synced_at && (
+              <span className="ml-2 text-xs text-zinc-400">
+                callcenter最終同期: {new Date(syncStatus.last_synced_at).toLocaleString('ja-JP')}
+              </span>
+            )}
             {isDemo && <span className="ml-2 px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">デモ表示</span>}
           </p>
         </div>
@@ -205,6 +227,15 @@ export default function CustomersPage() {
                 title="fax-crm → callcenter (送信のみ、 confirm あり)"
               >
                 {syncPushing ? '送信中…' : '→ callcenter へ送信のみ'}
+              </button>
+              <hr className="border-zinc-200 my-1" />
+              <button
+                onClick={pullFullFromCallcenter}
+                disabled={syncPulling || syncingBoth || (syncStatus && !syncStatus.configured)}
+                className="px-3 py-1.5 text-xs bg-white border border-amber-200 text-amber-700 rounded hover:bg-amber-50 disabled:opacity-50 whitespace-nowrap"
+                title="差分フィルタを無視して callcenter から全件 pull (時間かかります)"
+              >
+                {syncPulling ? '全件同期中…' : '⟳ 全件再同期 (差分無視)'}
               </button>
             </div>
           </details>

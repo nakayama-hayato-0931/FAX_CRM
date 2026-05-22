@@ -191,12 +191,14 @@ async function streamAllCompanies(opts, onBatch) {
   const showExcluded = opts.showExcluded ?? '1';
   const listType = opts.includeSpecial === 'special' ? 'special' : null;
   const isSalesList = opts.includeSalesList === '1' ? '1' : null;
+  const updatedSince = opts.updatedSince || null;  // ISO8601 文字列。 指定時は updated_at >= で差分のみ取得
 
   const baseParams = new URLSearchParams();
   baseParams.set('limit', String(pageSize));
   if (showExcluded) baseParams.set('show_excluded', String(showExcluded));
   if (listType) baseParams.set('list_type', listType);
   if (isSalesList) baseParams.set('is_sales_list', isSalesList);
+  if (updatedSince) baseParams.set('updated_since', updatedSince);
 
   // 1ページ目で totalPages 確定
   baseParams.set('page', '1');

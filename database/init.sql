@@ -212,7 +212,8 @@ CREATE TABLE IF NOT EXISTS system_settings (
 INSERT IGNORE INTO system_settings (setting_key, setting_value, description) VALUES
   ('drive_root_folder_id', NULL, 'Drive上のルートフォルダID(リスト・原稿の親)'),
   ('drive_auto_upload',    '0',  'リスト抽出時にExcelをDriveへ自動アップロード(1=ON)'),
-  ('manuscript_auto_create_folders', '0', '原稿日付登録時にDriveに23フォルダを自動作成(1=ON)');
+  ('manuscript_auto_create_folders', '0', '原稿日付登録時にDriveに23フォルダを自動作成(1=ON)'),
+  ('callcenter_last_synced_at', NULL, 'callcenter 顧客マスタの最終同期日時 (ISO8601)。 増分同期のフィルタに使う');
 
 -- --------------------------------------------
 -- Sheets連携設定 (シングルトン: id=1のみ)

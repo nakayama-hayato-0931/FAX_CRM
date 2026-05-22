@@ -84,19 +84,25 @@ router.post('/import', upload.single('file'), async (req, res, next) => {
 // callcenter-ai-system 連携
 // ============================================================
 
-// GET /api/customers/sync/status — 連携設定の状態確認
-router.get('/sync/status', (_req, res) => {
-  return ok(res, {
-    configured: ccClient.isConfigured(),
-    base_url_set: !!process.env.CALLCENTER_API_BASE_URL,
-    token_set: !!process.env.CALLCENTER_API_TOKEN,
-  });
+// GET /api/customers/sync/status — 連携設定の状態確認 + 最終同期日時
+router.get('/sync/status', async (_req, res, next) => {
+  try {
+    const lastSyncedAt = await customerSync.getLastSyncedAt();
+    return ok(res, {
+      configured: ccClient.isConfigured(),
+      base_url_set: !!process.env.CALLCENTER_API_BASE_URL,
+      token_set: !!process.env.CALLCENTER_API_TOKEN,
+      last_synced_at: lastSyncedAt,
+    });
+  } catch (e) { next(e); }
 });
 
 // POST /api/customers/sync/pull — callcenter → fax-crm 取り込み
-router.post('/sync/pull', async (_req, res, next) => {
+//   ?full=1 で差分フィルタを無視して全件強制 (デフォルトは差分)
+router.post('/sync/pull', async (req, res, next) => {
   try {
-    const stats = await customerSync.pullFromCallcenter();
+    const full = req.query.full === '1';
+    const stats = await customerSync.pullFromCallcenter({ full });
     return created(res, stats);
   } catch (e) { next(e); }
 });
@@ -111,11 +117,21 @@ router.post('/sync/push', async (req, res, next) => {
 });
 
 // POST /api/customers/sync/both — 双方向同期 (pull → push 順次)
+//   ?full=1 で pull 部分を全件強制
 router.post('/sync/both', async (req, res, next) => {
   try {
     const pushLimit = Number(req.query.limit) || 2000;
-    const stats = await customerSync.syncBothDirections({ pushLimit });
+    const full = req.query.full === '1';
+    const stats = await customerSync.syncBothDirections({ pushLimit, full });
     return created(res, stats);
+  } catch (e) { next(e); }
+});
+
+// POST /api/customers/sync/reset — 最終同期日時を NULL に戻す (全件再同期を強制したい時用)
+router.post('/sync/reset', async (_req, res, next) => {
+  try {
+    await customerSync.setLastSyncedAt(null);
+    return ok(res, { ok: true, message: '最終同期日時をリセットしました。 次回の同期は全件 pull になります' });
   } catch (e) { next(e); }
 });
 
