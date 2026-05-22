@@ -33,8 +33,53 @@ export default function CustomersPage() {
   const [prefectures, setPrefectures] = useState([]);
   const [reloadKey, setReloadKey] = useState(0);
   const [showImport, setShowImport] = useState(false);
+  const [syncPulling, setSyncPulling] = useState(false);
+  const [syncPushing, setSyncPushing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(null);
 
   const reload = () => setReloadKey((k) => k + 1);
+
+  useEffect(() => {
+    if (isDemo) return;
+    api.get('/api/customers/sync/status')
+      .then((r) => setSyncStatus(r.data?.data || null))
+      .catch(() => {});
+  }, [isDemo]);
+
+  const pullFromCallcenter = async () => {
+    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (!syncStatus?.configured) {
+      toast.error('callcenter 連携が未設定 (環境変数 CALLCENTER_API_BASE_URL / CALLCENTER_API_TOKEN を設定してください)');
+      return;
+    }
+    setSyncPulling(true);
+    try {
+      const { data } = await api.post('/api/customers/sync/pull');
+      const r = data.data || {};
+      toast.success(`callcenter→fax-crm: 取得${r.fetched ?? 0} / 新規${r.inserted ?? 0} / 紐付け${r.linked ?? 0} / 更新${r.updated ?? 0}`);
+      reload();
+    } catch (e) {
+      toast.error(e.userMessage || 'callcenter からの取り込み失敗');
+    } finally { setSyncPulling(false); }
+  };
+
+  const pushToCallcenter = async () => {
+    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (!syncStatus?.configured) {
+      toast.error('callcenter 連携が未設定');
+      return;
+    }
+    if (!window.confirm('fax-crm の顧客マスタを callcenter へ送信します。 既存の external_callcenter_id がある顧客は更新、 ない顧客は新規作成されます。 進めますか？')) return;
+    setSyncPushing(true);
+    try {
+      const { data } = await api.post('/api/customers/sync/push?limit=2000');
+      const r = data.data || {};
+      toast.success(`fax-crm→callcenter: 対象${r.total ?? 0} / 新規${r.created ?? 0} / 更新${r.updated ?? 0} / スキップ${r.skipped ?? 0} / エラー${r.errors ?? 0}`);
+      reload();
+    } catch (e) {
+      toast.error(e.userMessage || 'callcenter への送信失敗');
+    } finally { setSyncPushing(false); }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -98,9 +143,29 @@ export default function CustomersPage() {
             {isDemo && <span className="ml-2 px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">デモ表示</span>}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={reload} className="px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50">
             再読み込み
+          </button>
+          <button
+            onClick={pullFromCallcenter}
+            disabled={syncPulling || (syncStatus && !syncStatus.configured)}
+            className="px-3 py-2 text-sm bg-sky-600 text-white rounded-md hover:bg-sky-700 disabled:opacity-50"
+            title={syncStatus?.configured
+              ? 'callcenter-ai-system の企業マスタを取り込み (肉付けマージ)'
+              : 'callcenter 連携 未設定 (env: CALLCENTER_API_BASE_URL / CALLCENTER_API_TOKEN)'}
+          >
+            {syncPulling ? '取込中…' : 'callcenter から取込'}
+          </button>
+          <button
+            onClick={pushToCallcenter}
+            disabled={syncPushing || (syncStatus && !syncStatus.configured)}
+            className="px-3 py-2 text-sm bg-sky-700 text-white rounded-md hover:bg-sky-800 disabled:opacity-50"
+            title={syncStatus?.configured
+              ? 'fax-crm の顧客を callcenter へ送信 (新規作成 or 更新)'
+              : 'callcenter 連携 未設定'}
+          >
+            {syncPushing ? '送信中…' : 'callcenter へ送信'}
           </button>
           <button onClick={() => setShowImport(true)}
                   className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">

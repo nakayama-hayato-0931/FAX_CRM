@@ -6,6 +6,8 @@ const fs = require('fs');
 const customerService = require('../services/customerService');
 const customerImport = require('../services/customerImportService');
 const contactEvents = require('../services/contactEventService');
+const customerSync = require('../services/customerSyncService');
+const ccClient = require('../services/callcenterClient');
 const { ok, created, fail } = require('../utils/response');
 
 const router = express.Router();
@@ -76,6 +78,36 @@ router.post('/import', upload.single('file'), async (req, res, next) => {
     return created(res, result);
   } catch (e) { next(e); }
   finally { if (p && fs.existsSync(p)) fs.unlink(p, () => {}); }
+});
+
+// ============================================================
+// callcenter-ai-system 連携
+// ============================================================
+
+// GET /api/customers/sync/status — 連携設定の状態確認
+router.get('/sync/status', (_req, res) => {
+  return ok(res, {
+    configured: ccClient.isConfigured(),
+    base_url_set: !!process.env.CALLCENTER_API_BASE_URL,
+    token_set: !!process.env.CALLCENTER_API_TOKEN,
+  });
+});
+
+// POST /api/customers/sync/pull — callcenter → fax-crm 取り込み
+router.post('/sync/pull', async (_req, res, next) => {
+  try {
+    const stats = await customerSync.pullFromCallcenter();
+    return created(res, stats);
+  } catch (e) { next(e); }
+});
+
+// POST /api/customers/sync/push — fax-crm → callcenter 一括 push
+router.post('/sync/push', async (req, res, next) => {
+  try {
+    const limit = Number(req.query.limit) || 1000;
+    const stats = await customerSync.pushAllToCallcenter({ limit });
+    return created(res, stats);
+  } catch (e) { next(e); }
 });
 
 module.exports = router;
