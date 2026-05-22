@@ -231,6 +231,23 @@ async function pullFromCallcenter(opts = {}) {
     );
   }
 
+  // 安全装置: 万一 fax_number に phone_number と同値が入った callcenter-sync 行があれば NULL に戻す
+  //   (UPSERT の ON DUPLICATE KEY UPDATE で fax_number は除外しているが、 新規INSERT時の防御)
+  try {
+    const [r] = await pool.query(`
+      UPDATE customers SET fax_number = NULL
+       WHERE source_file = 'callcenter-sync'
+         AND fax_number IS NOT NULL
+         AND fax_number = phone_number
+    `);
+    if (r.affectedRows > 0) {
+      console.log(`[customerSync] auto-cleanup: fax_number==phone_number ${r.affectedRows} 行を NULL に修復`);
+      stats.faxCleanedUp = r.affectedRows;
+    }
+  } catch (e) {
+    console.error('[customerSync] auto-cleanup failed:', e.message);
+  }
+
   // 成功時のみ最終同期時刻を更新 (途中失敗時は前回値を維持して次回もう一度フェッチ)
   await setLastSyncedAt(syncStartedIso);
   stats.synced_at = syncStartedIso;
