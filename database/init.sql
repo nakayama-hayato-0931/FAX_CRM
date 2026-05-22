@@ -12,8 +12,8 @@ SET NAMES utf8mb4;
 CREATE TABLE IF NOT EXISTS customers (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   company_name VARCHAR(255) NOT NULL,
-  fax_number VARCHAR(32) NOT NULL,
-  phone_number VARCHAR(32) DEFAULT NULL,
+  fax_number VARCHAR(32) DEFAULT NULL COMMENT 'FAX番号 (FAX-CRM運用上の主キー的役割)。 callcenter由来の行はNULL',
+  phone_number VARCHAR(32) DEFAULT NULL COMMENT '電話番号 (callcenter架電用)',
   industry VARCHAR(100) DEFAULT NULL,
   prefecture VARCHAR(20) DEFAULT NULL,
   city VARCHAR(100) DEFAULT NULL,

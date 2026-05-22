@@ -93,7 +93,9 @@ async function pullFromCallcenter() {
           if (!ccId || (!phone && !name)) { stats.skipped++; return null; }
           return {
             company_name: name,
-            fax_number: phone || `__cc_${ccId}__`,  // UNIQUE 制約用、 phone があれば優先
+            // callcenter には fax_number 列が存在しないので必ず NULL。
+            //   fax_number を勝手に phone で埋めると 「電話番号がFAX欄に入る」 状態になるため。
+            fax_number: null,
             phone_number: phone,
             industry: clip(c.industry, 100),
             prefecture: clip(c.region, 100),
@@ -104,6 +106,8 @@ async function pullFromCallcenter() {
         if (rows.length === 0) return;
 
         // multi-row INSERT...ON DUPLICATE KEY UPDATE (肉付けマージ)
+        //   重複判定は UNIQUE KEY uk_customers_external_callcenter のみ
+        //   (fax_number は NULL なので UNIQUE 衝突しない)
         const placeholders = rows.map(() => '(?, ?, ?, ?, ?, ?, ?, NOW(), \'callcenter-sync\')').join(', ');
         const values = rows.flatMap((r) => [
           r.company_name, r.fax_number, r.phone_number, r.industry, r.prefecture, r.address, r.external_callcenter_id,
@@ -120,6 +124,8 @@ async function pullFromCallcenter() {
             industry      = COALESCE(NULLIF(customers.industry, ''), VALUES(industry)),
             prefecture    = COALESCE(NULLIF(customers.prefecture, ''), VALUES(prefecture)),
             address       = COALESCE(NULLIF(customers.address, ''), VALUES(address))
+            -- fax_number は意図的に更新対象から除外 (callcenter には FAX 情報がないため、
+            -- fax-crm 側で別途登録された FAX番号を上書きしないように保護)
         `;
         try {
           const [result] = await pool.query(sql, values);

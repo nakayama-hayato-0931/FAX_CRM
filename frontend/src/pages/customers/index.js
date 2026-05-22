@@ -268,6 +268,7 @@ export default function CustomersPage() {
               <tr>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">会社名</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">FAX</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">電話</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">業種</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">都道府県</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase tracking-wider">送信回数</th>
@@ -278,10 +279,10 @@ export default function CustomersPage() {
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-zinc-400">読み込み中…</td></tr>
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-zinc-400">読み込み中…</td></tr>
               )}
               {!loading && items.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-zinc-400">
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-zinc-400">
                   顧客データがありません。「CSVインポート」から取り込んでください。
                 </td></tr>
               )}
@@ -293,7 +294,8 @@ export default function CustomersPage() {
                       {c.company_name}
                     </Link>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-zinc-700">{c.fax_number}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-zinc-700">{c.fax_number || <span className="text-zinc-300">—</span>}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-zinc-700">{c.phone_number || <span className="text-zinc-300">—</span>}</td>
                   <td className="px-4 py-2.5 text-zinc-700">{c.industry || '—'}</td>
                   <td className="px-4 py-2.5 text-zinc-700">{c.prefecture || '—'}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{c.send_count}</td>

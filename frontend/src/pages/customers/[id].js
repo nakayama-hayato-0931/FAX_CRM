@@ -117,7 +117,10 @@ export default function CustomerDetailPage() {
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">{customer.company_name}</h1>
           <p className="text-zinc-500 mt-1 text-sm">
-            ID: {customer.id} / FAX: <span className="font-mono">{customer.fax_number}</span>
+            ID: {customer.id}
+            {customer.fax_number && <> / FAX: <span className="font-mono">{customer.fax_number}</span></>}
+            {customer.phone_number && <> / 電話: <span className="font-mono">{customer.phone_number}</span></>}
+            {!customer.fax_number && !customer.phone_number && <span className="text-zinc-400 ml-1">(連絡先未登録)</span>}
             {isDemo && <span className="ml-2 px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">デモ表示</span>}
           </p>
         </div>
