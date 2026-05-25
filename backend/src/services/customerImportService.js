@@ -2,6 +2,17 @@ const fs = require('fs');
 const csv = require('csv-parser');
 const { getPool, isConfigured } = require('../../config/db');
 
+/**
+ * CSV インポートの 3 モード:
+ *   - 'new'      新規リスト: 会社名/電話/FAX のいずれかで既存 (NG含む) と一致したらスキップ。
+ *                  未一致のみ insert (is_blacklisted=0)
+ *   - 'existing' 既存リスト: 既存顧客のデータを 肉付けマージ (空欄のみ埋める)。
+ *                  未一致は skip (新規追加しない)
+ *   - 'ng'       NGリスト  : 一致した顧客を is_blacklisted=1 に。 未一致は ブラックリスト付で
+ *                  新規登録 (会社名 必須)。
+ */
+const MODES = new Set(['new', 'existing', 'ng']);
+
 const DEFAULT_MAPPING = {
   '会社名': 'company_name', '企業名': 'company_name', 'company_name': 'company_name',
   'FAX': 'fax_number', 'FAX番号': 'fax_number', 'fax': 'fax_number', 'fax_number': 'fax_number',
@@ -15,17 +26,25 @@ const DEFAULT_MAPPING = {
   '従業員数': 'employee_count', 'employee_count': 'employee_count',
   '代表者': 'representative', 'representative': 'representative',
   '備考': 'note', 'メモ': 'note', 'note': 'note',
+  'NG理由': 'blacklisted_reason', 'ブラック理由': 'blacklisted_reason',
+  'blacklisted_reason': 'blacklisted_reason',
 };
 
 const VALID = new Set([
   'company_name', 'fax_number', 'phone_number', 'industry',
   'prefecture', 'city', 'address', 'postal_code', 'url',
-  'employee_count', 'representative', 'note',
+  'employee_count', 'representative', 'note', 'blacklisted_reason',
 ]);
 
 function normalizeFax(v) {
   if (!v) return null;
   return String(v).replace(/[^0-9+]/g, '').trim() || null;
+}
+
+/** マッチング用に数字のみ抽出 (ハイフン無視) */
+function digitsOnly(v) {
+  if (!v) return '';
+  return String(v).replace(/[^0-9]/g, '');
 }
 
 function rowToCustomer(row) {
@@ -36,6 +55,8 @@ function rowToCustomer(row) {
     if (v === undefined || v === null || v === '') continue;
     if (dbKey === 'fax_number') {
       out[dbKey] = normalizeFax(v);
+    } else if (dbKey === 'phone_number') {
+      out[dbKey] = normalizeFax(v);  // 同じ正規化 (半角数字+ハイフン除去)
     } else if (dbKey === 'employee_count') {
       const n = Number(String(v).replace(/[^0-9.-]/g, ''));
       out[dbKey] = Number.isFinite(n) ? n : null;
@@ -46,66 +67,127 @@ function rowToCustomer(row) {
   return out;
 }
 
-async function bulkUpsert(rows, sourceFile) {
-  const stats = { inserted: 0, updated: 0, skipped: 0 };
+/**
+ * mode 別の取込処理
+ *   1チャンク = 500件 で:
+ *     - CSV 値から company_name / digits(phone) / digits(fax) を集める
+ *     - 既存顧客を 3 軸 OR で bulk SELECT
+ *     - 各行を分類 (insert / update / skip / blacklist)
+ *   ハイフン無視マッチに REGEXP_REPLACE を使用
+ */
+async function processImport(rows, sourceFile, mode) {
+  const stats = { inserted: 0, updated: 0, skipped: 0, blacklisted: 0 };
   if (!rows.length) return stats;
 
-  const CHUNK = 500;
-  const cols = [
-    'company_name', 'fax_number', 'phone_number', 'industry',
-    'prefecture', 'city', 'address', 'postal_code', 'url',
-    'employee_count', 'representative', 'note',
-    'source_file', 'imported_at',
-  ];
   const pool = getPool();
   const conn = await pool.getConnection();
   try {
+    const CHUNK = 500;
     for (let i = 0; i < rows.length; i += CHUNK) {
       const chunk = rows.slice(i, i + CHUNK);
-      const placeholders = [];
-      const values = [];
-      let validCount = 0;
-      for (const c of chunk) {
-        if (!c.company_name || !c.fax_number) { stats.skipped++; continue; }
-        validCount++;
-        placeholders.push(`(${cols.map(() => '?').join(',')})`);
-        values.push(
-          c.company_name, c.fax_number,
-          c.phone_number || null, c.industry || null,
-          c.prefecture || null, c.city || null, c.address || null,
-          c.postal_code || null, c.url || null,
-          c.employee_count ?? null,
-          c.representative || null, c.note || null,
-          sourceFile || null, new Date()
-        );
+
+      // 1. lookup 値を集約
+      const names = new Set(), phones = new Set(), faxes = new Set();
+      for (const r of chunk) {
+        if (r.company_name) names.add(r.company_name);
+        if (r.phone_number) { const d = digitsOnly(r.phone_number); if (d) phones.add(d); }
+        if (r.fax_number)   { const d = digitsOnly(r.fax_number);   if (d) faxes.add(d); }
       }
-      if (!placeholders.length) continue;
-      const sql = `
-        INSERT INTO customers (${cols.join(',')})
-        VALUES ${placeholders.join(',')}
-        ON DUPLICATE KEY UPDATE
-          -- 肉付けマージ: 既存に値があれば残し、空欄(NULL)だけ新値で埋める
-          -- ※ company_name は NOT NULL なので実質既存維持
-          company_name   = COALESCE(company_name,   VALUES(company_name)),
-          phone_number   = COALESCE(phone_number,   VALUES(phone_number)),
-          industry       = COALESCE(industry,       VALUES(industry)),
-          prefecture     = COALESCE(prefecture,     VALUES(prefecture)),
-          city           = COALESCE(city,           VALUES(city)),
-          address        = COALESCE(address,        VALUES(address)),
-          postal_code    = COALESCE(postal_code,    VALUES(postal_code)),
-          url            = COALESCE(url,            VALUES(url)),
-          employee_count = COALESCE(employee_count, VALUES(employee_count)),
-          representative = COALESCE(representative, VALUES(representative)),
-          note           = COALESCE(note,           VALUES(note)),
-          -- メタ情報は最新の取込履歴として上書き
-          source_file    = VALUES(source_file),
-          imported_at    = VALUES(imported_at)
-      `;
-      const [result] = await conn.query(sql, values);
-      // affectedRows = inserted + 2 * updated_with_change
-      const updatedWithChange = Math.max(result.affectedRows - validCount, 0);
-      stats.inserted += validCount - updatedWithChange;
-      stats.updated += updatedWithChange;
+
+      // 2. bulk SELECT で既存マッチを取得
+      const conditions = [];
+      const params = [];
+      if (names.size) {
+        conditions.push(`company_name IN (?)`);
+        params.push(Array.from(names));
+      }
+      if (phones.size) {
+        conditions.push(`REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') IN (?)`);
+        params.push(Array.from(phones));
+      }
+      if (faxes.size) {
+        conditions.push(`REGEXP_REPLACE(COALESCE(fax_number, ''), '[^0-9]', '') IN (?)`);
+        params.push(Array.from(faxes));
+      }
+      let existing = [];
+      if (conditions.length) {
+        const [rows2] = await conn.query(
+          `SELECT id, company_name, phone_number, fax_number, is_blacklisted
+             FROM customers WHERE ${conditions.join(' OR ')}`,
+          params
+        );
+        existing = rows2;
+      }
+
+      // 3. lookup map 構築
+      const byName = new Map(), byPhone = new Map(), byFax = new Map();
+      for (const e of existing) {
+        if (e.company_name && !byName.has(e.company_name)) byName.set(e.company_name, e);
+        if (e.phone_number) {
+          const d = digitsOnly(e.phone_number);
+          if (d && !byPhone.has(d)) byPhone.set(d, e);
+        }
+        if (e.fax_number) {
+          const d = digitsOnly(e.fax_number);
+          if (d && !byFax.has(d)) byFax.set(d, e);
+        }
+      }
+
+      // CSV 内重複も検出するための seen set (new モード用)
+      const seenNames = new Set(), seenPhones = new Set(), seenFaxes = new Set();
+
+      // 4. 行ごと分類処理
+      for (const r of chunk) {
+        const phoneD = r.phone_number ? digitsOnly(r.phone_number) : '';
+        const faxD   = r.fax_number   ? digitsOnly(r.fax_number)   : '';
+        const match =
+          (r.company_name && byName.get(r.company_name)) ||
+          (phoneD && byPhone.get(phoneD)) ||
+          (faxD && byFax.get(faxD)) ||
+          null;
+
+        if (mode === 'new') {
+          // 会社名 必須 (新規 insert に必要)
+          if (!r.company_name) { stats.skipped++; continue; }
+          // 既存マッチ または CSV 内重複 → skip
+          const inChunk =
+            (r.company_name && seenNames.has(r.company_name)) ||
+            (phoneD && seenPhones.has(phoneD)) ||
+            (faxD && seenFaxes.has(faxD));
+          if (match || inChunk) { stats.skipped++; continue; }
+          const newId = await insertSingle(conn, r, { sourceFile, blacklist: false });
+          stats.inserted++;
+          // 次の行が同一データを参照しないよう lookup と seen を更新
+          if (r.company_name) { byName.set(r.company_name, { id: newId }); seenNames.add(r.company_name); }
+          if (phoneD)         { byPhone.set(phoneD, { id: newId });        seenPhones.add(phoneD); }
+          if (faxD)           { byFax.set(faxD, { id: newId });            seenFaxes.add(faxD); }
+        } else if (mode === 'existing') {
+          if (!match) { stats.skipped++; continue; }
+          await updateExisting(conn, match.id, r);
+          stats.updated++;
+        } else if (mode === 'ng') {
+          if (match) {
+            await conn.query(
+              `UPDATE customers
+                  SET is_blacklisted = 1,
+                      blacklisted_reason = COALESCE(blacklisted_reason, ?)
+                WHERE id = ?`,
+              [r.blacklisted_reason || r.note || null, match.id]
+            );
+            // ブラック化件数: 既に NG だった場合も updated 扱い、新規にNGなら blacklisted++
+            if (match.is_blacklisted) stats.updated++;
+            else stats.blacklisted++;
+          } else {
+            if (!r.company_name) { stats.skipped++; continue; }
+            const newId = await insertSingle(conn, r, { sourceFile, blacklist: true });
+            stats.inserted++;
+            stats.blacklisted++;
+            if (r.company_name) byName.set(r.company_name, { id: newId, is_blacklisted: 1 });
+            if (phoneD)         byPhone.set(phoneD,        { id: newId, is_blacklisted: 1 });
+            if (faxD)           byFax.set(faxD,            { id: newId, is_blacklisted: 1 });
+          }
+        }
+      }
     }
   } finally {
     conn.release();
@@ -113,13 +195,65 @@ async function bulkUpsert(rows, sourceFile) {
   return stats;
 }
 
-async function importCsv(filePath, originalName) {
+async function insertSingle(conn, r, { sourceFile, blacklist }) {
+  const [result] = await conn.query(
+    `INSERT INTO customers
+       (company_name, fax_number, phone_number, industry, prefecture, city, address,
+        postal_code, url, employee_count, representative, note,
+        is_blacklisted, blacklisted_reason, source_file, imported_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [
+      r.company_name, r.fax_number || null, r.phone_number || null,
+      r.industry || null, r.prefecture || null, r.city || null, r.address || null,
+      r.postal_code || null, r.url || null, r.employee_count ?? null,
+      r.representative || null, r.note || null,
+      blacklist ? 1 : 0,
+      blacklist ? (r.blacklisted_reason || r.note || null) : (r.blacklisted_reason || null),
+      sourceFile || null,
+    ]
+  );
+  return result.insertId;
+}
+
+/** 肉付けマージ: 既存に値があれば残し、空欄(NULL)だけ新値で埋める */
+async function updateExisting(conn, id, r) {
+  await conn.query(
+    `UPDATE customers SET
+       fax_number     = COALESCE(fax_number,     ?),
+       phone_number   = COALESCE(phone_number,   ?),
+       industry       = COALESCE(industry,       ?),
+       prefecture     = COALESCE(prefecture,     ?),
+       city           = COALESCE(city,           ?),
+       address        = COALESCE(address,        ?),
+       postal_code    = COALESCE(postal_code,    ?),
+       url            = COALESCE(url,            ?),
+       employee_count = COALESCE(employee_count, ?),
+       representative = COALESCE(representative, ?),
+       note           = COALESCE(note,           ?)
+     WHERE id = ?`,
+    [
+      r.fax_number || null, r.phone_number || null, r.industry || null,
+      r.prefecture || null, r.city || null, r.address || null,
+      r.postal_code || null, r.url || null, r.employee_count ?? null,
+      r.representative || null, r.note || null,
+      id,
+    ]
+  );
+}
+
+async function importCsv(filePath, originalName, options = {}) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です。.env の DB_HOST 等を設定してください');
-    err.status = 500;
-    err.code = 'DB_NOT_CONFIGURED';
+    err.status = 500; err.code = 'DB_NOT_CONFIGURED';
     throw err;
   }
+  const mode = options.mode || 'new';
+  if (!MODES.has(mode)) {
+    const err = new Error(`不正な mode: ${mode} (許容: new / existing / ng)`);
+    err.status = 400; err.code = 'INVALID_INPUT';
+    throw err;
+  }
+
   const customers = [];
   let totalRows = 0;
   await new Promise((resolve, reject) => {
@@ -128,13 +262,21 @@ async function importCsv(filePath, originalName) {
       .on('data', (row) => {
         totalRows++;
         const c = rowToCustomer(row);
-        if (c.company_name && c.fax_number) customers.push(c);
+        // mode 別の最低条件:
+        //   new / ng: 会社名 必須 (新規 insert で必要)
+        //   existing: 会社名 / 電話 / FAX のいずれか1つ
+        if (mode === 'existing') {
+          if (c.company_name || c.phone_number || c.fax_number) customers.push(c);
+        } else {
+          if (c.company_name) customers.push(c);
+        }
       })
       .on('end', resolve)
       .on('error', reject);
   });
-  const stats = await bulkUpsert(customers, originalName);
-  return { totalRows, validRows: customers.length, ...stats };
+
+  const stats = await processImport(customers, originalName, mode);
+  return { totalRows, validRows: customers.length, mode, ...stats };
 }
 
-module.exports = { importCsv, rowToCustomer, DEFAULT_MAPPING };
+module.exports = { importCsv, rowToCustomer, DEFAULT_MAPPING, MODES };
