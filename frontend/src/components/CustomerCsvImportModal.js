@@ -7,7 +7,9 @@ const MODE_OPTIONS = [
     key: 'new',
     label: '新規リスト',
     description:
-      '会社名 / 電話番号 / FAX番号 のいずれかで 既存顧客 (既存取引先 / NG 含む) と一致した行は スキップ。一致しない行のみ 新規登録します。',
+      '(1) NG/既存リスト と 会社名・電話・FAX のいずれかで一致 → スキップ / ' +
+      '(2) 非NG の 電話 or FAX と一致 → 肉付けマージ (既存データを補完) / ' +
+      '(3) 非NG で 会社名のみ 一致 または 完全未一致 → 新規登録 (同名別企業として OK)',
     badgeCls: 'bg-indigo-100 text-indigo-700 border-indigo-300',
   },
   {
@@ -50,7 +52,7 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
       if (r.mode === 'ng' || r.mode === 'existing') {
         toast.success(`${modeMeta.label} 取込: NG化 ${r.blacklisted} / 新規(NG付) ${r.inserted} / スキップ ${r.skipped}`);
       } else {
-        toast.success(`${modeMeta.label} 取込: 新規 ${r.inserted} / 重複スキップ ${r.skipped}`);
+        toast.success(`${modeMeta.label} 取込: 新規 ${r.inserted} / 肉付け ${r.updated} / NG・既存スキップ ${r.skipped}`);
       }
     } catch (err) {
       toast.error(err.userMessage || 'インポート失敗');
@@ -103,7 +105,7 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
                 {(mode === 'ng' || mode === 'existing') && ' / NG理由'}
               </code>
               <div className="mt-1 text-[11px]">
-                {mode === 'new' && '会社名 必須。 電話/FAX は ハイフン無視 で重複判定します。'}
+                {mode === 'new' && '会社名 必須。 電話/FAX は ハイフン無視 で照合。 同名別企業 (会社名のみ一致) は重複OKで新規登録。'}
                 {mode === 'existing' && '会社名 必須。 会社名 / 電話 / FAX のいずれか1つでも既存と一致したら is_blacklisted=1 に。 未一致は 「既存取引先」 理由で新規 NG 登録。'}
                 {mode === 'ng' && '会社名 必須。 会社名 / 電話 / FAX のいずれか1つでも既存と一致したら is_blacklisted=1 に。 未一致は NG 付きで新規登録。'}
               </div>
@@ -139,7 +141,7 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
                 <dd className="text-right tabular-nums">{result.validRows.toLocaleString()}</dd>
                 <dt className="text-zinc-600">新規追加:</dt>
                 <dd className="text-right tabular-nums text-emerald-700 font-semibold">{result.inserted.toLocaleString()}</dd>
-                <dt className="text-zinc-600">更新:</dt>
+                <dt className="text-zinc-600">{result.mode === 'new' ? '肉付け (空欄補完):' : '更新:'}</dt>
                 <dd className="text-right tabular-nums">{result.updated.toLocaleString()}</dd>
                 {(result.mode === 'ng' || result.mode === 'existing') && (
                   <>

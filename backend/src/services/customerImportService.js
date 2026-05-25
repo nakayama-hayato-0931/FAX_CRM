@@ -125,49 +125,67 @@ async function processImport(rows, sourceFile, mode) {
         existing = rows2;
       }
 
-      // 3. lookup map 構築
+      // 3. lookup 構築 (mode 別)
+      // new モードは NG/既存 と 非NG を分離して保持する
+      const blkNames = new Set(), blkPhones = new Set(), blkFaxes = new Set();
+      const actPhoneMap = new Map(), actFaxMap = new Map();
+      // existing/ng モード用 (1 軸でも一致した最初の顧客を返す)
       const byName = new Map(), byPhone = new Map(), byFax = new Map();
+
       for (const e of existing) {
-        if (e.company_name && !byName.has(e.company_name)) byName.set(e.company_name, e);
-        if (e.phone_number) {
-          const d = digitsOnly(e.phone_number);
-          if (d && !byPhone.has(d)) byPhone.set(d, e);
-        }
-        if (e.fax_number) {
-          const d = digitsOnly(e.fax_number);
-          if (d && !byFax.has(d)) byFax.set(d, e);
+        if (mode === 'new') {
+          if (e.is_blacklisted) {
+            if (e.company_name) blkNames.add(e.company_name);
+            if (e.phone_number) { const d = digitsOnly(e.phone_number); if (d) blkPhones.add(d); }
+            if (e.fax_number)   { const d = digitsOnly(e.fax_number);   if (d) blkFaxes.add(d); }
+          } else {
+            // 非NG の 電話/FAX → 肉付け対象として保存 (会社名は match 軸でないので不要)
+            if (e.phone_number) { const d = digitsOnly(e.phone_number); if (d && !actPhoneMap.has(d)) actPhoneMap.set(d, e.id); }
+            if (e.fax_number)   { const d = digitsOnly(e.fax_number);   if (d && !actFaxMap.has(d))   actFaxMap.set(d, e.id); }
+          }
+        } else {
+          if (e.company_name && !byName.has(e.company_name)) byName.set(e.company_name, e);
+          if (e.phone_number) { const d = digitsOnly(e.phone_number); if (d && !byPhone.has(d)) byPhone.set(d, e); }
+          if (e.fax_number)   { const d = digitsOnly(e.fax_number);   if (d && !byFax.has(d))   byFax.set(d, e); }
         }
       }
-
-      // CSV 内重複も検出するための seen set (new モード用)
-      const seenNames = new Set(), seenPhones = new Set(), seenFaxes = new Set();
 
       // 4. 行ごと分類処理
       for (const r of chunk) {
         const phoneD = r.phone_number ? digitsOnly(r.phone_number) : '';
         const faxD   = r.fax_number   ? digitsOnly(r.fax_number)   : '';
-        const match =
-          (r.company_name && byName.get(r.company_name)) ||
-          (phoneD && byPhone.get(phoneD)) ||
-          (faxD && byFax.get(faxD)) ||
-          null;
 
         if (mode === 'new') {
-          // 会社名 必須 (新規 insert に必要)
           if (!r.company_name) { stats.skipped++; continue; }
-          // 既存マッチ または CSV 内重複 → skip
-          const inChunk =
-            (r.company_name && seenNames.has(r.company_name)) ||
-            (phoneD && seenPhones.has(phoneD)) ||
-            (faxD && seenFaxes.has(faxD));
-          if (match || inChunk) { stats.skipped++; continue; }
+          // (1) NG/既存リストと一致 (どの軸でも) → skip
+          const isBlacklisted =
+            blkNames.has(r.company_name) ||
+            (phoneD && blkPhones.has(phoneD)) ||
+            (faxD && blkFaxes.has(faxD));
+          if (isBlacklisted) { stats.skipped++; continue; }
+          // (2) 非NG の 電話/FAX と一致 → 肉付けマージ (会社名 一致 だけでは merge しない)
+          const mergeId =
+            (phoneD && actPhoneMap.get(phoneD)) ||
+            (faxD && actFaxMap.get(faxD));
+          if (mergeId) {
+            await updateExisting(conn, mergeId, r);
+            stats.updated++;
+            // 後続行が同じ顧客を参照できるよう lookup を更新 (電話/FAX が新たに埋まったケースに備えて)
+            if (phoneD) actPhoneMap.set(phoneD, mergeId);
+            if (faxD)   actFaxMap.set(faxD, mergeId);
+            continue;
+          }
+          // (3) 非NG 会社名のみ一致 または 完全未一致 → 新規 insert (同名別企業として扱う)
           const newId = await insertSingle(conn, r, { sourceFile, blacklist: false });
           stats.inserted++;
-          // 次の行が同一データを参照しないよう lookup と seen を更新
-          if (r.company_name) { byName.set(r.company_name, { id: newId }); seenNames.add(r.company_name); }
-          if (phoneD)         { byPhone.set(phoneD, { id: newId });        seenPhones.add(phoneD); }
-          if (faxD)           { byFax.set(faxD, { id: newId });            seenFaxes.add(faxD); }
+          if (phoneD) actPhoneMap.set(phoneD, newId);
+          if (faxD)   actFaxMap.set(faxD, newId);
         } else if (mode === 'existing' || mode === 'ng') {
+          const match =
+            (r.company_name && byName.get(r.company_name)) ||
+            (phoneD && byPhone.get(phoneD)) ||
+            (faxD && byFax.get(faxD)) ||
+            null;
           // 既存/NG: 一致したら is_blacklisted=1 にして新規営業対象外 にする。
           // 未一致は ブラックリスト付き で新規 insert (会社名 必須)。
           const reasonDefault = DEFAULT_REASON[mode] || null;
@@ -198,6 +216,36 @@ async function processImport(rows, sourceFile, mode) {
     conn.release();
   }
   return stats;
+}
+
+/**
+ * 肉付けマージ: 既存に値があれば残し、空欄(NULL)だけ新値で埋める。
+ *   new モードで「非NG顧客の電話/FAXと一致」したときに使う。
+ *   会社名は NOT NULL なので新値で上書きしない (既存値を維持)。
+ */
+async function updateExisting(conn, id, r) {
+  await conn.query(
+    `UPDATE customers SET
+       fax_number     = COALESCE(fax_number,     ?),
+       phone_number   = COALESCE(phone_number,   ?),
+       industry       = COALESCE(industry,       ?),
+       prefecture     = COALESCE(prefecture,     ?),
+       city           = COALESCE(city,           ?),
+       address        = COALESCE(address,        ?),
+       postal_code    = COALESCE(postal_code,    ?),
+       url            = COALESCE(url,            ?),
+       employee_count = COALESCE(employee_count, ?),
+       representative = COALESCE(representative, ?),
+       note           = COALESCE(note,           ?)
+     WHERE id = ?`,
+    [
+      r.fax_number || null, r.phone_number || null, r.industry || null,
+      r.prefecture || null, r.city || null, r.address || null,
+      r.postal_code || null, r.url || null, r.employee_count ?? null,
+      r.representative || null, r.note || null,
+      id,
+    ]
+  );
 }
 
 async function insertSingle(conn, r, { sourceFile, blacklist, reason }) {
