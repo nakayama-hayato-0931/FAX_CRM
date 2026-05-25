@@ -61,6 +61,21 @@ export default function ListsPage() {
     }
   };
 
+  const deleteBatch = async (b) => {
+    if (isDemo) { toast('デモ表示中は削除できません', { icon: 'ℹ' }); return; }
+    const note = b.actual_count > 0
+      ? `\n注意: ${b.actual_count.toLocaleString()} 件の抽出明細も同時に削除されます。`
+      : '';
+    if (!confirm(`バッチ「${b.name}」を削除します。${note}\nよろしいですか？`)) return;
+    try {
+      await api.delete(`/api/batches/${b.id}`);
+      toast.success('削除しました');
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e.userMessage || '削除失敗');
+    }
+  };
+
   return (
     <div>
       <div className="flex items-end justify-between mb-6">
@@ -145,12 +160,12 @@ export default function ListsPage() {
                             Drive保存
                           </button>
                         )}
-                        <Link
-                          href={`/reports/batch?id=${b.id}${isDemo ? '&demo=1' : ''}`}
-                          className="px-2 py-1 text-xs bg-white border border-zinc-300 text-zinc-700 rounded hover:bg-zinc-50"
+                        <button
+                          className="px-2 py-1 text-xs bg-white border border-red-200 text-red-700 rounded hover:bg-red-50"
+                          onClick={() => deleteBatch(b)}
                         >
-                          受電報告
-                        </Link>
+                          削除
+                        </button>
                       </div>
                     </td>
                   </tr>

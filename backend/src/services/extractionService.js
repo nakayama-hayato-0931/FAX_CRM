@@ -335,10 +335,24 @@ function formatDateLong(d) {
   return `${y}年${Number(m)}月${Number(day)}日 ${h}:${mi}`;
 }
 
+/**
+ * バッチ削除
+ *   - extraction_records は ON DELETE CASCADE で自動削除される
+ *   - incoming_call_reports.batch_id は ON DELETE SET NULL で受電履歴は残る
+ *   - Drive 上のファイルは触らない (slot 側で個別管理されるため)
+ */
+async function deleteBatch(id) {
+  const pool = getPool();
+  if (!pool) return false;
+  const [r] = await pool.query('DELETE FROM extraction_batches WHERE id = ?', [id]);
+  return r.affectedRows > 0;
+}
+
 module.exports = {
   previewCount,
   createBatch,
   listBatches,
   getBatchWithCustomers,
   generateExcelBuffer,
+  deleteBatch,
 };

@@ -81,10 +81,6 @@ export default function ReportsIndex() {
                   className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
             + 手動入力
           </button>
-          <Link href={`/lists${isDemo ? '?demo=1' : ''}`}
-                className="px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50">
-            バッチから入力 →
-          </Link>
         </div>
       </div>
 

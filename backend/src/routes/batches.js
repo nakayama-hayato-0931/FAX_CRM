@@ -48,6 +48,16 @@ router.get('/:id(\\d+)', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// DELETE /api/batches/:id - バッチ削除
+//   extraction_records は CASCADE で同時削除、incoming_call_reports.batch_id は SET NULL
+router.delete('/:id(\\d+)', async (req, res, next) => {
+  try {
+    const deleted = await extraction.deleteBatch(req.params.id);
+    if (!deleted) return fail(res, 404, 'NOT_FOUND', 'batch not found');
+    return ok(res, { deleted: 1 });
+  } catch (e) { next(e); }
+});
+
 // GET /api/batches/:id/excel - Excelダウンロード
 router.get('/:id(\\d+)/excel', async (req, res, next) => {
   try {
