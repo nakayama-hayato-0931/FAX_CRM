@@ -166,12 +166,38 @@ async function getFileMeta(fileId) {
 }
 
 /**
- * Drive ファイル削除
+ * Drive ファイル/フォルダ削除
+ *   共有ドライブで files.delete (permanent) はサービスアカウントに
+ *   "コンテンツ管理者" or "管理者" ロールが必要で、デフォルトの "投稿者" では
+ *   403 になる。trashed:true でゴミ箱に移動なら "投稿者" でも可能で、
+ *   findFolder/findOrCreateFolder は `trashed = false` で除外するため
+ *   再作成時の不整合も起きない。
+ *   (どうしても permanent delete したい場合は手動で Drive のゴミ箱から削除)
+ *
+ *   trash が 403 等で失敗した場合は permanent delete にフォールバック。
  */
 async function deleteFile(fileId) {
   const drive = tryLoad();
-  await drive.files.delete({ fileId, supportsAllDrives: true });
-  return { ok: true };
+  try {
+    await drive.files.update({
+      fileId,
+      requestBody: { trashed: true },
+      supportsAllDrives: true,
+    });
+    return { ok: true, mode: 'trashed' };
+  } catch (e1) {
+    try {
+      await drive.files.delete({ fileId, supportsAllDrives: true });
+      return { ok: true, mode: 'deleted' };
+    } catch (e2) {
+      const detail = e1.errors?.[0]?.message || e1.message;
+      const err = new Error(
+        `Drive 削除失敗 (${detail})。サービスアカウントに該当フォルダに対する書き込み権限があるか確認してください。`
+      );
+      err.cause = e1;
+      throw err;
+    }
+  }
 }
 
 /**
