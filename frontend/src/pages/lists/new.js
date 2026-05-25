@@ -229,7 +229,7 @@ export default function NewBatchPage() {
       <Link href={`/lists${isDemo ? '?demo=1' : ''}`} className="text-sm text-indigo-700 hover:underline">← リスト一覧へ</Link>
       <h1 className="text-2xl font-bold text-zinc-900 mt-3">新規リスト抽出</h1>
       <p className="text-zinc-500 mt-1 text-sm">
-        選択した日付 × PC番号 ごとに リストを抽出して、 ドライブ格納の該当スロットに自動アップします。
+        「抽出件数 × PC台数」分の顧客を一括取得し、重複なく各 PC に分割して ドライブ格納の該当スロットに自動アップします。
         {isDemo && <span className="ml-2 px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">デモ表示</span>}
       </p>
 
@@ -287,7 +287,10 @@ export default function NewBatchPage() {
         </div>
 
         {/* PC番号 チェックボックス */}
-        <Field label={`PC番号 * (${form.pcNumbers.length} / 23 選択中)`} hint="複数選択可。 選択した各PCについて、抽出+Drive格納が実行されます">
+        <Field
+          label={`PC番号 * (${form.pcNumbers.length} / 23 選択中)`}
+          hint={`複数選択可。「抽出件数 × PC台数」 (= ${(Number(form.targetCount) || 0) * form.pcNumbers.length} 件) を一括取得して PC ごとに重複なく分割します`}
+        >
           <div className="flex items-center justify-between mb-2">
             <div className="flex gap-2">
               <button type="button" onClick={selectAllPcs}

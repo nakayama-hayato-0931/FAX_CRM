@@ -107,7 +107,8 @@ router.post('/ensure-slots', async (req, res, next) => {
 
 // POST /api/batches/extract-and-upload — リスト抽出 + 各 PC スロットに自動 Drive upload
 //   body: { listName, date, industry, prefecture, recentDays, targetCount, pcNumbers: [1,3] }
-//   各 PC ごとに 1バッチ作成 → Excel生成 → manuscripts[date][slot=pc] の Drive フォルダにアップ
+//   挙動: targetCount × pcNumbers.length 件 を 1 トランザクションで一括取得 → 連続スライスして
+//         PC ごとに重複なく振り分け。 各 PC で Excel生成 → 該当スロットの Drive フォルダにアップロード。
 router.post('/extract-and-upload', async (req, res, next) => {
   const ms = require('../services/manuscriptService');
   const body = req.body || {};
@@ -116,27 +117,41 @@ router.post('/extract-and-upload', async (req, res, next) => {
   }
   if (!body.targetCount) return fail(res, 400, 'INVALID_INPUT', 'targetCount が必要');
 
+  // 1. 全 PC 分の バッチ作成 (重複ゼロ保証)
+  let perPcBatches;
+  try {
+    perPcBatches = await extraction.createBatchesPerPc({
+      baseName: body.listName || 'リスト',
+      date: body.date,
+      industry: body.industry || null,
+      prefecture: body.prefecture || null,
+      recentDays: Number(body.recentDays) || null,
+      targetCount: Number(body.targetCount),
+      pcNumbers: body.pcNumbers.map(Number),
+    });
+  } catch (e) { return next(e); }
+
+  // 2. PC ごとに Excel生成 → Drive upload
   const results = [];
-  for (const pc of body.pcNumbers) {
-    const pcNum = Number(pc);
-    let batchInfo = null, driveInfo = null, error = null;
-    let tmpPath = null;
-    try {
-      // 1. extraction_batch を作成 (per-PC count = targetCount)
-      const created = await extraction.createBatch({
-        name: `${body.listName || 'リスト'}_${body.date}_PC${String(pcNum).padStart(2, '0')}`,
-        industry: body.industry || null,
-        prefecture: body.prefecture || null,
-        recentDays: Number(body.recentDays) || null,
-        targetCount: Number(body.targetCount),
-        pcNumber: `NO.${pcNum}`,
+  for (const pb of perPcBatches) {
+    const pcNum = pb.pcNumber;
+    const batchInfo = { batchId: pb.batchId, actualCount: pb.actualCount };
+    let driveInfo = null, error = null, tmpPath = null;
+
+    if (pb.actualCount === 0) {
+      // データ不足で割り当てゼロ → Excel/Drive アップはスキップ
+      results.push({
+        pcNumber: pcNum, batch: batchInfo, drive: null,
+        error: 'データ不足のため割り当てなし (Drive アップロード スキップ)',
       });
-      batchInfo = { batchId: created.batchId, actualCount: created.actualCount };
+      continue;
+    }
 
-      // 2. Excel生成
-      const excelResult = await extraction.generateExcelBuffer(created.batchId);
+    try {
+      // 2-1. Excel生成
+      const excelResult = await extraction.generateExcelBuffer(pb.batchId);
 
-      // 3. スロットを確保 (manuscripts[date][slot=pc])
+      // 2-2. スロット確保
       let slot = await ms.getSlotByDateAndPc(body.date, pcNum);
       if (!slot) {
         await ms.ensureSlotsExist(body.date);
@@ -144,7 +159,7 @@ router.post('/extract-and-upload', async (req, res, next) => {
       }
       if (!slot) throw new Error(`スロット作成失敗 (${body.date} / PC${pcNum})`);
 
-      // 4. Excel を Drive にアップロード (スロットの Drive folder 配下)
+      // 2-3. Drive にアップロード
       tmpPath = path.join(os.tmpdir(), `${Date.now()}_${excelResult.fileName}`);
       fs.writeFileSync(tmpPath, excelResult.buffer);
       const parentId = await ms.ensureSlotDriveFolder(slot.id);
@@ -155,21 +170,22 @@ router.post('/extract-and-upload', async (req, res, next) => {
         parentId,
       });
 
-      // 5. manuscript_slot_files に記録
+      // 2-4. manuscript_slot_files + extraction_batches.drive_file_id を記録
       const pool = getPool();
       if (pool) {
         await pool.query(
           `INSERT INTO manuscript_slot_files
              (manuscript_id, kind, original_name, mime_type, size_bytes, drive_file_id, drive_url)
            VALUES (?, 'excel', ?, ?, ?, ?, ?)`,
-          [slot.id, excelResult.fileName, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          [slot.id, excelResult.fileName,
+           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
            excelResult.buffer.length, uploaded.id, uploaded.webViewLink || null]
         );
         await pool.query(
           `UPDATE extraction_batches
               SET drive_file_id = ?, drive_file_url = ?, status = 'ready'
             WHERE id = ?`,
-          [uploaded.id, uploaded.webViewLink || null, created.batchId]
+          [uploaded.id, uploaded.webViewLink || null, pb.batchId]
         );
       }
       driveInfo = { fileId: uploaded.id, webViewLink: uploaded.webViewLink, slotId: slot.id };

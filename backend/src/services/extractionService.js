@@ -134,6 +134,97 @@ async function createBatch({ name, industry, prefecture, recentDays, targetCount
   }
 }
 
+/**
+ * 複数 PC 同時抽出 (重複ゼロ保証)
+ *   targetCount × pcNumbers.length 件を 1トランザクションで FOR UPDATE 取得し、
+ *   各 PC のバッチに連続スライスして割り当てる。
+ *   データ不足時は前の PC から優先的に埋め、余った PC は actual_count=0 / status='failed'。
+ *
+ *   返り値: [{ pcNumber, batchId, actualCount, status }, ...] (pcNumbers と同順)
+ */
+async function createBatchesPerPc({
+  baseName, date, industry, prefecture, recentDays, targetCount, pcNumbers,
+}) {
+  if (!isConfigured()) {
+    const err = new Error('DBが未設定です'); err.status = 500; err.code = 'DB_NOT_CONFIGURED';
+    throw err;
+  }
+  if (!targetCount || targetCount <= 0) {
+    const err = new Error('targetCount (1以上) が必要'); err.status = 400; err.code = 'INVALID_INPUT';
+    throw err;
+  }
+  if (!Array.isArray(pcNumbers) || !pcNumbers.length) {
+    const err = new Error('pcNumbers (配列) が必要'); err.status = 400; err.code = 'INVALID_INPUT';
+    throw err;
+  }
+
+  const pool = getPool();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // 1. 全 PC 分の顧客を 一括取得
+    const totalWant = Number(targetCount) * pcNumbers.length;
+    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays });
+    const [customers] = await conn.query(
+      `SELECT id FROM customers ${whereSql} ${PRIORITY_ORDER} LIMIT ? FOR UPDATE`,
+      [...params, totalWant]
+    );
+    const allIds = customers.map((c) => c.id);
+
+    // 2. PC ごとにスライスして バッチ作成 + extraction_records 投入
+    const results = [];
+    let offset = 0;
+    for (const pcRaw of pcNumbers) {
+      const pcNum = Number(pcRaw);
+      const slice = allIds.slice(offset, offset + Number(targetCount));
+      offset += Number(targetCount);
+
+      const name = `${baseName || 'リスト'}_${date}_PC${String(pcNum).padStart(2, '0')}`;
+      const [batchInsert] = await conn.query(
+        `INSERT INTO extraction_batches
+           (name, filter_industry, filter_prefecture, filter_recent_days, target_count, pc_number, status)
+         VALUES (?, ?, ?, ?, ?, ?, 'ready')`,
+        [name, industry || null, prefecture || null, recentDays || null,
+         Number(targetCount), `NO.${pcNum}`]
+      );
+      const batchId = batchInsert.insertId;
+
+      if (slice.length > 0) {
+        const recordRows = slice.map((cid, i) => [batchId, cid, i + 1]);
+        await conn.query(
+          `INSERT INTO extraction_records (batch_id, customer_id, row_index) VALUES ?`,
+          [recordRows]
+        );
+        await conn.query(
+          `UPDATE customers
+              SET send_count = send_count + 1,
+                  last_sent_at = NOW(),
+                  last_pc_number = ?
+            WHERE id IN (?)`,
+          [`NO.${pcNum}`, slice]
+        );
+      }
+
+      const status = slice.length > 0 ? 'ready' : 'failed';
+      await conn.query(
+        `UPDATE extraction_batches SET actual_count = ?, status = ? WHERE id = ?`,
+        [slice.length, status, batchId]
+      );
+
+      results.push({ pcNumber: pcNum, batchId, actualCount: slice.length, status });
+    }
+
+    await conn.commit();
+    return results;
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
 async function listBatches({ page = 1, pageSize = 50 } = {}) {
   const pool = getPool();
   if (!pool) return { items: [], pagination: { page: 1, pageSize: 50, total: 0, totalPages: 0 } };
@@ -387,6 +478,7 @@ async function deleteBatch(id) {
 module.exports = {
   previewCount,
   createBatch,
+  createBatchesPerPc,
   listBatches,
   getBatchWithCustomers,
   generateExcelBuffer,
