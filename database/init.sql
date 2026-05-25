@@ -111,10 +111,18 @@ CREATE TABLE IF NOT EXISTS manuscript_slot_files (
   size_bytes BIGINT DEFAULT NULL,
   drive_file_id VARCHAR(100) DEFAULT NULL,
   drive_url VARCHAR(500) DEFAULT NULL,
+  manuscript_content_id INT UNSIGNED DEFAULT NULL COMMENT '原稿管理(manuscript_contents.id) から選択した場合の元 ID',
   uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_msf_manuscript (manuscript_id, kind),
+  INDEX idx_msf_content (manuscript_content_id),
   CONSTRAINT fk_msf_manuscript FOREIGN KEY (manuscript_id) REFERENCES manuscripts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB COMMENT='ドライブ格納スロットにアップしたファイル (Drive実体)';
+
+-- 既存DB向け: manuscript_content_id 列が無ければ追加 (MySQL 8.0+ の IF NOT EXISTS)
+ALTER TABLE manuscript_slot_files
+  ADD COLUMN IF NOT EXISTS manuscript_content_id INT UNSIGNED DEFAULT NULL
+    COMMENT '原稿管理(manuscript_contents.id) から選択した場合の元 ID',
+  ADD INDEX IF NOT EXISTS idx_msf_content (manuscript_content_id);
 
 -- --------------------------------------------
 -- 原稿管理 (PDFファイル + メタデータ) ※旧「原稿管理」(Drive スロット) は ドライブ格納 に改名

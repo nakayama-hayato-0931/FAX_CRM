@@ -381,11 +381,100 @@ async function listSlotFiles(manuscriptId) {
   const pool = getPool();
   if (!pool) return [];
   const [rows] = await pool.query(
-    `SELECT id, kind, original_name, mime_type, size_bytes, drive_file_id, drive_url, uploaded_at
-       FROM manuscript_slot_files WHERE manuscript_id = ? ORDER BY uploaded_at DESC, id DESC`,
+    `SELECT f.id, f.kind, f.original_name, f.mime_type, f.size_bytes,
+            f.drive_file_id, f.drive_url, f.uploaded_at,
+            f.manuscript_content_id,
+            c.title AS content_title,
+            c.registration_no AS content_registration_no
+       FROM manuscript_slot_files f
+       LEFT JOIN manuscript_contents c ON c.id = f.manuscript_content_id
+      WHERE f.manuscript_id = ?
+      ORDER BY f.uploaded_at DESC, f.id DESC`,
     [manuscriptId]
   );
   return rows;
+}
+
+/**
+ * 原稿管理 (manuscript_contents) に登録済みの原稿を スロットに紐づけ。
+ *   - 原稿の PDF が Drive 上にあれば drive.copyFile でスロットフォルダに複製
+ *   - Drive にない (ローカルのみ) 場合は drive.uploadFile でアップロード
+ *   - manuscript_slot_files に kind='manuscript' + manuscript_content_id を記録
+ *   - 同じ原稿が既に紐づいていれば 409
+ */
+async function attachContentToSlot(slotId, contentId) {
+  const pool = getPool();
+  if (!pool) { const e = new Error('DB未設定'); e.status = 500; throw e; }
+
+  const [slotRows] = await pool.query(
+    'SELECT id, folder_date, slot_number, drive_folder_id FROM manuscripts WHERE id = ? LIMIT 1',
+    [slotId]
+  );
+  if (!slotRows.length) { const e = new Error('スロットが見つかりません'); e.status = 404; throw e; }
+
+  const [contentRows] = await pool.query(
+    `SELECT id, title, registration_no, pdf_original_name, pdf_size_bytes,
+            pdf_drive_file_id, pdf_file_path
+       FROM manuscript_contents WHERE id = ? LIMIT 1`,
+    [contentId]
+  );
+  if (!contentRows.length) { const e = new Error('原稿が見つかりません'); e.status = 404; throw e; }
+  const content = contentRows[0];
+
+  if (!content.pdf_drive_file_id && !content.pdf_file_path) {
+    const e = new Error('この原稿には PDF が登録されていません'); e.status = 400; throw e;
+  }
+
+  // 重複チェック (同一スロット × 同一原稿)
+  const [dup] = await pool.query(
+    `SELECT id FROM manuscript_slot_files
+      WHERE manuscript_id = ? AND manuscript_content_id = ? LIMIT 1`,
+    [slotId, contentId]
+  );
+  if (dup.length) {
+    const e = new Error('この原稿は既にこのスロットに紐づいています'); e.status = 409; throw e;
+  }
+
+  const parentId = await ensureSlotDriveFolder(slotId);
+  const baseName = (content.pdf_original_name || `manuscript-${content.id}.pdf`).replace(/[\r\n\t]/g, '');
+
+  let driveFile;
+  if (content.pdf_drive_file_id) {
+    driveFile = await drive.copyFile({
+      fileId: content.pdf_drive_file_id,
+      name: baseName,
+      parentId,
+    });
+  } else {
+    const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve(__dirname, '../../uploads');
+    const full = path.resolve(UPLOAD_DIR, content.pdf_file_path);
+    if (!fs.existsSync(full)) {
+      const e = new Error('原稿の PDF ファイルが見つかりません (ローカル fallback)'); e.status = 404; throw e;
+    }
+    driveFile = await drive.uploadFile({
+      filePath: full,
+      mimeType: 'application/pdf',
+      name: baseName,
+      parentId,
+    });
+  }
+
+  const sizeBytes = Number(driveFile.size) || Number(content.pdf_size_bytes) || null;
+  const [r] = await pool.query(
+    `INSERT INTO manuscript_slot_files
+       (manuscript_id, kind, original_name, mime_type, size_bytes,
+        drive_file_id, drive_url, manuscript_content_id)
+     VALUES (?, 'manuscript', ?, 'application/pdf', ?, ?, ?, ?)`,
+    [slotId, baseName, sizeBytes, driveFile.id, driveFile.webViewLink || null, contentId]
+  );
+  return {
+    id: r.insertId,
+    drive_file_id: driveFile.id,
+    drive_url: driveFile.webViewLink,
+    manuscript_content_id: contentId,
+    content_title: content.title,
+    content_registration_no: content.registration_no,
+  };
 }
 
 /**
@@ -475,6 +564,7 @@ async function deleteDate(date) {
 
 module.exports = {
   TOTAL_SLOTS,
+  attachContentToSlot,
   listDates,
   getByDate,
   createDate,

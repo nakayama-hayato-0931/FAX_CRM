@@ -201,6 +201,24 @@ async function deleteFile(fileId) {
 }
 
 /**
+ * Drive ファイルを別フォルダにコピー (Drive 内コピー: ダウンロード→アップロード より高速)
+ *   元ファイルは残り、新規 fileId が発行される
+ */
+async function copyFile({ fileId, name, parentId }) {
+  const drive = tryLoad();
+  const resp = await drive.files.copy({
+    fileId,
+    requestBody: {
+      name,
+      parents: parentId ? [parentId] : undefined,
+    },
+    fields: 'id,name,webViewLink,size,mimeType',
+    supportsAllDrives: true,
+  });
+  return resp.data;
+}
+
+/**
  * Drive ファイル/フォルダを別の親へ移動 (addParents + removeParents)
  *   oldParentId 未指定なら現在の parents をすべて removeParents として削除
  *   ファイル ID 自体は変わらないので drive_file_id は再利用可能
@@ -235,4 +253,5 @@ module.exports = {
   getFileMeta,
   deleteFile,
   moveFile,
+  copyFile,
 };

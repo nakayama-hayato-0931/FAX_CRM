@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
+import ManuscriptContentPicker from './ManuscriptContentPicker';
 
 const KIND_LABEL = {
   manuscript: { label: '原稿',       cls: 'bg-indigo-100 text-indigo-700' },
@@ -16,8 +17,8 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
-  const [uploading, setUploading] = useState(null); // kind or null
-  const manuscriptInputRef = useRef(null);
+  const [uploading, setUploading] = useState(null); // kind or null ('manuscript' = attach in progress)
+  const [showPicker, setShowPicker] = useState(false);
   const excelInputRef = useRef(null);
 
   // body scroll lock
@@ -57,8 +58,25 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
       toast.error(err.userMessage || 'アップロード失敗');
     } finally {
       setUploading(null);
-      if (manuscriptInputRef.current) manuscriptInputRef.current.value = '';
       if (excelInputRef.current) excelInputRef.current.value = '';
+    }
+  }
+
+  // 原稿管理 から選択した原稿をスロットに紐づけ (Drive上でコピー)
+  async function attachContent(content) {
+    if (isDemo) { toast('デモ表示中は登録できません', { icon: 'ℹ' }); return; }
+    if (!content?.id) return;
+    setUploading('manuscript');
+    try {
+      await api.post(`/api/manuscripts/slots/${slot.id}/attach-content`, {
+        manuscript_content_id: content.id,
+      });
+      toast.success(`原稿「${content.title || `#${content.id}`}」を紐づけました`);
+      loadFiles();
+    } catch (err) {
+      toast.error(err.userMessage || '原稿の紐づけに失敗');
+    } finally {
+      setUploading(null);
     }
   }
 
@@ -126,14 +144,16 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
             {/* ファイルアップロード */}
             <div className="bg-zinc-50 border border-zinc-200 rounded p-3">
               <div className="text-xs font-semibold text-zinc-700 mb-2">格納ファイル (Google Drive 共有ドライブ)</div>
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <label className={`px-3 py-1.5 text-xs text-center rounded border cursor-pointer ${
-                  uploading === 'manuscript' ? 'opacity-50 cursor-wait' : 'bg-indigo-50 border-indigo-300 text-indigo-700 hover:bg-indigo-100'}`}>
-                  {uploading === 'manuscript' ? 'アップロード中…' : '+ 原稿 (PDF) を追加'}
-                  <input ref={manuscriptInputRef} type="file" accept="application/pdf" className="hidden"
-                         disabled={!!uploading}
-                         onChange={(e) => uploadFile('manuscript', e.target.files?.[0])} />
-                </label>
+              <div className="grid grid-cols-2 gap-2 mb-1">
+                <button type="button"
+                        disabled={!!uploading}
+                        onClick={() => setShowPicker(true)}
+                        className={`px-3 py-1.5 text-xs text-center rounded border ${
+                          uploading === 'manuscript'
+                            ? 'opacity-50 cursor-wait'
+                            : 'bg-indigo-50 border-indigo-300 text-indigo-700 hover:bg-indigo-100'}`}>
+                  {uploading === 'manuscript' ? '紐づけ中…' : '+ 原稿を選択 (原稿管理から)'}
+                </button>
                 <label className={`px-3 py-1.5 text-xs text-center rounded border cursor-pointer ${
                   uploading === 'excel' ? 'opacity-50 cursor-wait' : 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'}`}>
                   {uploading === 'excel' ? 'アップロード中…' : '+ Excelリストを追加'}
@@ -144,6 +164,9 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
                          onChange={(e) => uploadFile('excel', e.target.files?.[0])} />
                 </label>
               </div>
+              <p className="text-[10px] text-zinc-500 mb-3">
+                原稿は事前に <a href="/scripts" target="_blank" rel="noreferrer" className="text-indigo-700 underline">原稿管理</a> で登録した PDF から選択してください。
+              </p>
 
               {loadingFiles && <div className="text-xs text-zinc-400 text-center py-2">読み込み中…</div>}
               {!loadingFiles && files.length === 0 && (
@@ -156,10 +179,18 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
                     return (
                       <li key={f.id} className="flex items-center gap-2 bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] ${kindMeta.cls}`}>{kindMeta.label}</span>
-                        <a href={f.drive_url} target="_blank" rel="noreferrer"
-                           className="text-indigo-700 hover:underline truncate flex-1" title={f.original_name}>
-                          {f.original_name}
-                        </a>
+                        <div className="flex-1 min-w-0">
+                          <a href={f.drive_url} target="_blank" rel="noreferrer"
+                             className="text-indigo-700 hover:underline truncate block" title={f.original_name}>
+                            {f.content_title || f.original_name}
+                          </a>
+                          {f.manuscript_content_id && (
+                            <div className="text-[10px] text-zinc-500 truncate">
+                              原稿管理 #{f.manuscript_content_id}
+                              {f.content_registration_no && <span className="font-mono ml-1">({f.content_registration_no})</span>}
+                            </div>
+                          )}
+                        </div>
                         <span className="text-zinc-400 text-[10px]">{fmtSize(f.size_bytes)}</span>
                         <button type="button" onClick={() => deleteFile(f.id)}
                                 className="text-red-500 hover:underline text-[10px]">削除</button>
@@ -186,6 +217,14 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
           .ms-input:focus { outline: 2px solid #6366f1; outline-offset: -1px; border-color: transparent; }
         `}</style>
       </div>
+
+      {showPicker && (
+        <ManuscriptContentPicker
+          onClose={() => setShowPicker(false)}
+          onSelect={(content) => attachContent(content)}
+          excludeContentIds={files.filter((f) => f.manuscript_content_id).map((f) => f.manuscript_content_id)}
+        />
+      )}
     </div>
   );
 }

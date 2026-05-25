@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
+import ManuscriptContentPicker from './ManuscriptContentPicker';
 
 /**
  * 23スロットを一覧表示し、各スロットに 原稿(PDF) / Excel リスト を割り当てて
@@ -13,10 +14,13 @@ import { api } from '@/utils/api';
  *   - onCompleted : アップ完了で呼ばれる (任意)
  */
 export default function BulkSlotUploadModal({ date, slots, onClose, onCompleted }) {
-  // sel[slotId] = { manuscript: File|null, excel: File|null }
+  // sel[slotId] = { manuscript: ContentObj|null, excel: File|null }
+  //   manuscript は 原稿管理 から選んだ content オブジェクト (id, title, registration_no 等)
+  //   excel は通常の File
   const [sel, setSel] = useState({});
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, errors: 0 });
+  const [pickerSlotId, setPickerSlotId] = useState(null);
 
   // body scroll lock
   useEffect(() => {
@@ -39,10 +43,10 @@ export default function BulkSlotUploadModal({ date, slots, onClose, onCompleted 
     [slots]
   );
 
-  const setFile = (slotId, kind, file) => {
+  const setFile = (slotId, kind, value) => {
     setSel((prev) => ({
       ...prev,
-      [slotId]: { ...(prev[slotId] || {}), [kind]: file || null },
+      [slotId]: { ...(prev[slotId] || {}), [kind]: value || null },
     }));
   };
 
@@ -50,7 +54,7 @@ export default function BulkSlotUploadModal({ date, slots, onClose, onCompleted 
     const out = [];
     for (const s of sortedSlots) {
       const entry = sel[s.id] || {};
-      if (entry.manuscript) out.push({ slot: s, kind: 'manuscript', file: entry.manuscript });
+      if (entry.manuscript) out.push({ slot: s, kind: 'manuscript', content: entry.manuscript });
       if (entry.excel) out.push({ slot: s, kind: 'excel', file: entry.excel });
     }
     return out;
@@ -64,11 +68,11 @@ export default function BulkSlotUploadModal({ date, slots, onClose, onCompleted 
 
   const runBulkUpload = async () => {
     if (!queue.length) {
-      toast.error('アップロードするファイルを選択してください');
+      toast.error('原稿または Excel を1つ以上選択してください');
       return;
     }
     if (!window.confirm(
-      `${totalSlotsWithSelection} スロット / 計 ${totalSelected} ファイルを Drive に格納します。よろしいですか？`
+      `${totalSlotsWithSelection} スロット / 計 ${totalSelected} 件 (原稿 + Excel) を Drive に格納します。よろしいですか？`
     )) return;
 
     setUploading(true);
@@ -84,13 +88,21 @@ export default function BulkSlotUploadModal({ date, slots, onClose, onCompleted 
         const task = tasks.shift();
         if (!task) break;
         try {
-          const fd = new FormData();
-          fd.append('file', task.file);
-          fd.append('kind', task.kind);
-          await api.post(`/api/manuscripts/slots/${task.slot.id}/files`, fd, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-            timeout: 5 * 60 * 1000,
-          });
+          if (task.kind === 'manuscript') {
+            // 原稿管理から選択した原稿をスロットに紐づけ (Drive 上でコピー)
+            await api.post(`/api/manuscripts/slots/${task.slot.id}/attach-content`, {
+              manuscript_content_id: task.content.id,
+            });
+          } else {
+            // Excel リスト等は従来通り直接アップロード
+            const fd = new FormData();
+            fd.append('file', task.file);
+            fd.append('kind', task.kind);
+            await api.post(`/api/manuscripts/slots/${task.slot.id}/files`, fd, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+              timeout: 5 * 60 * 1000,
+            });
+          }
         } catch (err) {
           errors += 1;
           console.error(`[bulk-upload] slot ${task.slot.slot_number} (${task.kind}) failed:`, err);
@@ -134,8 +146,8 @@ export default function BulkSlotUploadModal({ date, slots, onClose, onCompleted 
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">{date} / 一斉格納</h2>
             <p className="text-xs text-zinc-500 mt-0.5">
-              各スロットに 原稿(PDF) と Excelリスト を割り当てて「一括アップロード」を押すと、
-              選択した全ファイルをまとめて Drive に格納します。
+              各スロットの原稿は <a href="/scripts" target="_blank" rel="noreferrer" className="text-indigo-700 underline">原稿管理</a> から選択、
+              Excelリストはファイルから選択。「一括アップロード」で全スロットの Drive 格納をまとめて実行します。
             </p>
           </div>
           <button
@@ -182,15 +194,11 @@ export default function BulkSlotUploadModal({ date, slots, onClose, onCompleted 
                       )}
                     </td>
                     <td className="px-3 py-2 align-top">
-                      <FileSlot
-                        kind="manuscript"
-                        accept="application/pdf"
-                        file={entry.manuscript}
-                        onPick={(f) => setFile(s.id, 'manuscript', f)}
+                      <ContentSlot
+                        content={entry.manuscript}
+                        onPick={() => setPickerSlotId(s.id)}
+                        onClear={() => setFile(s.id, 'manuscript', null)}
                         disabled={uploading}
-                        fmtSize={fmtSize}
-                        colorClass="bg-indigo-50 border-indigo-300 text-indigo-700 hover:bg-indigo-100"
-                        labelEmpty="+ PDF を選択"
                       />
                     </td>
                     <td className="px-3 py-2 align-top">
@@ -250,7 +258,44 @@ export default function BulkSlotUploadModal({ date, slots, onClose, onCompleted 
           </div>
         </div>
       </div>
+
+      {pickerSlotId && (
+        <ManuscriptContentPicker
+          onClose={() => setPickerSlotId(null)}
+          onSelect={(content) => { setFile(pickerSlotId, 'manuscript', content); }}
+          excludeContentIds={
+            Object.values(sel)
+              .map((e) => e?.manuscript?.id)
+              .filter(Boolean)
+          }
+        />
+      )}
     </div>
+  );
+}
+
+function ContentSlot({ content, onPick, onClear, disabled }) {
+  if (content) {
+    return (
+      <div className="flex items-center gap-2 border border-zinc-200 rounded bg-white px-2 py-1">
+        <div className="flex-1 min-w-0">
+          <div className="text-xs text-zinc-700 truncate" title={content.title || `#${content.id}`}>
+            {content.title || `原稿 #${content.id}`}
+          </div>
+          {content.registration_no && (
+            <div className="text-[10px] text-zinc-500 font-mono">{content.registration_no}</div>
+          )}
+        </div>
+        <button type="button" onClick={onClear} disabled={disabled}
+                className="text-red-500 hover:underline text-[10px] disabled:opacity-50">解除</button>
+      </div>
+    );
+  }
+  return (
+    <button type="button" onClick={onPick} disabled={disabled}
+            className={`block w-full px-3 py-1.5 text-xs text-center rounded border bg-indigo-50 border-indigo-300 text-indigo-700 hover:bg-indigo-100 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+      + 原稿を選択 (原稿管理から)
+    </button>
   );
 }
 

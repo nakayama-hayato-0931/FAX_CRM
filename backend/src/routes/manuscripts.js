@@ -94,6 +94,18 @@ router.post('/slots/:id(\\d+)/files', upload.single('file'), async (req, res, ne
   }
 });
 
+// POST /api/manuscripts/slots/:id/attach-content
+//   body: { manuscript_content_id }
+//   原稿管理に登録済みの原稿をスロットに紐づけ (Drive コピー + DB INSERT)
+router.post('/slots/:id(\\d+)/attach-content', async (req, res, next) => {
+  try {
+    const contentId = Number(req.body?.manuscript_content_id);
+    if (!contentId) return fail(res, 400, 'INVALID_INPUT', 'manuscript_content_id が必要です');
+    const r = await ms.attachContentToSlot(req.params.id, contentId);
+    return created(res, r);
+  } catch (e) { next(e); }
+});
+
 // DELETE /api/manuscripts/slots/:id/files/:fileId
 router.delete('/slots/:id(\\d+)/files/:fileId(\\d+)', async (req, res, next) => {
   try {
