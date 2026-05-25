@@ -186,17 +186,15 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
 
     await conn.commit();
 
-    // contact_events への自動連携(失敗しても元処理は成功扱い)
+    // contact_events への自動連携 (顧客タイムライン用)
+    //   per-item の try/catch で 1件失敗しても他は継続。 エラーは log に出す
+    //   (顧客タイムラインに出ないトラブルの原因を追えるように)
     let contactEventsSynced = 0;
-    try {
-      for (const it of items) {
-        // contact_events の channel は call とする (受電 = call イベント)。 旧仕様は fax の event_type だったが、
-        // 新仕様では「架電」「リコール」「資料送付」等は call チャネルの方が自然
-        const ceChannel = (it.result === 'no_response' || it.result === 'response_inquiry'
-                        || it.result === 'response_order' || it.result === 'refusal'
-                        || it.result === 'invalid_number')
-          ? 'fax'    // 旧仕様の結果は fax 系として扱う
-          : 'call';  // 案件化/NG/リコール/資料送付 等は call 系
+    const contactEventsFailed = [];
+    for (const it of items) {
+      try {
+        // 受電報告の event は すべて 'call' チャネル (顧客から FAX に対してかかってきた電話)
+        const ceChannel = 'call';
         await contactEvents.createEvent({
           customer_id: it.customerId,
           channel: ceChannel,
@@ -204,8 +202,8 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
           // 受電日時 > 送信日 > 今 の優先順で occurred_at を決める
           occurred_at: it.responded_at || (sendDate ? `${sendDate}T00:00:00` : new Date().toISOString()),
           source_system: 'fax-crm',
-          // source_event_id は incoming_call_reports.id を使いたいが手元に無いので
-          // (batchId * 1e7 + customer_id) で衝突しない一意キー生成
+          // source_event_id は (batchId * 1e7 + customer_id) で衝突しない一意キー生成
+          // 手動入力 (batchId=null) は null → dedup スキップ で常に新規 insert
           source_event_id: batchId ? batchId * 10000000 + Number(it.customerId) : null,
           pc_number: pcNumber,
           manuscript_id: manuscriptId || null,
@@ -215,10 +213,16 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
           memo: it.result_detail || null,
         });
         contactEventsSynced++;
+      } catch (e) {
+        contactEventsFailed.push({ customerId: it.customerId, error: e.message });
+        console.error(
+          `[incomingCall.bulkSave] contact_events 連携失敗 (customer_id=${it.customerId}):`,
+          e.message
+        );
       }
-    } catch (_e) { /* swallow */ }
+    }
 
-    return { saved, contactEventsSynced };
+    return { saved, contactEventsSynced, contactEventsFailed: contactEventsFailed.length };
   } catch (e) {
     await conn.rollback();
     throw e;
