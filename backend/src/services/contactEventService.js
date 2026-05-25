@@ -4,6 +4,7 @@
  *   - 詳細仕様: docs/SHARED_CUSTOMER_MASTER.md
  */
 const { getPool, isConfigured } = require('../../config/db');
+const callcenterWebhook = require('./callcenterWebhookClient');
 
 const VALID_CHANNELS = new Set(['fax', 'call', 'email', 'sns', 'meeting', 'other']);
 const VALID_SOURCES  = new Set(['fax-crm', 'callcenter-ai', 'manual']);
@@ -218,7 +219,39 @@ async function createEvent(body, opts = {}) {
         body.raw_payload ? JSON.stringify(body.raw_payload) : null,
       ]
     );
-    return { id: result.insertId, duplicated: false, customer_id: customerId };
+    const inserted = { id: result.insertId, duplicated: false, customer_id: customerId };
+
+    // callcenter-ai-system へリアルタイム通知（fax-crm 由来のイベントのみ。
+    // callcenter から push されたイベントを更に callcenter に返すと無限ループになるのでスキップ）
+    if (callcenterWebhook.isEnabled() && source_system !== 'callcenter-ai') {
+      try {
+        const [custRows] = await conn.query(
+          `SELECT id, company_name, fax_number, phone_number, external_callcenter_id
+             FROM customers WHERE id = ? LIMIT 1`,
+          [customerId]
+        );
+        const customer = custRows[0];
+        if (customer) {
+          const eventRow = {
+            id: inserted.id,
+            channel,
+            event_type,
+            occurred_at,
+            source_event_id: body.source_event_id || `fax-crm-${inserted.id}`,
+            operator_name: body.operator_name || null,
+            result_label: body.result_label || null,
+            memo: body.memo || null,
+          };
+          // fire-and-forget
+          callcenterWebhook.notifyCallcenter(eventRow, customer);
+        }
+      } catch (e) {
+        // 失敗しても本処理は阻害しない
+        console.warn('[contactEventService] callcenter webhook 通知失敗:', e.message);
+      }
+    }
+
+    return inserted;
   } finally {
     conn.release();
   }
