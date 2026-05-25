@@ -72,26 +72,36 @@ async function testConnection() {
 }
 
 /**
- * 親フォルダ直下から name でフォルダを検索。見つからなければ null を返す。
- *   (findOrCreateFolder と違って作成はしない)
+ * 親フォルダ直下から name でフォルダを検索 (複数返却版)。
+ *   includeTrashed: true なら ゴミ箱内のフォルダも返す
+ *   重複や trashed が混在しているケースの完全クリーンアップに使う。
  */
-async function findFolder({ name, parentId }) {
+async function findFolders({ name, parentId, includeTrashed = false }) {
   const drive = tryLoad();
   const q = [
     `mimeType = 'application/vnd.google-apps.folder'`,
     `name = '${String(name).replace(/'/g, "\\'")}'`,
-    `trashed = false`,
   ];
+  if (!includeTrashed) q.push(`trashed = false`);
   if (parentId) q.push(`'${parentId}' in parents`);
   const resp = await drive.files.list({
     q: q.join(' and '),
-    fields: 'files(id,name,webViewLink)',
-    pageSize: 1,
+    fields: 'files(id,name,webViewLink,trashed)',
+    pageSize: 50,
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
     corpora: 'allDrives',
   });
-  return resp.data.files?.[0] || null;
+  return resp.data.files || [];
+}
+
+/**
+ * 親フォルダ直下から name でフォルダを検索。見つからなければ null を返す。
+ *   (findOrCreateFolder と違って作成はしない。trashed は除外)
+ */
+async function findFolder({ name, parentId }) {
+  const all = await findFolders({ name, parentId, includeTrashed: false });
+  return all[0] || null;
 }
 
 /**
@@ -249,6 +259,7 @@ module.exports = {
   getStatus,
   testConnection,
   findFolder,
+  findFolders,
   findOrCreateFolder,
   createFolder,
   uploadFile,

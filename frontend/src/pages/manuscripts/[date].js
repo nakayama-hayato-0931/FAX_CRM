@@ -91,18 +91,23 @@ export default function ManuscriptDatePage() {
       const { data } = await api.delete(`/api/manuscripts/${date}`);
       const r = data.data || {};
       const parts = [`DB ${r.deleted ?? 0} スロット`];
-      if (r.drive?.ok && r.drive?.deleted) {
-        if (r.drive.mode === 'deleted') {
-          parts.push('Drive 完全削除');
-        } else if (r.drive.mode === 'trashed') {
-          parts.push('Drive ゴミ箱へ移動 (完全削除には Manager 権限が必要)');
+      const drv = r.drive || {};
+      if (drv.ok && drv.deleted > 0) {
+        const count = drv.deleted > 1 ? `(${drv.deleted} 個)` : '';
+        if (drv.mode === 'deleted') {
+          parts.push(`Drive 完全削除${count}`);
+        } else if (drv.mode === 'trashed') {
+          parts.push(`Drive ゴミ箱へ移動${count} (完全削除には Manager 権限が必要)`);
         } else {
-          parts.push('Drive 削除');
+          parts.push(`Drive 削除${count}`);
         }
-      } else if (r.drive?.ok && r.drive?.deleted === false) {
+      } else if (drv.ok && drv.deleted === 0) {
         parts.push('Drive 該当無し');
-      } else if (r.drive?.ok === false) {
-        parts.push(`Drive 削除失敗: ${r.drive.error || r.drive.note || '不明'}`);
+      } else if (drv.ok === false) {
+        parts.push(`Drive 削除失敗: ${drv.error || drv.note || '不明'}`);
+      }
+      if (drv.failed > 0) {
+        parts.push(`Drive 削除失敗 ${drv.failed} 件`);
       }
       toast.success(`削除完了 (${parts.join(' / ')})`);
       router.push('/manuscripts');

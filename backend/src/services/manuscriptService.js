@@ -537,23 +537,37 @@ async function deleteDate(date) {
   if (!pool) return { deleted: 0, drive: { ok: false, note: 'DB unavailable' } };
 
   // 1. Drive 上の YYYY-MM-DD フォルダ削除
+  //    includeTrashed: 過去に trash されたフォルダも含めて完全クリーンアップ
   let driveResult = null;
   try {
     const rootFolderId = await settings.get('drive_root_folder_id');
     if (!rootFolderId) {
       driveResult = { ok: false, note: 'drive_root_folder_id 未設定' };
     } else {
-      const dateFolder = await drive.findFolder({ name: date, parentId: rootFolderId });
-      if (!dateFolder) {
-        driveResult = { ok: true, deleted: false, note: 'Drive 上に該当フォルダなし' };
+      const folders = await drive.findFolders({
+        name: date, parentId: rootFolderId, includeTrashed: true,
+      });
+      if (folders.length === 0) {
+        driveResult = { ok: true, deleted: 0, note: 'Drive 上に該当フォルダなし' };
       } else {
-        const r = await drive.deleteFile(dateFolder.id);
+        const results = [];
+        for (const f of folders) {
+          try {
+            const r = await drive.deleteFile(f.id);
+            results.push({ id: f.id, wasTrashed: !!f.trashed, mode: r.mode, deleteError: r.deleteError || null });
+          } catch (e) {
+            results.push({ id: f.id, wasTrashed: !!f.trashed, error: e.message });
+          }
+        }
+        const okCount = results.filter((r) => !r.error).length;
+        const failCount = results.length - okCount;
+        const modes = results.filter((r) => r.mode).map((r) => r.mode);
         driveResult = {
-          ok: true,
-          deleted: true,
-          folderId: dateFolder.id,
-          mode: r.mode,                  // 'deleted' or 'trashed'
-          deleteError: r.deleteError || null,
+          ok: failCount === 0,
+          deleted: okCount,
+          failed: failCount,
+          mode: modes.includes('trashed') ? 'trashed' : 'deleted',
+          details: results,
         };
       }
     }
