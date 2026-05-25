@@ -4,14 +4,20 @@ const { getPool, isConfigured } = require('../../config/db');
 
 /**
  * CSV インポートの 3 モード:
- *   - 'new'      新規リスト: 会社名/電話/FAX のいずれかで既存 (NG含む) と一致したらスキップ。
+ *   - 'new'      新規リスト    : 会社名/電話/FAX のいずれかで既存 (NG含む) と一致したらスキップ。
  *                  未一致のみ insert (is_blacklisted=0)
- *   - 'existing' 既存リスト: 既存顧客のデータを 肉付けマージ (空欄のみ埋める)。
- *                  未一致は skip (新規追加しない)
- *   - 'ng'       NGリスト  : 一致した顧客を is_blacklisted=1 に。 未一致は ブラックリスト付で
- *                  新規登録 (会社名 必須)。
+ *   - 'existing' 既存リスト    : 既に取引のある企業を 新規営業対象外 にする。NG とほぼ同じ
+ *                  扱いで is_blacklisted=1。blacklisted_reason のデフォルトは「既存取引先」
+ *   - 'ng'       NGリスト      : 配信停止依頼などの NG 登録。一致した顧客を is_blacklisted=1
+ *                  + 理由更新。未一致は NG 付きで 新規 insert。
+ *                  blacklisted_reason のデフォルトは「NG」
  */
 const MODES = new Set(['new', 'existing', 'ng']);
+
+const DEFAULT_REASON = {
+  existing: '既存取引先',
+  ng: 'NG',
+};
 
 const DEFAULT_MAPPING = {
   '会社名': 'company_name', '企業名': 'company_name', 'company_name': 'company_name',
@@ -161,25 +167,24 @@ async function processImport(rows, sourceFile, mode) {
           if (r.company_name) { byName.set(r.company_name, { id: newId }); seenNames.add(r.company_name); }
           if (phoneD)         { byPhone.set(phoneD, { id: newId });        seenPhones.add(phoneD); }
           if (faxD)           { byFax.set(faxD, { id: newId });            seenFaxes.add(faxD); }
-        } else if (mode === 'existing') {
-          if (!match) { stats.skipped++; continue; }
-          await updateExisting(conn, match.id, r);
-          stats.updated++;
-        } else if (mode === 'ng') {
+        } else if (mode === 'existing' || mode === 'ng') {
+          // 既存/NG: 一致したら is_blacklisted=1 にして新規営業対象外 にする。
+          // 未一致は ブラックリスト付き で新規 insert (会社名 必須)。
+          const reasonDefault = DEFAULT_REASON[mode] || null;
+          const reason = r.blacklisted_reason || r.note || reasonDefault;
           if (match) {
             await conn.query(
               `UPDATE customers
                   SET is_blacklisted = 1,
                       blacklisted_reason = COALESCE(blacklisted_reason, ?)
                 WHERE id = ?`,
-              [r.blacklisted_reason || r.note || null, match.id]
+              [reason, match.id]
             );
-            // ブラック化件数: 既に NG だった場合も updated 扱い、新規にNGなら blacklisted++
             if (match.is_blacklisted) stats.updated++;
             else stats.blacklisted++;
           } else {
             if (!r.company_name) { stats.skipped++; continue; }
-            const newId = await insertSingle(conn, r, { sourceFile, blacklist: true });
+            const newId = await insertSingle(conn, r, { sourceFile, blacklist: true, reason });
             stats.inserted++;
             stats.blacklisted++;
             if (r.company_name) byName.set(r.company_name, { id: newId, is_blacklisted: 1 });
@@ -195,7 +200,10 @@ async function processImport(rows, sourceFile, mode) {
   return stats;
 }
 
-async function insertSingle(conn, r, { sourceFile, blacklist }) {
+async function insertSingle(conn, r, { sourceFile, blacklist, reason }) {
+  const blacklistReason = blacklist
+    ? (reason || r.blacklisted_reason || r.note || null)
+    : (r.blacklisted_reason || null);
   const [result] = await conn.query(
     `INSERT INTO customers
        (company_name, fax_number, phone_number, industry, prefecture, city, address,
@@ -208,37 +216,11 @@ async function insertSingle(conn, r, { sourceFile, blacklist }) {
       r.postal_code || null, r.url || null, r.employee_count ?? null,
       r.representative || null, r.note || null,
       blacklist ? 1 : 0,
-      blacklist ? (r.blacklisted_reason || r.note || null) : (r.blacklisted_reason || null),
+      blacklistReason,
       sourceFile || null,
     ]
   );
   return result.insertId;
-}
-
-/** 肉付けマージ: 既存に値があれば残し、空欄(NULL)だけ新値で埋める */
-async function updateExisting(conn, id, r) {
-  await conn.query(
-    `UPDATE customers SET
-       fax_number     = COALESCE(fax_number,     ?),
-       phone_number   = COALESCE(phone_number,   ?),
-       industry       = COALESCE(industry,       ?),
-       prefecture     = COALESCE(prefecture,     ?),
-       city           = COALESCE(city,           ?),
-       address        = COALESCE(address,        ?),
-       postal_code    = COALESCE(postal_code,    ?),
-       url            = COALESCE(url,            ?),
-       employee_count = COALESCE(employee_count, ?),
-       representative = COALESCE(representative, ?),
-       note           = COALESCE(note,           ?)
-     WHERE id = ?`,
-    [
-      r.fax_number || null, r.phone_number || null, r.industry || null,
-      r.prefecture || null, r.city || null, r.address || null,
-      r.postal_code || null, r.url || null, r.employee_count ?? null,
-      r.representative || null, r.note || null,
-      id,
-    ]
-  );
 }
 
 async function importCsv(filePath, originalName, options = {}) {
@@ -262,14 +244,8 @@ async function importCsv(filePath, originalName, options = {}) {
       .on('data', (row) => {
         totalRows++;
         const c = rowToCustomer(row);
-        // mode 別の最低条件:
-        //   new / ng: 会社名 必須 (新規 insert で必要)
-        //   existing: 会社名 / 電話 / FAX のいずれか1つ
-        if (mode === 'existing') {
-          if (c.company_name || c.phone_number || c.fax_number) customers.push(c);
-        } else {
-          if (c.company_name) customers.push(c);
-        }
+        // 全モード共通: 会社名 必須 (未マッチ時の 新規 insert で company_name が必須カラムのため)
+        if (c.company_name) customers.push(c);
       })
       .on('end', resolve)
       .on('error', reject);

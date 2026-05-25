@@ -7,21 +7,21 @@ const MODE_OPTIONS = [
     key: 'new',
     label: '新規リスト',
     description:
-      '会社名 / 電話番号 / FAX番号 のいずれかで 既存顧客 (NG含む) と一致した行は スキップ。一致しない行のみ 新規登録します。',
+      '会社名 / 電話番号 / FAX番号 のいずれかで 既存顧客 (既存取引先 / NG 含む) と一致した行は スキップ。一致しない行のみ 新規登録します。',
     badgeCls: 'bg-indigo-100 text-indigo-700 border-indigo-300',
   },
   {
     key: 'existing',
     label: '既存リスト',
     description:
-      '既存顧客のデータを 肉付けマージ (空欄項目だけ CSV の値で埋める)。既存値は維持。一致しない行は スキップ (新規登録しない)。',
-    badgeCls: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+      '既に取引のある企業を 新規営業対象外 にします (NGリストとほぼ同じ扱い)。一致したら NG付与、未一致は NG付きで 新規登録。理由欄のデフォルトは「既存取引先」。',
+    badgeCls: 'bg-amber-100 text-amber-800 border-amber-300',
   },
   {
     key: 'ng',
     label: 'NGリスト',
     description:
-      '一致した顧客を NG (ブラックリスト) に。一致しない行は NG付きで 新規登録。「NG理由」列があれば理由として保存。',
+      '配信停止依頼などを NG 登録します。一致した顧客を NG (ブラックリスト) に。一致しない行は NG付きで 新規登録。「NG理由」列があれば理由として保存。',
     badgeCls: 'bg-red-100 text-red-700 border-red-300',
   },
 ];
@@ -47,10 +47,8 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
       setResult(data.data);
       const r = data.data;
       const modeMeta = MODE_OPTIONS.find((m) => m.key === r.mode) || MODE_OPTIONS[0];
-      if (r.mode === 'ng') {
-        toast.success(`${modeMeta.label} 取込: NG化 ${r.blacklisted} / 新規 ${r.inserted} / スキップ ${r.skipped}`);
-      } else if (r.mode === 'existing') {
-        toast.success(`${modeMeta.label} 取込: 更新 ${r.updated} / スキップ ${r.skipped}`);
+      if (r.mode === 'ng' || r.mode === 'existing') {
+        toast.success(`${modeMeta.label} 取込: NG化 ${r.blacklisted} / 新規(NG付) ${r.inserted} / スキップ ${r.skipped}`);
       } else {
         toast.success(`${modeMeta.label} 取込: 新規 ${r.inserted} / 重複スキップ ${r.skipped}`);
       }
@@ -102,12 +100,12 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
               <div className="font-semibold text-zinc-700 mb-1">対応列 (自動マッピング)</div>
               <code className="text-[11px] block">
                 会社名 / FAX / 電話番号 / 業種 / 都道府県 / 市区町村 / 住所 / 郵便番号 / URL / 従業員数 / 代表者 / 備考
-                {mode === 'ng' && ' / NG理由'}
+                {(mode === 'ng' || mode === 'existing') && ' / NG理由'}
               </code>
               <div className="mt-1 text-[11px]">
                 {mode === 'new' && '会社名 必須。 電話/FAX は ハイフン無視 で重複判定します。'}
-                {mode === 'existing' && '会社名 / 電話 / FAX のいずれか 1つ で既存顧客を特定。'}
-                {mode === 'ng' && '会社名 / 電話 / FAX のいずれか 1つ で既存顧客を特定、新規登録時は会社名 必須。'}
+                {mode === 'existing' && '会社名 必須。 会社名 / 電話 / FAX のいずれか1つでも既存と一致したら is_blacklisted=1 に。 未一致は 「既存取引先」 理由で新規 NG 登録。'}
+                {mode === 'ng' && '会社名 必須。 会社名 / 電話 / FAX のいずれか1つでも既存と一致したら is_blacklisted=1 に。 未一致は NG 付きで新規登録。'}
               </div>
             </div>
 
@@ -143,7 +141,7 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
                 <dd className="text-right tabular-nums text-emerald-700 font-semibold">{result.inserted.toLocaleString()}</dd>
                 <dt className="text-zinc-600">更新:</dt>
                 <dd className="text-right tabular-nums">{result.updated.toLocaleString()}</dd>
-                {result.mode === 'ng' && (
+                {(result.mode === 'ng' || result.mode === 'existing') && (
                   <>
                     <dt className="text-zinc-600">新規にNG化:</dt>
                     <dd className="text-right tabular-nums text-red-700 font-semibold">{result.blacklisted.toLocaleString()}</dd>
