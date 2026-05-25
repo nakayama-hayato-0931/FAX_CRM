@@ -183,8 +183,13 @@ async function createDate(date) {
 
 /**
  * 指定日に対し Drive 上のフォルダ構造を冪等に作成。
- *   /<root>/<YYYY-MM-DD>/<1..23>/
- * 既に drive_folder_url が入っているスロットはスキップ。
+ *   <drive_root_folder_id>/<YYYY-MM-DD>/<1..23>/
+ *
+ *   - スロットの drive_folder_id が未設定 → findOrCreate して保存
+ *   - スロットの drive_folder_id が「上記の構造と一致する」 → そのまま (skipped)
+ *   - スロットの drive_folder_id が「上記の構造と不一致 (例: 旧 manuscript_pdf_drive_folder_id 配下に slot-XX として作っていた)」
+ *     → 正しい場所の folder を findOrCreate して再リンク。manuscript_slot_files に紐づく
+ *       Drive 上のファイルも新フォルダへ移動 (再アップロード不要)。
  */
 async function ensureDriveFolders(date) {
   assertDate(date);
@@ -198,22 +203,65 @@ async function ensureDriveFolders(date) {
 
   const slots = await getByDate(date);
   const pool = getPool();
-  let created = 0, skipped = 0;
+  let created = 0, skipped = 0, relinked = 0, filesMoved = 0, fileMoveErrors = 0;
   for (const slot of slots) {
-    if (slot.drive_folder_url && slot.drive_folder_id) { skipped++; continue; }
     const slotName = String(slot.slot_number);
     const folder = await drive.findOrCreateFolder({ name: slotName, parentId: dateFolder.id });
+
+    if (slot.drive_folder_id === folder.id) {
+      // 既に正しい場所に紐づいている
+      skipped++;
+      continue;
+    }
+
+    const wasLinked = !!slot.drive_folder_id;
+    // 再リンク (DB 更新)
     await pool.query(
       `UPDATE manuscripts SET drive_folder_id = ?, drive_folder_url = ? WHERE id = ?`,
-      [folder.id, folder.webViewLink, slot.id]
+      [folder.id, folder.webViewLink || null, slot.id]
     );
-    if (folder.created) created++;
+
+    // 旧フォルダから新フォルダへ Drive 上のファイルを移動 (slot_files テーブル)
+    if (wasLinked && slot.drive_folder_id !== folder.id) {
+      const [files] = await pool.query(
+        `SELECT id, drive_file_id FROM manuscript_slot_files
+          WHERE manuscript_id = ? AND drive_file_id IS NOT NULL`,
+        [slot.id]
+      );
+      for (const f of files) {
+        try {
+          const moved = await drive.moveFile({
+            fileId: f.drive_file_id,
+            newParentId: folder.id,
+            oldParentId: slot.drive_folder_id,
+          });
+          await pool.query(
+            `UPDATE manuscript_slot_files SET drive_url = ? WHERE id = ?`,
+            [moved.webViewLink || null, f.id]
+          );
+          filesMoved++;
+        } catch (e) {
+          fileMoveErrors++;
+          console.error(`[ensureDriveFolders] slot ${slot.slot_number} file ${f.id} 移動失敗:`, e.message);
+        }
+      }
+      relinked++;
+    } else if (folder.created) {
+      // 純粋な新規作成
+      created++;
+    } else {
+      // Drive 側に同名フォルダが既に存在 → DB が知らなかっただけ
+      relinked++;
+    }
   }
   return {
     ok: true,
     dateFolder: { id: dateFolder.id, webViewLink: dateFolder.webViewLink, created: dateFolder.created },
     slotsCreated: created,
+    slotsRelinked: relinked,
     slotsSkipped: skipped,
+    filesMoved,
+    fileMoveErrors,
     totalSlots: slots.length,
   };
 }
@@ -254,31 +302,50 @@ const path = require('path');
 
 /**
  * スロット用 Drive フォルダ ID を取得 (なければ作成)
- *   親 = manuscript_pdf_drive_folder_id (または drive_root_folder_id 配下に 'manuscripts/')
- *   その下に YYYY-MM-DD / slot-XX を作成
+ *   構造は「Drive 23フォルダ作成」(ensureDriveFolders) と完全に統一:
+ *     <drive_root_folder_id>/<YYYY-MM-DD>/<N>/    (N = 1〜23 の素の数字)
+ *   従来は manuscript_pdf_drive_folder_id 配下に slot-XX として作っていたため
+ *   リスト抽出 auto-upload や モーダル upload が「原稿」フォルダ配下に
+ *   slot-01 を作る不整合が出ていた。ensureDriveFolders に処理を集約し、
+ *   既に間違った場所に紐づいているスロットは自動的に再リンク + ファイル移動される。
  */
 async function ensureSlotDriveFolder(manuscriptId) {
   const pool = getPool();
-  const [rows] = await pool.query('SELECT id, folder_date, slot_number, drive_folder_id FROM manuscripts WHERE id = ? LIMIT 1', [manuscriptId]);
+  const [rows] = await pool.query(
+    'SELECT id, folder_date, slot_number, drive_folder_id FROM manuscripts WHERE id = ? LIMIT 1',
+    [manuscriptId]
+  );
   if (!rows.length) { const e = new Error('スロットが見つかりません'); e.status = 404; throw e; }
   const slot = rows[0];
-  if (slot.drive_folder_id) return slot.drive_folder_id;
 
-  const pdfRoot = await settings.get('manuscript_pdf_drive_folder_id');
-  const root    = await settings.get('drive_root_folder_id');
-  let parentId = pdfRoot;
-  if (!parentId && root) {
-    const top = await drive.findOrCreateFolder({ name: 'manuscripts', parentId: root });
-    parentId = top.id;
+  // 高速パス: 23スロット全てに drive_folder_id が割り当たっていれば
+  // 既に「Drive 23フォルダ作成」相当の構造が出来上がっているとみなして即返却。
+  // (不整合が残っている場合は「Drive 23フォルダ作成」ボタンを押すと再リンクされる)
+  if (slot.drive_folder_id) {
+    const [cnt] = await pool.query(
+      `SELECT COUNT(*) AS c FROM manuscripts
+        WHERE folder_date = ? AND drive_folder_id IS NOT NULL`,
+      [slot.folder_date]
+    );
+    if (Number(cnt[0]?.c || 0) >= TOTAL_SLOTS) {
+      return slot.drive_folder_id;
+    }
   }
-  if (!parentId) { const e = new Error('Drive 親フォルダ未設定'); e.status = 400; throw e; }
 
-  // YYYY-MM-DD / slot-XX
-  const dateFolder = await drive.findOrCreateFolder({ name: String(slot.folder_date).slice(0, 10), parentId });
-  const slotFolder = await drive.findOrCreateFolder({ name: `slot-${String(slot.slot_number).padStart(2, '0')}`, parentId: dateFolder.id });
-  await pool.query('UPDATE manuscripts SET drive_folder_id = ?, drive_folder_url = ? WHERE id = ?',
-    [slotFolder.id, slotFolder.webViewLink || null, manuscriptId]);
-  return slotFolder.id;
+  // ensureDriveFolders に集約して構造を完全に揃える
+  await ensureDriveFolders(String(slot.folder_date).slice(0, 10));
+
+  // 再リンク後の drive_folder_id を再取得
+  const [rows2] = await pool.query(
+    'SELECT drive_folder_id FROM manuscripts WHERE id = ? LIMIT 1',
+    [manuscriptId]
+  );
+  const dfid = rows2[0]?.drive_folder_id;
+  if (!dfid) {
+    const e = new Error('スロットのDriveフォルダを作成できませんでした');
+    e.status = 500; throw e;
+  }
+  return dfid;
 }
 
 /**

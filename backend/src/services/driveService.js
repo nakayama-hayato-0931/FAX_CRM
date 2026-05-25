@@ -167,6 +167,30 @@ async function deleteFile(fileId) {
   return { ok: true };
 }
 
+/**
+ * Drive ファイル/フォルダを別の親へ移動 (addParents + removeParents)
+ *   oldParentId 未指定なら現在の parents をすべて removeParents として削除
+ *   ファイル ID 自体は変わらないので drive_file_id は再利用可能
+ */
+async function moveFile({ fileId, newParentId, oldParentId }) {
+  const drive = tryLoad();
+  let removeParents = oldParentId;
+  if (!removeParents) {
+    const meta = await drive.files.get({
+      fileId, fields: 'parents', supportsAllDrives: true,
+    });
+    removeParents = (meta.data.parents || []).join(',');
+  }
+  const resp = await drive.files.update({
+    fileId,
+    addParents: newParentId,
+    removeParents,
+    fields: 'id,name,parents,webViewLink',
+    supportsAllDrives: true,
+  });
+  return resp.data;
+}
+
 module.exports = {
   getStatus,
   testConnection,
@@ -176,4 +200,5 @@ module.exports = {
   downloadFileStream,
   getFileMeta,
   deleteFile,
+  moveFile,
 };

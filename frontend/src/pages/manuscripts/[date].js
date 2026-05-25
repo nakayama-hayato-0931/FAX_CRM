@@ -94,11 +94,21 @@ export default function ManuscriptDatePage() {
 
   const ensureDrive = async () => {
     if (isDemo) { toast('デモ表示中はDrive作成できません', { icon: 'ℹ' }); return; }
-    if (!confirm(`Drive上に ${date}/1〜23 のフォルダを作成します。既存スロットは保持されます。`)) return;
+    if (!confirm(
+      `Drive上に ${date}/1〜23 のフォルダを作成します。\n` +
+      `既に別フォルダに紐づいているスロットは「Drive 23フォルダ作成」と同じ場所に再リンクされ、` +
+      `中のファイルも新フォルダへ自動移動します。`
+    )) return;
     try {
       const { data } = await api.post(`/api/manuscripts/${date}/ensure-drive`);
       const r = data.data;
-      toast.success(`Drive作成: 新規 ${r.slotsCreated} / スキップ ${r.slotsSkipped}`);
+      const parts = [];
+      if (r.slotsCreated) parts.push(`新規 ${r.slotsCreated}`);
+      if (r.slotsRelinked) parts.push(`再リンク ${r.slotsRelinked}`);
+      if (r.slotsSkipped) parts.push(`スキップ ${r.slotsSkipped}`);
+      if (r.filesMoved) parts.push(`ファイル移動 ${r.filesMoved}`);
+      if (r.fileMoveErrors) parts.push(`移動失敗 ${r.fileMoveErrors}`);
+      toast.success(`Drive作成: ${parts.join(' / ') || '変更なし'}`);
       if (r.dateFolder?.webViewLink) window.open(r.dateFolder.webViewLink, '_blank');
       setReloadKey((k) => k + 1);
     } catch (e) {
