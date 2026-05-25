@@ -41,6 +41,21 @@ export default function ScriptsPage() {
 
   const date = (v) => v ? new Date(v).toLocaleDateString('ja-JP') : '—';
 
+  const removeManuscript = async (r) => {
+    const usageNote = Number(r.usage_total_sent || 0) > 0
+      ? `\n注意: 送信合計 ${Number(r.usage_total_sent).toLocaleString()} 件 / 問合せ ${Number(r.usage_total_inquiry || 0)} 件 / 発注 ${Number(r.usage_total_order || 0)} 件 の使用記録も同時に削除されます。`
+      : '';
+    const label = r.title || `原稿 #${r.id}`;
+    if (!window.confirm(`原稿「${label}」を削除します。${usageNote}\nPDF も Drive / ローカルから削除されます。\nよろしいですか？`)) return;
+    try {
+      await api.delete(`/api/manuscript-contents/${r.id}`);
+      toast.success('削除しました');
+      reload();
+    } catch (e) {
+      toast.error(e.userMessage || '削除失敗');
+    }
+  };
+
   return (
     <div>
       <div className="flex items-end justify-between mb-6">
@@ -100,14 +115,15 @@ export default function ScriptsPage() {
                 <th className="text-right px-3 py-2.5 text-xs font-medium text-zinc-600">発注</th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-zinc-600">最終使用</th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-zinc-600">PDF</th>
+                <th className="text-right px-3 py-2.5 text-xs font-medium text-zinc-600">操作</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={10} className="px-3 py-12 text-center text-zinc-400">読み込み中…</td></tr>
+                <tr><td colSpan={11} className="px-3 py-12 text-center text-zinc-400">読み込み中…</td></tr>
               )}
               {!loading && items.length === 0 && (
-                <tr><td colSpan={10} className="px-3 py-12 text-center text-zinc-400">
+                <tr><td colSpan={11} className="px-3 py-12 text-center text-zinc-400">
                   原稿がまだ登録されていません。「+ 原稿を登録」 から PDF + メタデータを保存できます。
                 </td></tr>
               )}
@@ -133,6 +149,14 @@ export default function ScriptsPage() {
                          target="_blank" rel="noreferrer"
                          className="text-indigo-600 hover:text-indigo-800 underline text-xs">開く</a>
                     ) : <span className="text-zinc-300 text-xs">—</span>}
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <button
+                      onClick={() => removeManuscript(r)}
+                      className="px-2 py-1 text-xs bg-white border border-red-200 text-red-700 rounded hover:bg-red-50"
+                    >
+                      削除
+                    </button>
                   </td>
                 </tr>
               ))}
