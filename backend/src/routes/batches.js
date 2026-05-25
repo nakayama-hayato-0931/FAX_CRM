@@ -1,5 +1,11 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const extraction = require('../services/extractionService');
+const drive = require('../services/driveService');
+const settings = require('../services/settingsService');
+const { getPool } = require('../../config/db');
 const { ok, created, fail } = require('../utils/response');
 
 const router = express.Router();
@@ -59,13 +65,112 @@ router.get('/:id(\\d+)/excel', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/batches/:id/upload-to-drive  Excelを生成してDriveに保存
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const drive = require('../services/driveService');
-const settings = require('../services/settingsService');
-const { getPool } = require('../../config/db');
+// POST /api/batches/check-slots — 日付 + PC番号(配列) の slot 存在確認
+//   返り値: { date, missingPcs: [n,...], allExist: bool }
+router.post('/check-slots', async (req, res, next) => {
+  try {
+    const ms = require('../services/manuscriptService');
+    const { date, pcNumbers } = req.body || {};
+    if (!date || !Array.isArray(pcNumbers) || !pcNumbers.length) {
+      return fail(res, 400, 'INVALID_INPUT', 'date と pcNumbers (配列) が必要');
+    }
+    const missing = [];
+    for (const pc of pcNumbers) {
+      const slot = await ms.getSlotByDateAndPc(date, Number(pc));
+      if (!slot) missing.push(Number(pc));
+    }
+    return ok(res, { date, missingPcs: missing, allExist: missing.length === 0 });
+  } catch (e) { next(e); }
+});
+
+// POST /api/batches/ensure-slots — 日付の23スロットを冪等作成
+router.post('/ensure-slots', async (req, res, next) => {
+  try {
+    const ms = require('../services/manuscriptService');
+    const { date } = req.body || {};
+    if (!date) return fail(res, 400, 'INVALID_INPUT', 'date が必要');
+    const r = await ms.ensureSlotsExist(date);
+    return ok(res, r);
+  } catch (e) { next(e); }
+});
+
+// POST /api/batches/extract-and-upload — リスト抽出 + 各 PC スロットに自動 Drive upload
+//   body: { listName, date, industry, prefecture, recentDays, targetCount, pcNumbers: [1,3] }
+//   各 PC ごとに 1バッチ作成 → Excel生成 → manuscripts[date][slot=pc] の Drive フォルダにアップ
+router.post('/extract-and-upload', async (req, res, next) => {
+  const ms = require('../services/manuscriptService');
+  const body = req.body || {};
+  if (!body.date || !Array.isArray(body.pcNumbers) || !body.pcNumbers.length) {
+    return fail(res, 400, 'INVALID_INPUT', 'date と pcNumbers (配列) が必要');
+  }
+  if (!body.targetCount) return fail(res, 400, 'INVALID_INPUT', 'targetCount が必要');
+
+  const results = [];
+  for (const pc of body.pcNumbers) {
+    const pcNum = Number(pc);
+    let batchInfo = null, driveInfo = null, error = null;
+    let tmpPath = null;
+    try {
+      // 1. extraction_batch を作成 (per-PC count = targetCount)
+      const created = await extraction.createBatch({
+        name: `${body.listName || 'リスト'}_${body.date}_PC${String(pcNum).padStart(2, '0')}`,
+        industry: body.industry || null,
+        prefecture: body.prefecture || null,
+        recentDays: Number(body.recentDays) || null,
+        targetCount: Number(body.targetCount),
+        pcNumber: `NO.${pcNum}`,
+      });
+      batchInfo = { batchId: created.batchId, actualCount: created.actualCount };
+
+      // 2. Excel生成
+      const excelResult = await extraction.generateExcelBuffer(created.batchId);
+
+      // 3. スロットを確保 (manuscripts[date][slot=pc])
+      let slot = await ms.getSlotByDateAndPc(body.date, pcNum);
+      if (!slot) {
+        await ms.ensureSlotsExist(body.date);
+        slot = await ms.getSlotByDateAndPc(body.date, pcNum);
+      }
+      if (!slot) throw new Error(`スロット作成失敗 (${body.date} / PC${pcNum})`);
+
+      // 4. Excel を Drive にアップロード (スロットの Drive folder 配下)
+      tmpPath = path.join(os.tmpdir(), `${Date.now()}_${excelResult.fileName}`);
+      fs.writeFileSync(tmpPath, excelResult.buffer);
+      const parentId = await ms.ensureSlotDriveFolder(slot.id);
+      const uploaded = await drive.uploadFile({
+        filePath: tmpPath,
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        name: excelResult.fileName,
+        parentId,
+      });
+
+      // 5. manuscript_slot_files に記録
+      const pool = getPool();
+      if (pool) {
+        await pool.query(
+          `INSERT INTO manuscript_slot_files
+             (manuscript_id, kind, original_name, mime_type, size_bytes, drive_file_id, drive_url)
+           VALUES (?, 'excel', ?, ?, ?, ?, ?)`,
+          [slot.id, excelResult.fileName, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+           excelResult.buffer.length, uploaded.id, uploaded.webViewLink || null]
+        );
+        await pool.query(
+          `UPDATE extraction_batches
+              SET drive_file_id = ?, drive_file_url = ?, status = 'ready'
+            WHERE id = ?`,
+          [uploaded.id, uploaded.webViewLink || null, created.batchId]
+        );
+      }
+      driveInfo = { fileId: uploaded.id, webViewLink: uploaded.webViewLink, slotId: slot.id };
+    } catch (e) {
+      error = e.userMessage || e.sqlMessage || e.message;
+    } finally {
+      if (tmpPath && fs.existsSync(tmpPath)) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
+    }
+    results.push({ pcNumber: pcNum, batch: batchInfo, drive: driveInfo, error });
+  }
+  return created(res, { date: body.date, results });
+});
 
 router.post('/:id(\\d+)/upload-to-drive', async (req, res, next) => {
   let tmpPath;

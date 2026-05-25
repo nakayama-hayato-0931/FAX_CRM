@@ -321,6 +321,40 @@ async function listSlotFiles(manuscriptId) {
   return rows;
 }
 
+/**
+ * 日付の23スロットを冪等に作成 (manuscripts テーブルへ INSERT IGNORE)
+ *   既に存在するスロットは無視、 1〜23 のうち欠けているものだけ追加
+ *   返り値: { date, created, totalSlots }
+ */
+async function ensureSlotsExist(date) {
+  assertDate(date);
+  const pool = getPool();
+  const [existing] = await pool.query(
+    'SELECT slot_number FROM manuscripts WHERE folder_date = ?',
+    [date]
+  );
+  const have = new Set(existing.map((r) => r.slot_number));
+  const toCreate = [];
+  for (let i = 1; i <= TOTAL_SLOTS; i++) if (!have.has(i)) toCreate.push([date, i]);
+  if (toCreate.length) {
+    await pool.query('INSERT INTO manuscripts (folder_date, slot_number) VALUES ?', [toCreate]);
+  }
+  return { date, created: toCreate.length, totalSlots: TOTAL_SLOTS };
+}
+
+/**
+ * 日付+PC番号 → 対応する manuscripts.id を取得 (なければ null)
+ */
+async function getSlotByDateAndPc(date, pcNumber) {
+  const pool = getPool();
+  if (!pool) return null;
+  const [rows] = await pool.query(
+    'SELECT id, folder_date, slot_number, drive_folder_id FROM manuscripts WHERE folder_date = ? AND slot_number = ? LIMIT 1',
+    [date, pcNumber]
+  );
+  return rows[0] || null;
+}
+
 async function deleteSlotFile(fileId) {
   const pool = getPool();
   const [rows] = await pool.query('SELECT drive_file_id FROM manuscript_slot_files WHERE id = ?', [fileId]);
@@ -353,6 +387,8 @@ module.exports = {
   uploadFileToSlot,
   listSlotFiles,
   deleteSlotFile,
+  ensureSlotsExist,
+  getSlotByDateAndPc,
   ensureDriveFolders,
   getSlotUsage,
 };

@@ -5,11 +5,12 @@ import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
 
 const DEMO_INDUSTRIES = [
-  { industry: '製造業', cnt: 152340 },
-  { industry: '卸売業', cnt: 98221 },
-  { industry: '情報通信', cnt: 47512 },
-  { industry: '建設業', cnt: 63004 },
-  { industry: '食料品製造', cnt: 19887 },
+  { industry: '飲食', cnt: 21917 },
+  { industry: '製造', cnt: 60436 },
+  { industry: '小売', cnt: 32888 },
+  { industry: '宿泊', cnt: 9031 },
+  { industry: '建設', cnt: 83826 },
+  { industry: 'その他', cnt: 71567 },
 ];
 const DEMO_PREFECTURES = [
   { prefecture: '東京都', cnt: 312001 },
@@ -19,6 +20,8 @@ const DEMO_PREFECTURES = [
   { prefecture: '福岡県', cnt: 58991 },
 ];
 
+const ALL_PCS = Array.from({ length: 23 }, (_, i) => i + 1);
+
 export default function NewBatchPage() {
   const router = useRouter();
   const isDemo = router.query.demo === '1';
@@ -27,14 +30,15 @@ export default function NewBatchPage() {
   const [prefectures, setPrefectures] = useState([]);
 
   const today = new Date();
-  const defaultName = `バッチ_${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+  const todayYMD = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   const [form, setForm] = useState({
-    name: defaultName,
+    name: `リスト_${todayYMD.replace(/-/g, '')}`,
+    date: todayYMD,
     industry: '',
     prefecture: '',
     targetCount: 100,
-    pcNumber: '',
+    pcNumbers: [],            // [1, 3, 5...]
     recentDays: 30,
   });
 
@@ -42,16 +46,12 @@ export default function NewBatchPage() {
   const [previewing, setPreviewing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
+  const [missingPcs, setMissingPcs] = useState(null); // 未作成のスロットがあれば配列
 
-  // facet load
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (isDemo) {
-        setIndustries(DEMO_INDUSTRIES);
-        setPrefectures(DEMO_PREFECTURES);
-        return;
-      }
+      if (isDemo) { setIndustries(DEMO_INDUSTRIES); setPrefectures(DEMO_PREFECTURES); return; }
       try {
         const [ind, pref] = await Promise.all([
           api.get('/api/customers/facets/industries'),
@@ -61,102 +61,162 @@ export default function NewBatchPage() {
           setIndustries(ind.data.data || []);
           setPrefectures(pref.data.data || []);
         }
-      } catch (_e) { /* silent: facets are optional */ }
+      } catch (_e) { /* silent */ }
     })();
     return () => { cancelled = true; };
   }, [isDemo]);
+
+  const togglePc = (pc) => {
+    setForm((f) => ({
+      ...f,
+      pcNumbers: f.pcNumbers.includes(pc) ? f.pcNumbers.filter((x) => x !== pc) : [...f.pcNumbers, pc].sort((a, b) => a - b),
+    }));
+    setMissingPcs(null);
+  };
+  const selectAllPcs = () => {
+    setForm((f) => ({ ...f, pcNumbers: [...ALL_PCS] }));
+    setMissingPcs(null);
+  };
+  const clearAllPcs = () => {
+    setForm((f) => ({ ...f, pcNumbers: [] }));
+    setMissingPcs(null);
+  };
 
   const doPreview = async () => {
     setPreviewing(true); setPreviewCount(null);
     try {
       if (isDemo) {
-        // 業種 × 都道府県 のだいたい1%を当該件数として返す簡易デモ
         const ind = DEMO_INDUSTRIES.find((i) => i.industry === form.industry);
         const pref = DEMO_PREFECTURES.find((p) => p.prefecture === form.prefecture);
         let cnt = 900000;
         if (ind) cnt = Math.min(cnt, ind.cnt);
         if (pref) cnt = Math.min(cnt, pref.cnt);
-        cnt = Math.floor(cnt * 0.08);
-        setPreviewCount(cnt);
+        setPreviewCount(Math.floor(cnt * 0.08));
         return;
       }
-      const params = {
-        industry: form.industry || undefined,
-        prefecture: form.prefecture || undefined,
-        recentDays: form.recentDays || undefined,
-      };
-      const { data } = await api.get('/api/batches/preview', { params });
+      const { data } = await api.get('/api/batches/preview', {
+        params: {
+          industry: form.industry || undefined,
+          prefecture: form.prefecture || undefined,
+          recentDays: form.recentDays || undefined,
+        },
+      });
       setPreviewCount(data.data.matchCount);
-    } catch (e) {
-      toast.error(e.userMessage || 'プレビュー失敗');
-    } finally {
-      setPreviewing(false);
-    }
+    } catch (e) { toast.error(e.userMessage || 'プレビュー失敗'); }
+    finally { setPreviewing(false); }
   };
 
+  // 抽出実行 (スロット存在チェック → 不足あればポップアップ → 一括抽出+upload)
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.targetCount) {
-      toast.error('バッチ名と件数は必須です');
-      return;
-    }
+    if (!form.name || !form.targetCount) { toast.error('リスト名と件数は必須'); return; }
+    if (!form.pcNumbers.length) { toast.error('PC番号を1つ以上選択してください'); return; }
     if (isDemo) {
       toast('デモ表示中は抽出を実行できません', { icon: 'ℹ' });
-      setResult({ batchId: 999, actualCount: Math.min(Number(form.targetCount), previewCount || Number(form.targetCount)), status: 'ready' });
+      setResult({
+        date: form.date,
+        results: form.pcNumbers.map((pc) => ({
+          pcNumber: pc, batch: { batchId: 900 + pc, actualCount: Number(form.targetCount) },
+          drive: { webViewLink: 'https://drive.google.com/...' },
+        })),
+      });
       return;
     }
+
+    // 1. スロット存在チェック
+    let missing = [];
+    try {
+      const { data } = await api.post('/api/batches/check-slots', {
+        date: form.date, pcNumbers: form.pcNumbers,
+      });
+      missing = data.data?.missingPcs || [];
+    } catch (err) {
+      toast.error(err.userMessage || 'スロット確認失敗');
+      return;
+    }
+    if (missing.length) {
+      // ポップアップで確認
+      const ok = window.confirm(
+        `${form.date} のスロットが未作成です (不足: ${missing.length}個)。\n` +
+        `1〜23 のスロットをまとめて作成しますか？\n\n` +
+        `[OK] = 作成して抽出を進める\n[キャンセル] = 中止`
+      );
+      if (!ok) return;
+      try {
+        await api.post('/api/batches/ensure-slots', { date: form.date });
+      } catch (err) { toast.error(err.userMessage || 'スロット作成失敗'); return; }
+    }
+
+    // 2. 抽出+upload を一括実行
     setSubmitting(true);
     try {
       const payload = {
-        name: form.name,
+        listName: form.name,
+        date: form.date,
         industry: form.industry || null,
         prefecture: form.prefecture || null,
         recentDays: Number(form.recentDays) || null,
         targetCount: Number(form.targetCount),
-        pcNumber: form.pcNumber || null,
+        pcNumbers: form.pcNumbers,
       };
-      const { data } = await api.post('/api/batches', payload);
+      const { data } = await api.post('/api/batches/extract-and-upload', payload, {
+        timeout: 10 * 60 * 1000,
+      });
       setResult(data.data);
-      toast.success(`抽出完了: ${data.data.actualCount} 件`);
-    } catch (e) {
-      toast.error(e.userMessage || '抽出失敗');
-    } finally {
-      setSubmitting(false);
-    }
+      const okCount = data.data.results.filter((r) => !r.error).length;
+      const errCount = data.data.results.filter((r) => r.error).length;
+      toast.success(`抽出完了: 成功 ${okCount} / エラー ${errCount}`, { duration: 6000 });
+    } catch (e) { toast.error(e.userMessage || '抽出失敗'); }
+    finally { setSubmitting(false); }
   };
 
-  const downloadExcel = () => {
-    if (isDemo) { toast('デモ表示中は実Excelダウンロードできません', { icon: 'ℹ' }); return; }
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4001';
-    window.open(`${base}/api/batches/${result.batchId}/excel`, '_blank');
-  };
-
+  // ----- 完了画面 -----
   if (result) {
     return (
-      <div className="max-w-xl">
+      <div className="max-w-3xl">
         <Link href={`/lists${isDemo ? '?demo=1' : ''}`} className="text-sm text-indigo-700 hover:underline">← リスト一覧へ</Link>
         <h1 className="text-2xl font-bold text-zinc-900 mt-3">抽出完了</h1>
+        <p className="text-zinc-500 text-sm mt-1">日付: {result.date} / 選択PC: {result.results.length}台</p>
 
-        <div className="mt-6 bg-emerald-50 border border-emerald-200 rounded-lg p-5">
-          <div className="text-xs text-emerald-700 font-medium">作成されたバッチ</div>
-          <div className="mt-1 text-lg font-semibold text-emerald-900">{form.name}</div>
-          <dl className="mt-3 grid grid-cols-2 gap-y-1 text-sm">
-            <dt className="text-zinc-600">バッチID:</dt>
-            <dd className="text-right tabular-nums">{result.batchId}</dd>
-            <dt className="text-zinc-600">抽出件数:</dt>
-            <dd className="text-right tabular-nums font-semibold">{result.actualCount.toLocaleString()}</dd>
-            <dt className="text-zinc-600">ステータス:</dt>
-            <dd className="text-right">{result.status}</dd>
-          </dl>
+        <div className="mt-6 space-y-2">
+          {result.results.map((r) => (
+            <div key={r.pcNumber}
+                 className={`border rounded-lg p-4 ${r.error ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-semibold">PC {String(r.pcNumber).padStart(2, '0')}</div>
+                  {r.batch && (
+                    <div className="text-xs text-zinc-600 mt-0.5">
+                      バッチID: {r.batch.batchId} / 抽出 {r.batch.actualCount} 件
+                    </div>
+                  )}
+                  {r.error && <div className="text-xs text-red-700 mt-1">{r.error}</div>}
+                </div>
+                <div className="flex gap-2">
+                  {r.drive?.webViewLink && (
+                    <a href={r.drive.webViewLink} target="_blank" rel="noreferrer"
+                       className="px-3 py-1.5 text-xs bg-white border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-100">
+                      Drive で開く ↗
+                    </a>
+                  )}
+                  {r.batch?.batchId && (
+                    <a href={`${process.env.NEXT_PUBLIC_API_BASE_URL || ''}/api/batches/${r.batch.batchId}/excel`}
+                       target="_blank" rel="noreferrer"
+                       className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700">
+                      Excel ↓
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
 
-        <div className="mt-4 flex gap-2">
-          <button onClick={downloadExcel}
-                  className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
-            Excelダウンロード
+        <div className="mt-6 flex gap-2">
+          <button onClick={() => { setResult(null); }} className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded">
+            新しく抽出
           </button>
-          <Link href={`/lists${isDemo ? '?demo=1' : ''}`}
-                className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50">
+          <Link href={`/lists${isDemo ? '?demo=1' : ''}`} className="px-4 py-2 text-sm bg-zinc-700 text-white rounded">
             リスト一覧に戻る
           </Link>
         </div>
@@ -165,21 +225,29 @@ export default function NewBatchPage() {
   }
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-3xl">
       <Link href={`/lists${isDemo ? '?demo=1' : ''}`} className="text-sm text-indigo-700 hover:underline">← リスト一覧へ</Link>
       <h1 className="text-2xl font-bold text-zinc-900 mt-3">新規リスト抽出</h1>
       <p className="text-zinc-500 mt-1 text-sm">
-        条件に合致する顧客を、送信回数の少ない順から指定件数だけ抽出します。
+        選択した日付 × PC番号 ごとに リストを抽出して、 ドライブ格納の該当スロットに自動アップします。
         {isDemo && <span className="ml-2 px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">デモ表示</span>}
       </p>
 
       <form onSubmit={submit} className="mt-6 bg-white border border-zinc-200 rounded-lg p-5 space-y-4">
-        <Field label="バッチ名" required>
-          <input type="text" className="input"
-                 value={form.name}
-                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                 required />
-        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="リスト名 *">
+            <input type="text" className="input"
+                   value={form.name}
+                   onChange={(e) => setForm({ ...form, name: e.target.value })}
+                   required />
+          </Field>
+          <Field label="日付 *" hint="ドライブ格納の YYYY-MM-DD フォルダに対応">
+            <input type="date" className="input"
+                   value={form.date}
+                   onChange={(e) => { setForm({ ...form, date: e.target.value }); setMissingPcs(null); }}
+                   required />
+          </Field>
+        </div>
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="業種">
@@ -188,7 +256,7 @@ export default function NewBatchPage() {
                     onChange={(e) => { setForm({ ...form, industry: e.target.value }); setPreviewCount(null); }}>
               <option value="">(すべて)</option>
               {industries.map((i) => (
-                <option key={i.industry} value={i.industry}>{i.industry} ({i.cnt.toLocaleString()})</option>
+                <option key={i.industry} value={i.industry}>{i.industry} ({(i.cnt || 0).toLocaleString()})</option>
               ))}
             </select>
           </Field>
@@ -198,23 +266,18 @@ export default function NewBatchPage() {
                     onChange={(e) => { setForm({ ...form, prefecture: e.target.value }); setPreviewCount(null); }}>
               <option value="">(すべて)</option>
               {prefectures.map((p) => (
-                <option key={p.prefecture} value={p.prefecture}>{p.prefecture} ({p.cnt.toLocaleString()})</option>
+                <option key={p.prefecture} value={p.prefecture}>{p.prefecture} ({(p.cnt || 0).toLocaleString()})</option>
               ))}
             </select>
           </Field>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          <Field label="抽出件数" required>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="抽出件数 (PCごと) *">
             <input type="number" className="input" min="1" max="100000"
                    value={form.targetCount}
                    onChange={(e) => setForm({ ...form, targetCount: e.target.value })}
                    required />
-          </Field>
-          <Field label="PC番号">
-            <input type="text" className="input" placeholder="例: PC03"
-                   value={form.pcNumber}
-                   onChange={(e) => setForm({ ...form, pcNumber: e.target.value })} />
           </Field>
           <Field label="N日以内送信を除外">
             <input type="number" className="input" min="0" max="365"
@@ -223,6 +286,33 @@ export default function NewBatchPage() {
           </Field>
         </div>
 
+        {/* PC番号 チェックボックス */}
+        <Field label={`PC番号 * (${form.pcNumbers.length} / 23 選択中)`} hint="複数選択可。 選択した各PCについて、抽出+Drive格納が実行されます">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex gap-2">
+              <button type="button" onClick={selectAllPcs}
+                      className="text-xs text-indigo-700 hover:underline">全選択</button>
+              <button type="button" onClick={clearAllPcs}
+                      className="text-xs text-zinc-500 hover:underline">クリア</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-12 gap-1.5">
+            {ALL_PCS.map((pc) => {
+              const checked = form.pcNumbers.includes(pc);
+              return (
+                <label key={pc}
+                       className={[
+                         'cursor-pointer text-center text-xs py-1.5 rounded border transition select-none',
+                         checked ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
+                       ].join(' ')}>
+                  <input type="checkbox" checked={checked} onChange={() => togglePc(pc)} className="sr-only" />
+                  {pc}
+                </label>
+              );
+            })}
+          </div>
+        </Field>
+
         {/* Preview */}
         <div className="bg-zinc-50 border border-zinc-200 rounded-md p-3 flex items-center justify-between">
           <div className="text-sm text-zinc-700">
@@ -230,9 +320,9 @@ export default function NewBatchPage() {
               <span className="text-zinc-500">条件に合致する件数を事前確認できます</span>
             ) : (
               <>該当件数: <span className="font-bold text-lg text-indigo-700 tabular-nums">{previewCount.toLocaleString()}</span> 件
-                {form.targetCount > previewCount && (
-                  <span className="ml-2 text-amber-700 text-xs">
-                    ※ 指定件数({form.targetCount})が該当件数を超えています
+                {form.pcNumbers.length > 0 && (
+                  <span className="ml-2 text-xs text-zinc-500">
+                    (合計予定 {(Number(form.targetCount) * form.pcNumbers.length).toLocaleString()} 件)
                   </span>
                 )}
               </>
@@ -247,38 +337,28 @@ export default function NewBatchPage() {
         <div className="flex justify-end gap-2 pt-2">
           <Link href={`/lists${isDemo ? '?demo=1' : ''}`}
                 className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md">キャンセル</Link>
-          <button type="submit" disabled={submitting}
+          <button type="submit" disabled={submitting || !form.pcNumbers.length}
                   className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
-            {submitting ? '抽出中…' : '抽出を実行'}
+            {submitting ? '抽出中…' : `抽出 → Drive 格納 (${form.pcNumbers.length}台)`}
           </button>
         </div>
       </form>
 
       <style jsx>{`
-        :global(.input) {
-          width: 100%;
-          border: 1px solid #d4d4d8;
-          border-radius: 6px;
-          padding: 8px 12px;
-          font-size: 14px;
-          background: white;
-        }
-        :global(.input:focus) {
-          outline: 2px solid #6366f1;
-          outline-offset: -1px;
-          border-color: transparent;
-        }
+        :global(.input) { width: 100%; border: 1px solid #d4d4d8; border-radius: 6px; padding: 8px 12px; font-size: 14px; background: white; }
+        :global(.input:focus) { outline: 2px solid #6366f1; outline-offset: -1px; border-color: transparent; }
       `}</style>
     </div>
   );
 }
 
-function Field({ label, required, children }) {
+function Field({ label, hint, required, children }) {
   return (
     <label className="block">
-      <span className="block text-xs font-medium text-zinc-600 mb-1">
-        {label} {required && <span className="text-red-500">*</span>}
+      <span className="block text-xs font-medium text-zinc-700 mb-1">
+        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
       </span>
+      {hint && <span className="block text-[11px] text-zinc-500 mb-1.5">{hint}</span>}
       {children}
     </label>
   );
