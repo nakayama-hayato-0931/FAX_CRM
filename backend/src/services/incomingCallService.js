@@ -45,7 +45,7 @@ async function listReports(query = {}) {
 
   const [rows] = await pool.query(
     `SELECT icr.id, icr.customer_id, icr.batch_id, icr.send_date, icr.pc_number,
-            icr.manuscript_folder_date, icr.manuscript_slot,
+            icr.manuscript_folder_date, icr.manuscript_slot, icr.candidate_registration_no,
             icr.result, icr.result_detail, icr.responded_at, icr.recorded_at,
             c.company_name, c.fax_number, c.industry, c.prefecture
        FROM incoming_call_reports icr
@@ -131,12 +131,14 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
           `UPDATE incoming_call_reports
               SET result = ?, result_detail = ?, responded_at = ?,
                   send_date = ?, pc_number = ?,
-                  manuscript_folder_date = ?, manuscript_slot = ?, manuscript_id = ?
+                  manuscript_folder_date = ?, manuscript_slot = ?, manuscript_id = ?,
+                  candidate_registration_no = ?
             WHERE id = ?`,
           [
             it.result, it.result_detail || null, respondedAt,
             sendDate, pcNumber,
             manuscriptDate || null, manuscriptSlot || null, manuscriptId || null,
+            it.candidate_registration_no || null,
             existing[0].id,
           ]
         );
@@ -145,11 +147,13 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
           `INSERT INTO incoming_call_reports
              (customer_id, batch_id, send_date, pc_number,
               manuscript_id, manuscript_folder_date, manuscript_slot,
+              candidate_registration_no,
               result, result_detail, responded_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             it.customerId, batchId, sendDate, pcNumber,
             manuscriptId || null, manuscriptDate || null, manuscriptSlot || null,
+            it.candidate_registration_no || null,
             it.result, it.result_detail || null, respondedAt,
           ]
         );
@@ -223,7 +227,27 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
   }
 }
 
-async function createSingle({ customerId, sendDate, pcNumber, result, resultDetail, respondedAt, batchId, manuscriptId, manuscriptDate, manuscriptSlot }) {
+/**
+ * 顧客の最新 incoming_call_report を返す (手動入力モーダルの自動入力用)
+ */
+async function getLastForCustomer(customerId) {
+  const pool = getPool();
+  if (!pool) return null;
+  const [rows] = await pool.query(
+    `SELECT id, send_date, pc_number,
+            manuscript_id, manuscript_folder_date, manuscript_slot,
+            candidate_registration_no,
+            result, result_detail, responded_at, recorded_at
+       FROM incoming_call_reports
+      WHERE customer_id = ?
+      ORDER BY responded_at DESC, recorded_at DESC, id DESC
+      LIMIT 1`,
+    [customerId]
+  );
+  return rows[0] || null;
+}
+
+async function createSingle({ customerId, sendDate, pcNumber, result, resultDetail, respondedAt, batchId, manuscriptId, manuscriptDate, manuscriptSlot, candidateRegistrationNo }) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です'); err.status = 500; err.code = 'DB_NOT_CONFIGURED';
     throw err;
@@ -240,8 +264,14 @@ async function createSingle({ customerId, sendDate, pcNumber, result, resultDeta
     sendDate: sendDate || null,
     pcNumber: pcNumber || null,
     manuscriptId, manuscriptDate, manuscriptSlot,
-    items: [{ customerId, result, result_detail: resultDetail, responded_at: respondedAt }],
+    items: [{
+      customerId,
+      result,
+      result_detail: resultDetail,
+      responded_at: respondedAt,
+      candidate_registration_no: candidateRegistrationNo || null,
+    }],
   });
 }
 
-module.exports = { listReports, getBatchInputView, bulkSave, createSingle, VALID_RESULTS };
+module.exports = { listReports, getBatchInputView, bulkSave, createSingle, getLastForCustomer, VALID_RESULTS };

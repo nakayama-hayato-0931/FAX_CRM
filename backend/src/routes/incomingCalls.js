@@ -12,6 +12,16 @@ router.get('/', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/incoming-calls/last?customer_id=  受電報告 手動入力モーダルの自動入力用
+router.get('/last', async (req, res, next) => {
+  try {
+    const cid = Number(req.query.customer_id);
+    if (!cid) return fail(res, 400, 'INVALID_INPUT', 'customer_id 必須');
+    const r = await svc.getLastForCustomer(cid);
+    return ok(res, r);
+  } catch (e) { next(e); }
+});
+
 // GET /api/incoming-calls/by-batch/:batchId
 router.get('/by-batch/:batchId(\\d+)', async (req, res, next) => {
   try {

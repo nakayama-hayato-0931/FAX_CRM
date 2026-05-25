@@ -46,13 +46,16 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
   const [form, setForm] = useState({
     sendDate: initial.sendDate || '',
     pcNumber: initial.pcNumber || '',
+    candidateRegistrationNo: initial.candidateRegistrationNo || '',
     result: initial.result || 'project',
     resultDetail: '',
     respondedAt: initial.respondedAt || nowLocal,
   });
   const [busy, setBusy] = useState(false);
 
-  // 顧客選択時に送信日 / 使用PC を顧客の最終送信から自動入力
+  // 顧客選択時:
+  //   1) customers の last_sent_at / last_pc_number から 送信日 / 使用PC を補完
+  //   2) その顧客の最新 incoming_call_report から 原稿(登録番号) を補完
   useEffect(() => {
     if (!customer) return;
     setForm((f) => ({
@@ -60,6 +63,14 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
       sendDate: customer.last_sent_at ? new Date(customer.last_sent_at).toISOString().slice(0, 10) : f.sendDate,
       pcNumber: customer.last_pc_number || f.pcNumber,
     }));
+    api.get('/api/incoming-calls/last', { params: { customer_id: customer.id } })
+      .then((r) => {
+        const last = r.data?.data;
+        if (last?.candidate_registration_no) {
+          setForm((f) => ({ ...f, candidateRegistrationNo: last.candidate_registration_no }));
+        }
+      })
+      .catch(() => { /* ignore */ });
   }, [customer]);
 
   // 顧客検索 (q が 2文字以上で 300ms debounce)
@@ -113,6 +124,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
         customerId,
         sendDate: form.sendDate || null,
         pcNumber: form.pcNumber || null,
+        candidateRegistrationNo: form.candidateRegistrationNo || null,
         result: form.result,
         resultDetail: form.resultDetail || null,
         respondedAt: form.respondedAt || null,
@@ -260,6 +272,16 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                        placeholder="NO.3" className="rep-input font-mono" />
               </Field>
             </div>
+
+            <Field label="原稿 (履歴書 登録番号)"
+                   hint={mode === 'search' && customer
+                     ? '顧客の最終報告から自動補完 (変更可)。 同じ求職者で連続入力するならそのまま'
+                     : '例: QT4654 / CZ5995 等。 直接入力 OK'}>
+              <input type="text" value={form.candidateRegistrationNo}
+                     onChange={(e) => setForm({ ...form, candidateRegistrationNo: e.target.value })}
+                     placeholder="QT4654 等"
+                     className="rep-input font-mono" />
+            </Field>
 
             <Field label="結果 *">
               <div className="flex gap-2 flex-wrap">

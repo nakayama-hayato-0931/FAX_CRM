@@ -201,6 +201,7 @@ function ReportDetailModal({ report, onClose, isDemo }) {
           <Row k="FAX番号" v={report.fax_number} mono />
           <Row k="送信日" v={report.send_date} />
           <Row k="使用PC" v={report.pc_number} mono />
+          <Row k="原稿(登録番号)" v={report.candidate_registration_no} mono />
           <Row k="原稿">
             {report.manuscript_folder_date
               ? <>{report.manuscript_folder_date} / スロット {report.manuscript_slot}</>

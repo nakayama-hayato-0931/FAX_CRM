@@ -199,6 +199,7 @@ CREATE TABLE IF NOT EXISTS incoming_call_reports (
   manuscript_id INT UNSIGNED DEFAULT NULL,
   manuscript_folder_date DATE DEFAULT NULL,
   manuscript_slot TINYINT UNSIGNED DEFAULT NULL,
+  candidate_registration_no VARCHAR(100) DEFAULT NULL COMMENT '原稿 (履歴書の登録番号)',
 
   -- 結果: 案件化 / NG / リコール / 資料送付 / その他
   --   (旧 no_response/response_inquiry/response_order/refusal/invalid_number/other も後方互換)
@@ -215,6 +216,7 @@ CREATE TABLE IF NOT EXISTS incoming_call_reports (
   INDEX idx_icr_pc_date (pc_number, send_date),
   INDEX idx_icr_result (result, send_date),
   INDEX idx_icr_batch (batch_id),
+  INDEX idx_icr_cand (candidate_registration_no),
   CONSTRAINT fk_icr_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
   CONSTRAINT fk_icr_batch FOREIGN KEY (batch_id) REFERENCES extraction_batches(id) ON DELETE SET NULL,
   CONSTRAINT fk_icr_manuscript FOREIGN KEY (manuscript_id) REFERENCES manuscripts(id) ON DELETE SET NULL
