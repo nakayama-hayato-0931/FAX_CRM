@@ -167,34 +167,37 @@ async function getFileMeta(fileId) {
 
 /**
  * Drive ファイル/フォルダ削除
- *   共有ドライブで files.delete (permanent) はサービスアカウントに
- *   "コンテンツ管理者" or "管理者" ロールが必要で、デフォルトの "投稿者" では
- *   403 になる。trashed:true でゴミ箱に移動なら "投稿者" でも可能で、
- *   findFolder/findOrCreateFolder は `trashed = false` で除外するため
- *   再作成時の不整合も起きない。
- *   (どうしても permanent delete したい場合は手動で Drive のゴミ箱から削除)
- *
- *   trash が 403 等で失敗した場合は permanent delete にフォールバック。
+ *   - 1) まず files.delete (permanent delete) を試す
+ *        → Drive から実際に消える (ゴミ箱にも残らない)
+ *        → 共有ドライブでは "コンテンツ管理者" or "管理者" ロールが必要
+ *   - 2) 権限不足 (403) 等で失敗したら trashed:true (ゴミ箱移動) にフォールバック
+ *        → "投稿者" ロールでも実行可能
+ *        → Drive 上は元の場所からは消えるが「ゴミ箱」に 30 日残る
+ *   - findFolder / findOrCreateFolder は trashed=false で除外するため
+ *     trash 後に同じ名前で再作成しても重複は起きない。
+ *   - 戻り値の mode で deleted (永久削除) / trashed (ゴミ箱移動) を判別可能。
  */
 async function deleteFile(fileId) {
   const drive = tryLoad();
+  // 1) permanent delete を試す
   try {
-    await drive.files.update({
-      fileId,
-      requestBody: { trashed: true },
-      supportsAllDrives: true,
-    });
-    return { ok: true, mode: 'trashed' };
+    await drive.files.delete({ fileId, supportsAllDrives: true });
+    return { ok: true, mode: 'deleted' };
   } catch (e1) {
+    // 2) 失敗 → trash (ゴミ箱移動) にフォールバック
     try {
-      await drive.files.delete({ fileId, supportsAllDrives: true });
-      return { ok: true, mode: 'deleted' };
+      await drive.files.update({
+        fileId,
+        requestBody: { trashed: true },
+        supportsAllDrives: true,
+      });
+      return { ok: true, mode: 'trashed', deleteError: e1.errors?.[0]?.message || e1.message };
     } catch (e2) {
-      const detail = e1.errors?.[0]?.message || e1.message;
+      const detail = e2.errors?.[0]?.message || e2.message;
       const err = new Error(
-        `Drive 削除失敗 (${detail})。サービスアカウントに該当フォルダに対する書き込み権限があるか確認してください。`
+        `Drive 削除失敗 (${detail})。 サービスアカウントに該当フォルダの編集権限があるか確認してください。`
       );
-      err.cause = e1;
+      err.cause = e2;
       throw err;
     }
   }

@@ -547,8 +547,14 @@ async function deleteDate(date) {
       if (!dateFolder) {
         driveResult = { ok: true, deleted: false, note: 'Drive 上に該当フォルダなし' };
       } else {
-        await drive.deleteFile(dateFolder.id);
-        driveResult = { ok: true, deleted: true, folderId: dateFolder.id };
+        const r = await drive.deleteFile(dateFolder.id);
+        driveResult = {
+          ok: true,
+          deleted: true,
+          folderId: dateFolder.id,
+          mode: r.mode,                  // 'deleted' or 'trashed'
+          deleteError: r.deleteError || null,
+        };
       }
     }
   } catch (e) {

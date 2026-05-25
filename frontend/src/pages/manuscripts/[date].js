@@ -91,9 +91,19 @@ export default function ManuscriptDatePage() {
       const { data } = await api.delete(`/api/manuscripts/${date}`);
       const r = data.data || {};
       const parts = [`DB ${r.deleted ?? 0} スロット`];
-      if (r.drive?.ok && r.drive?.deleted) parts.push('Drive フォルダ削除');
-      else if (r.drive?.ok && r.drive?.deleted === false) parts.push('Drive 該当無し');
-      else if (r.drive?.ok === false) parts.push(`Drive 削除失敗: ${r.drive.error || r.drive.note || '不明'}`);
+      if (r.drive?.ok && r.drive?.deleted) {
+        if (r.drive.mode === 'deleted') {
+          parts.push('Drive 完全削除');
+        } else if (r.drive.mode === 'trashed') {
+          parts.push('Drive ゴミ箱へ移動 (完全削除には Manager 権限が必要)');
+        } else {
+          parts.push('Drive 削除');
+        }
+      } else if (r.drive?.ok && r.drive?.deleted === false) {
+        parts.push('Drive 該当無し');
+      } else if (r.drive?.ok === false) {
+        parts.push(`Drive 削除失敗: ${r.drive.error || r.drive.note || '不明'}`);
+      }
       toast.success(`削除完了 (${parts.join(' / ')})`);
       router.push('/manuscripts');
     } catch (e) {
