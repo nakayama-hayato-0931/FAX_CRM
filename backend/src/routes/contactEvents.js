@@ -4,6 +4,17 @@ const { ok, created, fail } = require('../utils/response');
 
 const router = express.Router();
 
+// GET /api/contact-events  (外部システム or fax-crm内部から照会)
+//   クエリ: external_callcenter_id / fax / phone / company_name / customer_id /
+//          channel ('fax' or 'fax,call') / event_type / since / limit
+//   callcenter の getFaxHistory() が叩く想定
+router.get('/', async (req, res, next) => {
+  try {
+    const result = await svc.listByQuery(req.query);
+    return ok(res, result.events, { meta: { customer_ids: result.customer_ids } });
+  } catch (e) { next(e); }
+});
+
 // POST /api/contact-events  (外部システム or fax-crm内部から書き込み)
 router.post('/', async (req, res, next) => {
   try {

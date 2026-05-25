@@ -26,6 +26,71 @@ function assertSource(s) {
 /**
  * 顧客のタイムライン取得
  */
+/**
+ * クエリパラメータ指定での一覧取得 (callcenter からの FAX履歴照会用)
+ *   - customer_id 指定 → そのまま
+ *   - external_callcenter_id / fax / phone 指定 → lookup で customer_id 解決
+ *   - channel: 'fax' / 'call' / 'fax,call' のカンマ区切り
+ *   - limit (max 500)
+ */
+async function listByQuery(query = {}) {
+  const pool = getPool();
+  if (!pool) return { events: [], customers: [] };
+
+  let customerIds = [];
+  if (query.customer_id) {
+    customerIds = [Number(query.customer_id)];
+  } else if (query.external_callcenter_id || query.fax || query.phone || query.company_name) {
+    const customers = await lookup({
+      fax: query.fax,
+      phone: query.phone,
+      external_callcenter_id: query.external_callcenter_id,
+      company_name: query.company_name,
+    });
+    customerIds = (customers || []).map((c) => c.id);
+    if (customerIds.length === 0) return { events: [], customers: [] };
+  } else {
+    // どのキーも無い場合はチャネル全体 (limit 制限のみ)
+    customerIds = null;
+  }
+
+  const where = [];
+  const params = [];
+  if (customerIds) {
+    where.push(`customer_id IN (${customerIds.map(() => '?').join(',')})`);
+    params.push(...customerIds);
+  }
+  if (query.channel) {
+    const list = String(query.channel).split(',').map((s) => s.trim()).filter(Boolean);
+    if (list.length) {
+      where.push(`channel IN (${list.map(() => '?').join(',')})`);
+      params.push(...list);
+    }
+  }
+  if (query.event_type) {
+    where.push(`event_type = ?`);
+    params.push(query.event_type);
+  }
+  if (query.since) {
+    where.push(`occurred_at >= ?`);
+    params.push(query.since);
+  }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const lim = Math.min(Number(query.limit) || 100, 500);
+
+  const [events] = await pool.query(
+    `SELECT id, customer_id, channel, event_type, occurred_at, source_system, source_event_id,
+            operator_name, pc_number, manuscript_id, manuscript_folder_date, manuscript_slot,
+            result_label, memo, raw_payload, created_at
+       FROM contact_events
+       ${whereSql}
+       ORDER BY occurred_at DESC, id DESC
+       LIMIT ?`,
+    [...params, lim]
+  );
+  return { events, customer_ids: customerIds };
+}
+
 async function getTimeline(customerId, { limit = 100, channels } = {}) {
   const pool = getPool();
   if (!pool) return [];
@@ -179,6 +244,7 @@ async function createBulk(events) {
 }
 
 module.exports = {
+  listByQuery,
   getTimeline, lookup, createEvent, createBulk,
   VALID_CHANNELS, VALID_SOURCES,
 };
