@@ -77,6 +77,13 @@ router.post('/slots/:id(\\d+)/files', upload.single('file'), async (req, res, ne
   try {
     const kind = req.body?.kind || 'other';
     if (!req.file) return fail(res, 400, 'NO_FILE', 'ファイル必須');
+    // multer は multipart/form-data の filename を Latin-1 として渡してくる ため
+    // 日本語ファイル名は文字化けする。UTF-8 として読み直す。
+    if (req.file.originalname) {
+      try {
+        req.file.originalname = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+      } catch (_) { /* keep original on failure */ }
+    }
     const r = await ms.uploadFileToSlot(req.params.id, { kind, file: req.file });
     return created(res, r);
   } catch (e) {

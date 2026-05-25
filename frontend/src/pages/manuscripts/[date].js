@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
 import ManuscriptSlotModal from '@/components/ManuscriptSlotModal';
 import SlotUsageModal from '@/components/SlotUsageModal';
+import BulkSlotUploadModal from '@/components/BulkSlotUploadModal';
 
 function buildDemoSlots(date) {
   const sample = [
@@ -50,6 +51,7 @@ export default function ManuscriptDatePage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [editing, setEditing] = useState(null);
   const [usageSlot, setUsageSlot] = useState(null);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   useEffect(() => {
     if (!router.isReady || !date) return;
@@ -106,6 +108,8 @@ export default function ManuscriptDatePage() {
 
   const filledCount = slots.filter((s) => s.title && s.title.trim()).length;
   const driveCount = slots.filter((s) => s.drive_folder_url && s.drive_folder_url.trim()).length;
+  // 23 スロット全てに Drive フォルダ ID が割り当たっていれば「一斉格納」モードに切替
+  const allFoldersReady = slots.length === 23 && slots.every((s) => !!s.drive_folder_id);
 
   return (
     <div>
@@ -127,10 +131,20 @@ export default function ManuscriptDatePage() {
                   className="px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50">
             再読み込み
           </button>
-          <button onClick={ensureDrive}
-                  className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
-            Drive 23フォルダ作成
-          </button>
+          {allFoldersReady ? (
+            <button onClick={() => {
+                      if (isDemo) { toast('デモ表示中は格納できません', { icon: 'ℹ' }); return; }
+                      setShowBulkUpload(true);
+                    }}
+                    className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+              一斉格納
+            </button>
+          ) : (
+            <button onClick={ensureDrive}
+                    className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+              Drive 23フォルダ作成
+            </button>
+          )}
           <button onClick={deleteDate}
                   className="px-3 py-2 text-sm bg-white border border-red-200 text-red-700 rounded-md hover:bg-red-50">
             日付ごと削除
@@ -226,6 +240,15 @@ export default function ManuscriptDatePage() {
           slot={usageSlot}
           isDemo={isDemo}
           onClose={() => setUsageSlot(null)}
+        />
+      )}
+
+      {showBulkUpload && (
+        <BulkSlotUploadModal
+          date={String(date)}
+          slots={slots}
+          onClose={() => setShowBulkUpload(false)}
+          onCompleted={() => setReloadKey((k) => k + 1)}
         />
       )}
     </div>
