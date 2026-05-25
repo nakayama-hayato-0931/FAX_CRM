@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS manuscripts (
   folder_date DATE NOT NULL COMMENT '原稿の日付フォルダ (例: 2026-05-01)',
   slot_number TINYINT UNSIGNED NOT NULL COMMENT '1〜23 のスロット番号',
   title VARCHAR(255) DEFAULT NULL,
-  drive_folder_id VARCHAR(100) DEFAULT NULL,
+  drive_folder_id VARCHAR(100) DEFAULT NULL COMMENT 'スロットごとの Drive フォルダ ID (アップ時に自動作成)',
   drive_folder_url VARCHAR(500) DEFAULT NULL,
   thumbnail_url VARCHAR(500) DEFAULT NULL,
   memo TEXT DEFAULT NULL,
@@ -100,6 +100,21 @@ CREATE TABLE IF NOT EXISTS manuscripts (
   UNIQUE KEY uk_manuscripts_date_slot (folder_date, slot_number),
   INDEX idx_manuscripts_date (folder_date)
 ) ENGINE=InnoDB COMMENT='原稿(日付別×23スロット)';
+
+-- スロットにアップしたファイル (Drive実体への参照)
+CREATE TABLE IF NOT EXISTS manuscript_slot_files (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  manuscript_id INT UNSIGNED NOT NULL COMMENT 'manuscripts.id',
+  kind VARCHAR(20) NOT NULL COMMENT 'manuscript (原稿PDF) / excel (リスト) / other',
+  original_name VARCHAR(255) DEFAULT NULL,
+  mime_type VARCHAR(100) DEFAULT NULL,
+  size_bytes BIGINT DEFAULT NULL,
+  drive_file_id VARCHAR(100) DEFAULT NULL,
+  drive_url VARCHAR(500) DEFAULT NULL,
+  uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_msf_manuscript (manuscript_id, kind),
+  CONSTRAINT fk_msf_manuscript FOREIGN KEY (manuscript_id) REFERENCES manuscripts(id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='ドライブ格納スロットにアップしたファイル (Drive実体)';
 
 -- --------------------------------------------
 -- 原稿管理 (PDFファイル + メタデータ) ※旧「原稿管理」(Drive スロット) は ドライブ格納 に改名

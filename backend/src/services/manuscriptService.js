@@ -218,7 +218,10 @@ async function ensureDriveFolders(date) {
   };
 }
 
-const UPDATABLE = ['title', 'drive_folder_id', 'drive_folder_url', 'thumbnail_url', 'memo'];
+// ドライブ格納モーダルの入力項目: title + memo のみ
+//   drive_folder_id / drive_folder_url はファイルアップ時に自動付与
+//   thumbnail_url は廃止
+const UPDATABLE = ['title', 'memo'];
 async function updateSlot(id, body) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です'); err.status = 500; err.code = 'DB_NOT_CONFIGURED';
@@ -242,6 +245,95 @@ async function updateSlot(id, body) {
   return result.affectedRows > 0;
 }
 
+// ============================================================
+// スロット内のファイル管理 (Drive共有ドライブ にアップロード)
+// ============================================================
+
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * スロット用 Drive フォルダ ID を取得 (なければ作成)
+ *   親 = manuscript_pdf_drive_folder_id (または drive_root_folder_id 配下に 'manuscripts/')
+ *   その下に YYYY-MM-DD / slot-XX を作成
+ */
+async function ensureSlotDriveFolder(manuscriptId) {
+  const pool = getPool();
+  const [rows] = await pool.query('SELECT id, folder_date, slot_number, drive_folder_id FROM manuscripts WHERE id = ? LIMIT 1', [manuscriptId]);
+  if (!rows.length) { const e = new Error('スロットが見つかりません'); e.status = 404; throw e; }
+  const slot = rows[0];
+  if (slot.drive_folder_id) return slot.drive_folder_id;
+
+  const pdfRoot = await settings.get('manuscript_pdf_drive_folder_id');
+  const root    = await settings.get('drive_root_folder_id');
+  let parentId = pdfRoot;
+  if (!parentId && root) {
+    const top = await drive.findOrCreateFolder({ name: 'manuscripts', parentId: root });
+    parentId = top.id;
+  }
+  if (!parentId) { const e = new Error('Drive 親フォルダ未設定'); e.status = 400; throw e; }
+
+  // YYYY-MM-DD / slot-XX
+  const dateFolder = await drive.findOrCreateFolder({ name: String(slot.folder_date).slice(0, 10), parentId });
+  const slotFolder = await drive.findOrCreateFolder({ name: `slot-${String(slot.slot_number).padStart(2, '0')}`, parentId: dateFolder.id });
+  await pool.query('UPDATE manuscripts SET drive_folder_id = ?, drive_folder_url = ? WHERE id = ?',
+    [slotFolder.id, slotFolder.webViewLink || null, manuscriptId]);
+  return slotFolder.id;
+}
+
+/**
+ * スロットにファイルをアップロード (multer の req.file を受け取る)
+ *   kind: 'manuscript' (原稿PDF) / 'excel' (リスト) / 'other'
+ */
+async function uploadFileToSlot(manuscriptId, { kind, file }) {
+  if (!file || !file.path) { const e = new Error('ファイル必須'); e.status = 400; throw e; }
+  const parentId = await ensureSlotDriveFolder(manuscriptId);
+  let driveFile;
+  try {
+    driveFile = await drive.uploadFile({
+      filePath: file.path,
+      mimeType: file.mimetype,
+      name: file.originalname,
+      parentId,
+    });
+  } finally {
+    try { fs.unlinkSync(file.path); } catch (_) {}
+  }
+  const pool = getPool();
+  const [r] = await pool.query(
+    `INSERT INTO manuscript_slot_files
+       (manuscript_id, kind, original_name, mime_type, size_bytes, drive_file_id, drive_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [manuscriptId, kind || 'other', file.originalname, file.mimetype, file.size,
+     driveFile.id, driveFile.webViewLink || null]
+  );
+  return { id: r.insertId, drive_file_id: driveFile.id, drive_url: driveFile.webViewLink };
+}
+
+async function listSlotFiles(manuscriptId) {
+  const pool = getPool();
+  if (!pool) return [];
+  const [rows] = await pool.query(
+    `SELECT id, kind, original_name, mime_type, size_bytes, drive_file_id, drive_url, uploaded_at
+       FROM manuscript_slot_files WHERE manuscript_id = ? ORDER BY uploaded_at DESC, id DESC`,
+    [manuscriptId]
+  );
+  return rows;
+}
+
+async function deleteSlotFile(fileId) {
+  const pool = getPool();
+  const [rows] = await pool.query('SELECT drive_file_id FROM manuscript_slot_files WHERE id = ?', [fileId]);
+  if (!rows.length) return false;
+  if (rows[0].drive_file_id) {
+    try { await drive.deleteFile(rows[0].drive_file_id); } catch (e) {
+      console.error('[manuscriptSlot] Drive delete failed:', e.message);
+    }
+  }
+  await pool.query('DELETE FROM manuscript_slot_files WHERE id = ?', [fileId]);
+  return true;
+}
+
 async function deleteDate(date) {
   assertDate(date);
   const pool = getPool();
@@ -257,6 +349,10 @@ module.exports = {
   createDate,
   updateSlot,
   deleteDate,
+  ensureSlotDriveFolder,
+  uploadFileToSlot,
+  listSlotFiles,
+  deleteSlotFile,
   ensureDriveFolders,
   getSlotUsage,
 };

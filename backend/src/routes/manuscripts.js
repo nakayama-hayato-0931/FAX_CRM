@@ -1,8 +1,18 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const ms = require('../services/manuscriptService');
 const { ok, created, fail } = require('../utils/response');
 
 const router = express.Router();
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve(__dirname, '../../uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const upload = multer({
+  dest: UPLOAD_DIR,
+  limits: { fileSize: (Number(process.env.MAX_SLOT_FILE_MB) || 50) * 1024 * 1024 },
+});
 
 // GET /api/manuscripts - 日付ごとのサマリ一覧
 router.get('/', async (req, res, next) => {
@@ -51,6 +61,38 @@ router.post('/:date(\\d{4}-\\d{2}-\\d{2})/ensure-drive', async (req, res, next) 
   try {
     const result = await ms.ensureDriveFolders(req.params.date);
     return ok(res, result);
+  } catch (e) { next(e); }
+});
+
+// ----- スロット内のファイル管理 -----
+
+// GET /api/manuscripts/slots/:id/files
+router.get('/slots/:id(\\d+)/files', async (req, res, next) => {
+  try { return ok(res, await ms.listSlotFiles(req.params.id)); }
+  catch (e) { next(e); }
+});
+
+// POST /api/manuscripts/slots/:id/files  (multipart, kind=manuscript|excel|other)
+router.post('/slots/:id(\\d+)/files', upload.single('file'), async (req, res, next) => {
+  try {
+    const kind = req.body?.kind || 'other';
+    if (!req.file) return fail(res, 400, 'NO_FILE', 'ファイル必須');
+    const r = await ms.uploadFileToSlot(req.params.id, { kind, file: req.file });
+    return created(res, r);
+  } catch (e) {
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch (_) {}
+    }
+    next(e);
+  }
+});
+
+// DELETE /api/manuscripts/slots/:id/files/:fileId
+router.delete('/slots/:id(\\d+)/files/:fileId(\\d+)', async (req, res, next) => {
+  try {
+    const okFlag = await ms.deleteSlotFile(req.params.fileId);
+    if (!okFlag) return fail(res, 404, 'NOT_FOUND', 'file not found');
+    return ok(res, { deleted: 1 });
   } catch (e) { next(e); }
 });
 
