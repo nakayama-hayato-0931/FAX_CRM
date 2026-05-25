@@ -103,11 +103,11 @@ router.delete('/slots/:id(\\d+)/files/:fileId(\\d+)', async (req, res, next) => 
   } catch (e) { next(e); }
 });
 
-// DELETE /api/manuscripts/:date - 日付ごと全スロット削除
+// DELETE /api/manuscripts/:date - 日付ごと全スロット削除 (DB + Drive)
 router.delete('/:date(\\d{4}-\\d{2}-\\d{2})', async (req, res, next) => {
   try {
-    const deleted = await ms.deleteDate(req.params.date);
-    return ok(res, { deleted });
+    const result = await ms.deleteDate(req.params.date);
+    return ok(res, result);
   } catch (e) { next(e); }
 });
 

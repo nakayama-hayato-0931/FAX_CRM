@@ -82,10 +82,19 @@ export default function ManuscriptDatePage() {
 
   const deleteDate = async () => {
     if (isDemo) { toast('デモ表示中は削除できません', { icon: 'ℹ' }); return; }
-    if (!confirm(`${date} の23スロットを全削除します。よろしいですか?`)) return;
+    if (!confirm(
+      `${date} の23スロットを全削除します。\n` +
+      `Drive 上の "${date}" フォルダ (中の 1〜23 と全ファイル) も同時に削除されます。\n` +
+      `よろしいですか？`
+    )) return;
     try {
-      await api.delete(`/api/manuscripts/${date}`);
-      toast.success('削除しました');
+      const { data } = await api.delete(`/api/manuscripts/${date}`);
+      const r = data.data || {};
+      const parts = [`DB ${r.deleted ?? 0} スロット`];
+      if (r.drive?.ok && r.drive?.deleted) parts.push('Drive フォルダ削除');
+      else if (r.drive?.ok && r.drive?.deleted === false) parts.push('Drive 該当無し');
+      else if (r.drive?.ok === false) parts.push(`Drive 削除失敗: ${r.drive.error || r.drive.note || '不明'}`);
+      toast.success(`削除完了 (${parts.join(' / ')})`);
       router.push('/manuscripts');
     } catch (e) {
       toast.error(e.userMessage || '削除失敗');

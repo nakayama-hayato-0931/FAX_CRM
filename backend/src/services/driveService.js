@@ -72,9 +72,10 @@ async function testConnection() {
 }
 
 /**
- * 親フォルダ直下から name で検索、存在すればその id を返す。無ければ作成。
+ * 親フォルダ直下から name でフォルダを検索。見つからなければ null を返す。
+ *   (findOrCreateFolder と違って作成はしない)
  */
-async function findOrCreateFolder({ name, parentId }) {
+async function findFolder({ name, parentId }) {
   const drive = tryLoad();
   const q = [
     `mimeType = 'application/vnd.google-apps.folder'`,
@@ -90,9 +91,15 @@ async function findOrCreateFolder({ name, parentId }) {
     includeItemsFromAllDrives: true,
     corpora: 'allDrives',
   });
-  if (resp.data.files?.length) {
-    return { ...resp.data.files[0], created: false };
-  }
+  return resp.data.files?.[0] || null;
+}
+
+/**
+ * 親フォルダ直下から name で検索、存在すればその id を返す。無ければ作成。
+ */
+async function findOrCreateFolder({ name, parentId }) {
+  const existing = await findFolder({ name, parentId });
+  if (existing) return { ...existing, created: false };
   return createFolder({ name, parentId });
 }
 
@@ -194,6 +201,7 @@ async function moveFile({ fileId, newParentId, oldParentId }) {
 module.exports = {
   getStatus,
   testConnection,
+  findFolder,
   findOrCreateFolder,
   createFolder,
   uploadFile,

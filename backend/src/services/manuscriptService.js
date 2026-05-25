@@ -435,12 +435,42 @@ async function deleteSlotFile(fileId) {
   return true;
 }
 
+/**
+ * 日付ごと削除
+ *   - DB: manuscripts (slot_files は FK CASCADE で同時削除)
+ *   - Drive: <drive_root_folder_id>/<YYYY-MM-DD>/ フォルダを丸ごと削除
+ *           (配下の 1〜23 サブフォルダと中のファイルも再帰的に消える)
+ *   Drive 削除が失敗しても DB 削除は続行 (ユーザが操作不能にならないように)
+ */
 async function deleteDate(date) {
   assertDate(date);
   const pool = getPool();
-  if (!pool) return 0;
+  if (!pool) return { deleted: 0, drive: { ok: false, note: 'DB unavailable' } };
+
+  // 1. Drive 上の YYYY-MM-DD フォルダ削除
+  let driveResult = null;
+  try {
+    const rootFolderId = await settings.get('drive_root_folder_id');
+    if (!rootFolderId) {
+      driveResult = { ok: false, note: 'drive_root_folder_id 未設定' };
+    } else {
+      const dateFolder = await drive.findFolder({ name: date, parentId: rootFolderId });
+      if (!dateFolder) {
+        driveResult = { ok: true, deleted: false, note: 'Drive 上に該当フォルダなし' };
+      } else {
+        await drive.deleteFile(dateFolder.id);
+        driveResult = { ok: true, deleted: true, folderId: dateFolder.id };
+      }
+    }
+  } catch (e) {
+    driveResult = { ok: false, error: e.message };
+    console.error('[deleteDate] Drive 削除失敗:', e.message);
+  }
+
+  // 2. DB から削除 (manuscript_slot_files は FK CASCADE)
   const [result] = await pool.query(`DELETE FROM manuscripts WHERE folder_date = ?`, [date]);
-  return result.affectedRows;
+
+  return { deleted: result.affectedRows, drive: driveResult };
 }
 
 module.exports = {
