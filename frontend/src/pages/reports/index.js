@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
+import IncomingCallManualModal from '@/components/IncomingCallManualModal';
 
 const RESULT_LABEL = {
   no_response:      { label: '受電なし', cls: 'bg-zinc-100 text-zinc-700' },
@@ -27,6 +28,8 @@ export default function ReportsIndex() {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState({ result: '', pcNumber: '' });
   const [reloadKey, setReloadKey] = useState(0);
+  const [showManual, setShowManual] = useState(false);
+  const [detail, setDetail] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,9 +66,16 @@ export default function ReportsIndex() {
                   className="px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50">
             再読み込み
           </button>
+          <button onClick={() => {
+                    if (isDemo) { toast('デモ表示中は入力できません', { icon: 'ℹ' }); return; }
+                    setShowManual(true);
+                  }}
+                  className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+            + 手動入力
+          </button>
           <Link href={`/lists${isDemo ? '?demo=1' : ''}`}
-                className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
-            バッチから入力する →
+                className="px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50">
+            バッチから入力 →
           </Link>
         </div>
       </div>
@@ -120,13 +130,13 @@ export default function ReportsIndex() {
               {!loading && items.map((r) => {
                 const meta = RESULT_LABEL[r.result] || RESULT_LABEL.other;
                 return (
-                  <tr key={r.id} className="border-t border-zinc-100 hover:bg-zinc-50/60">
+                  <tr key={r.id} className="border-t border-zinc-100 hover:bg-zinc-50/60 cursor-pointer"
+                      onClick={() => setDetail(r)}>
                     <td className="px-4 py-2.5 text-xs">{r.send_date}</td>
                     <td className="px-4 py-2.5">
-                      <Link href={`/customers/${r.customer_id}${isDemo ? '?demo=1' : ''}`}
-                            className="text-indigo-700 hover:underline">{r.company_name}</Link>
+                      <span className="text-indigo-700 hover:underline">{r.company_name}</span>
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-xs">{r.fax_number}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs">{r.fax_number || '—'}</td>
                     <td className="px-4 py-2.5 font-mono text-xs">{r.pc_number}</td>
                     <td className="px-4 py-2.5 text-xs text-zinc-500">
                       {r.manuscript_folder_date ? `${r.manuscript_folder_date} / ${r.manuscript_slot}` : '—'}
@@ -145,6 +155,76 @@ export default function ReportsIndex() {
           </table>
         </div>
       </div>
+
+      {showManual && (
+        <IncomingCallManualModal
+          onClose={() => setShowManual(false)}
+          onCompleted={() => { setShowManual(false); setReloadKey((k) => k + 1); }}
+        />
+      )}
+
+      {detail && (
+        <ReportDetailModal report={detail} onClose={() => setDetail(null)} isDemo={isDemo} />
+      )}
+    </div>
+  );
+}
+
+function ReportDetailModal({ report, onClose, isDemo }) {
+  useEffect(() => {
+    const k = (e) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [onClose]);
+  const meta = RESULT_LABEL[report.result] || RESULT_LABEL.other;
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200">
+          <h2 className="text-lg font-semibold text-zinc-900">受電報告 詳細</h2>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600 text-xl leading-none">✕</button>
+        </div>
+        <div className="p-6 space-y-2 text-sm">
+          <Row k="顧客">
+            <Link href={`/customers/${report.customer_id}${isDemo ? '?demo=1' : ''}`}
+                  className="text-indigo-700 hover:underline font-medium">{report.company_name}</Link>
+            <span className="text-zinc-500 ml-2">ID: {report.customer_id}</span>
+          </Row>
+          <Row k="FAX番号" v={report.fax_number} mono />
+          <Row k="送信日" v={report.send_date} />
+          <Row k="使用PC" v={report.pc_number} mono />
+          <Row k="原稿">
+            {report.manuscript_folder_date
+              ? <>{report.manuscript_folder_date} / スロット {report.manuscript_slot}</>
+              : <span className="text-zinc-400">—</span>}
+          </Row>
+          <Row k="結果">
+            <span className={`px-2 py-0.5 text-xs rounded-full ${meta.cls}`}>{meta.label}</span>
+          </Row>
+          <Row k="受電日時" v={report.responded_at ? new Date(report.responded_at).toLocaleString('ja-JP') : null} />
+          <Row k="詳細メモ">
+            {report.result_detail ? <pre className="whitespace-pre-wrap font-sans">{report.result_detail}</pre> : <span className="text-zinc-400">—</span>}
+          </Row>
+          <Row k="バッチID" v={report.batch_id || null} />
+          <Row k="登録日時" v={report.recorded_at ? new Date(report.recorded_at).toLocaleString('ja-JP') : null} />
+        </div>
+        <div className="px-6 py-3 border-t border-zinc-200 flex justify-end">
+          <button onClick={onClose} className="px-4 py-1.5 text-sm bg-white border border-zinc-300 rounded hover:bg-zinc-50">閉じる</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Row({ k, v, children, mono }) {
+  return (
+    <div className="grid grid-cols-[110px_1fr] gap-3 py-1 border-b border-zinc-100/60 last:border-0">
+      <dt className="text-xs text-zinc-500 pt-0.5">{k}</dt>
+      <dd className={`text-sm text-zinc-800 ${mono ? 'font-mono text-xs' : ''}`}>
+        {children !== undefined
+          ? children
+          : (v == null || v === '' ? <span className="text-zinc-300">—</span> : String(v))}
+      </dd>
     </div>
   );
 }
