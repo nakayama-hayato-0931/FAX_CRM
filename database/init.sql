@@ -194,20 +194,15 @@ CREATE TABLE IF NOT EXISTS incoming_call_reports (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   customer_id BIGINT UNSIGNED NOT NULL,
   batch_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'どの抽出バッチ起因か',
-  send_date DATE NOT NULL COMMENT '送信日',
-  pc_number VARCHAR(20) NOT NULL COMMENT '送信PC番号',
+  send_date DATE DEFAULT NULL COMMENT '送信日 (顧客の最終送信から自動補完、 不明なら NULL)',
+  pc_number VARCHAR(20) DEFAULT NULL COMMENT '送信PC番号 (顧客の最終送信から自動補完、 不明なら NULL)',
   manuscript_id INT UNSIGNED DEFAULT NULL,
   manuscript_folder_date DATE DEFAULT NULL,
   manuscript_slot TINYINT UNSIGNED DEFAULT NULL,
 
-  result ENUM(
-    'no_response',         -- 受電なし(未反応)
-    'response_inquiry',    -- 反応あり(問合せ)
-    'response_order',      -- 反応あり(発注)
-    'refusal',             -- 拒否(送るな)
-    'invalid_number',      -- FAX番号無効
-    'other'
-  ) NOT NULL DEFAULT 'no_response',
+  -- 結果: 案件化 / NG / リコール / 資料送付 / その他
+  --   (旧 no_response/response_inquiry/response_order/refusal/invalid_number/other も後方互換)
+  result VARCHAR(40) NOT NULL DEFAULT 'other',
   result_detail TEXT DEFAULT NULL,
   responded_at DATETIME DEFAULT NULL,
 

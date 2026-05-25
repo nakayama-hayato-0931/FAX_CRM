@@ -1,11 +1,22 @@
 const { getPool, isConfigured } = require('../../config/db');
 const contactEvents = require('./contactEventService');
 
+// 新しい結果の選択肢
+//   project       ... 案件化
+//   ng            ... NG
+//   recall        ... リコール
+//   material_sent ... 資料送付
+//   other         ... その他
+// 旧値 (no_response/response_inquiry/response_order/refusal/invalid_number) も
+// 後方互換のため許容
 const VALID_RESULTS = new Set([
+  'project', 'ng', 'recall', 'material_sent', 'other',
+  // legacy
   'no_response', 'response_inquiry', 'response_order',
-  'refusal', 'invalid_number', 'other',
+  'refusal', 'invalid_number',
 ]);
-const RESPONSE_RESULTS = new Set(['response_inquiry', 'response_order']);
+// 「反応あり」 として扱う結果 (顧客マスタの response_count 加算条件)
+const RESPONSE_RESULTS = new Set(['project', 'material_sent', 'response_inquiry', 'response_order']);
 
 function assertResult(r) {
   if (!VALID_RESULTS.has(r)) {
@@ -175,12 +186,19 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
     let contactEventsSynced = 0;
     try {
       for (const it of items) {
+        // contact_events の channel は call とする (受電 = call イベント)。 旧仕様は fax の event_type だったが、
+        // 新仕様では「架電」「リコール」「資料送付」等は call チャネルの方が自然
+        const ceChannel = (it.result === 'no_response' || it.result === 'response_inquiry'
+                        || it.result === 'response_order' || it.result === 'refusal'
+                        || it.result === 'invalid_number')
+          ? 'fax'    // 旧仕様の結果は fax 系として扱う
+          : 'call';  // 案件化/NG/リコール/資料送付 等は call 系
         await contactEvents.createEvent({
           customer_id: it.customerId,
-          channel: 'fax',
+          channel: ceChannel,
           event_type: it.result === 'no_response' ? 'send' : it.result,
-          // no_response = 送信のみ、それ以外は受電あり
-          occurred_at: it.responded_at || `${sendDate}T00:00:00`,
+          // 受電日時 > 送信日 > 今 の優先順で occurred_at を決める
+          occurred_at: it.responded_at || (sendDate ? `${sendDate}T00:00:00` : new Date().toISOString()),
           source_system: 'fax-crm',
           // source_event_id は incoming_call_reports.id を使いたいが手元に無いので
           // (batchId * 1e7 + customer_id) で衝突しない一意キー生成
@@ -211,14 +229,16 @@ async function createSingle({ customerId, sendDate, pcNumber, result, resultDeta
     throw err;
   }
   assertResult(result);
-  if (!customerId || !sendDate || !pcNumber) {
-    const err = new Error('customerId / sendDate / pcNumber は必須です');
+  if (!customerId) {
+    const err = new Error('customerId は必須です');
     err.status = 400; err.code = 'INVALID_INPUT';
     throw err;
   }
+  // sendDate / pcNumber は任意化 (顧客の最終送信が不明な場合 NULL を許容)
   return bulkSave({
     batchId: batchId || null,
-    sendDate, pcNumber,
+    sendDate: sendDate || null,
+    pcNumber: pcNumber || null,
     manuscriptId, manuscriptDate, manuscriptSlot,
     items: [{ customerId, result, result_detail: resultDetail, responded_at: respondedAt }],
   });

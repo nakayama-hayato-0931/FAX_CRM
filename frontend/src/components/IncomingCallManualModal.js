@@ -3,12 +3,11 @@ import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
 
 const RESULTS = [
-  { v: 'no_response',      l: '受電なし' },
-  { v: 'response_inquiry', l: '問合せ' },
-  { v: 'response_order',   l: '発注' },
-  { v: 'refusal',          l: '拒否' },
-  { v: 'invalid_number',   l: '番号無効' },
-  { v: 'other',            l: 'その他' },
+  { v: 'project',       l: '案件化' },
+  { v: 'ng',            l: 'NG' },
+  { v: 'recall',        l: 'リコール' },
+  { v: 'material_sent', l: '資料送付' },
+  { v: 'other',         l: 'その他' },
 ];
 
 // 全角数字 → 半角 + 全角ハイフン類 → 半角 + 数字/ハイフン/+ 以外を除去
@@ -38,17 +37,30 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
   // 直接入力モード用
   const [direct, setDirect] = useState({ company_name: '', fax_number: '', phone_number: '' });
 
-  const todayYMD = new Date().toISOString().slice(0, 10);
+  // 今 を datetime-local 形式 (YYYY-MM-DDTHH:mm) で初期化
+  const nowLocal = (() => {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  })();
   const [form, setForm] = useState({
-    sendDate: initial.sendDate || todayYMD,
+    sendDate: initial.sendDate || '',
     pcNumber: initial.pcNumber || '',
-    manuscriptDate: initial.manuscriptDate || '',
-    manuscriptSlot: initial.manuscriptSlot || '',
-    result: initial.result || 'no_response',
+    result: initial.result || 'project',
     resultDetail: '',
-    respondedAt: '',
+    respondedAt: initial.respondedAt || nowLocal,
   });
   const [busy, setBusy] = useState(false);
+
+  // 顧客選択時に送信日 / 使用PC を顧客の最終送信から自動入力
+  useEffect(() => {
+    if (!customer) return;
+    setForm((f) => ({
+      ...f,
+      sendDate: customer.last_sent_at ? new Date(customer.last_sent_at).toISOString().slice(0, 10) : f.sendDate,
+      pcNumber: customer.last_pc_number || f.pcNumber,
+    }));
+  }, [customer]);
 
   // 顧客検索 (q が 2文字以上で 300ms debounce)
   useEffect(() => {
@@ -66,7 +78,8 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.sendDate || !form.pcNumber || !form.result) { toast.error('送信日 / PC / 結果 は必須'); return; }
+    if (!form.respondedAt) { toast.error('受電日時 は必須'); return; }
+    if (!form.result)      { toast.error('結果 は必須'); return; }
 
     let customerId = customer?.id;
 
@@ -98,13 +111,11 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
     try {
       const body = {
         customerId,
-        sendDate: form.sendDate,
-        pcNumber: form.pcNumber,
+        sendDate: form.sendDate || null,
+        pcNumber: form.pcNumber || null,
         result: form.result,
         resultDetail: form.resultDetail || null,
         respondedAt: form.respondedAt || null,
-        manuscriptDate: form.manuscriptDate || null,
-        manuscriptSlot: form.manuscriptSlot ? Number(form.manuscriptSlot) : null,
       };
       await api.post('/api/incoming-calls', body);
       toast.success('受電報告を保存しました');
@@ -231,33 +242,22 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <Field label="送信日 *">
-                <input type="date" required value={form.sendDate}
-                       onChange={(e) => setForm({ ...form, sendDate: e.target.value })}
-                       className="rep-input" />
-              </Field>
-              <Field label="使用PC *">
-                <input type="text" required value={form.pcNumber}
-                       onChange={(e) => setForm({ ...form, pcNumber: e.target.value })}
-                       placeholder="NO.3" className="rep-input font-mono" />
-              </Field>
-              <Field label="受電日時">
-                <input type="datetime-local" value={form.respondedAt}
+              <Field label="受電日時 *">
+                <input type="datetime-local" required value={form.respondedAt}
                        onChange={(e) => setForm({ ...form, respondedAt: e.target.value })}
                        className="rep-input" />
               </Field>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="原稿日付 (任意)">
-                <input type="date" value={form.manuscriptDate}
-                       onChange={(e) => setForm({ ...form, manuscriptDate: e.target.value })}
+              <Field label={`送信日${mode === 'search' && customer ? ' (自動入力)' : ' (任意)'}`}
+                     hint={mode === 'search' && customer ? '顧客の最終送信から補完済み (変更可)' : '不明なら空欄でOK'}>
+                <input type="date" value={form.sendDate}
+                       onChange={(e) => setForm({ ...form, sendDate: e.target.value })}
                        className="rep-input" />
               </Field>
-              <Field label="原稿スロット番号 (任意)">
-                <input type="number" min="1" max="23" value={form.manuscriptSlot}
-                       onChange={(e) => setForm({ ...form, manuscriptSlot: e.target.value })}
-                       placeholder="1〜23" className="rep-input tabular-nums" />
+              <Field label={`使用PC${mode === 'search' && customer ? ' (自動入力)' : ' (任意)'}`}
+                     hint={mode === 'search' && customer ? '顧客の最終PCから補完済み (変更可)' : '不明なら空欄でOK'}>
+                <input type="text" value={form.pcNumber}
+                       onChange={(e) => setForm({ ...form, pcNumber: e.target.value })}
+                       placeholder="NO.3" className="rep-input font-mono" />
               </Field>
             </div>
 

@@ -6,13 +6,21 @@ import { api } from '@/utils/api';
 import IncomingCallManualModal from '@/components/IncomingCallManualModal';
 
 const RESULT_LABEL = {
-  no_response:      { label: '受電なし', cls: 'bg-zinc-100 text-zinc-700' },
+  // 新仕様
+  project:          { label: '案件化',   cls: 'bg-emerald-100 text-emerald-800' },
+  ng:               { label: 'NG',       cls: 'bg-red-100 text-red-700' },
+  recall:           { label: 'リコール', cls: 'bg-sky-100 text-sky-700' },
+  material_sent:    { label: '資料送付', cls: 'bg-amber-100 text-amber-800' },
+  other:            { label: 'その他',   cls: 'bg-zinc-100 text-zinc-700' },
+  // 旧仕様 (バッチ入力で残っている過去データ用)
+  no_response:      { label: '受電なし', cls: 'bg-zinc-100 text-zinc-500' },
   response_inquiry: { label: '問合せ',   cls: 'bg-amber-100 text-amber-800' },
   response_order:   { label: '発注',     cls: 'bg-emerald-100 text-emerald-800' },
   refusal:          { label: '拒否',     cls: 'bg-red-100 text-red-700' },
   invalid_number:   { label: '番号無効', cls: 'bg-zinc-100 text-zinc-500' },
-  other:            { label: 'その他',   cls: 'bg-zinc-100 text-zinc-700' },
 };
+
+const RESULT_FILTER_KEYS = ['project','ng','recall','material_sent','other'];
 
 const DEMO_REPORTS = [
   { id: 901, customer_id: 2, company_name: '合同会社テスト商事',     fax_number: '0623456789', industry: '卸売業',   prefecture: '大阪府', send_date: '2026-05-12', pc_number: 'PC01', manuscript_folder_date: '2026-05-12', manuscript_slot: 4,  result: 'response_inquiry', result_detail: '見積依頼の電話あり', responded_at: '2026-05-13T11:00:00Z' },
@@ -87,8 +95,8 @@ export default function ReportsIndex() {
                   value={filter.result}
                   onChange={(e) => setFilter({ ...filter, result: e.target.value })}>
             <option value="">結果: すべて</option>
-            {Object.entries(RESULT_LABEL).map(([k, v]) => (
-              <option key={k} value={k}>{v.label}</option>
+            {RESULT_FILTER_KEYS.map((k) => (
+              <option key={k} value={k}>{RESULT_LABEL[k].label}</option>
             ))}
           </select>
           <input type="text" className="border border-zinc-300 rounded-md px-3 py-2 text-sm"

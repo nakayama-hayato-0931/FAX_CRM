@@ -5,12 +5,11 @@ import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
 
 const RESULTS = [
-  { key: 'no_response',      label: '受電なし',          short: '受電なし', shortcut: '1', cls: 'bg-zinc-100 text-zinc-700' },
-  { key: 'response_inquiry', label: '反応あり (問合せ)', short: '問合せ',   shortcut: '2', cls: 'bg-amber-100 text-amber-800' },
-  { key: 'response_order',   label: '反応あり (発注)',   short: '発注',     shortcut: '3', cls: 'bg-emerald-100 text-emerald-800' },
-  { key: 'refusal',          label: '拒否(送るな)',    short: '拒否',     shortcut: '4', cls: 'bg-red-100 text-red-700' },
-  { key: 'invalid_number',   label: '番号無効',          short: '番号無効', shortcut: '5', cls: 'bg-zinc-100 text-zinc-500' },
-  { key: 'other',            label: 'その他',            short: 'その他',   shortcut: '6', cls: 'bg-zinc-100 text-zinc-700' },
+  { key: 'project',       label: '案件化',   short: '案件化',   shortcut: '1', cls: 'bg-emerald-100 text-emerald-800' },
+  { key: 'ng',            label: 'NG',       short: 'NG',       shortcut: '2', cls: 'bg-red-100 text-red-700' },
+  { key: 'recall',        label: 'リコール', short: 'リコール', shortcut: '3', cls: 'bg-sky-100 text-sky-700' },
+  { key: 'material_sent', label: '資料送付', short: '資料送付', shortcut: '4', cls: 'bg-amber-100 text-amber-800' },
+  { key: 'other',         label: 'その他',   short: 'その他',   shortcut: '5', cls: 'bg-zinc-100 text-zinc-700' },
 ];
 
 function buildDemo() {
