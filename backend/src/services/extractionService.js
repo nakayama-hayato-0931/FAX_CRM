@@ -2,9 +2,23 @@ const ExcelJS = require('exceljs');
 const { getPool, isConfigured } = require('../../config/db');
 
 function buildWhere({ industry, prefecture, recentDays }) {
-  const where = ['is_blacklisted = 0', 'fax_number IS NOT NULL', "fax_number <> ''"];
+  // 抽出条件:
+  //   - ブラックリスト除外
+  //   - FAX 番号必須 (callcenter由来等のFAX無し顧客は対象外)
+  //   - REGEXP_REPLACE で全角ハイフン/空白を除いた数字のみ残して 1文字以上 (= 実質的にFAX番号がある)
+  const where = [
+    'is_blacklisted = 0',
+    'fax_number IS NOT NULL',
+    "fax_number <> ''",
+    "REGEXP_REPLACE(fax_number, '[^0-9]', '') <> ''",
+  ];
   const params = [];
-  if (industry)   { where.push('industry = ?');   params.push(industry); }
+  // 業種フィルタ: 6カテゴリ (飲食/製造/小売/宿泊/建設/その他) → industry_category 列で絞る
+  //   旧仕様で 詳細業種(製造業 等) を渡してきた場合のフォールバックも入れる
+  if (industry) {
+    where.push('(industry_category = ? OR industry = ?)');
+    params.push(industry, industry);
+  }
   if (prefecture) { where.push('prefecture = ?'); params.push(prefecture); }
   if (recentDays && Number(recentDays) > 0) {
     where.push('(last_sent_at IS NULL OR last_sent_at < (NOW() - INTERVAL ? DAY))');

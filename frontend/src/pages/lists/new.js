@@ -314,24 +314,32 @@ export default function NewBatchPage() {
         </Field>
 
         {/* Preview */}
-        <div className="bg-zinc-50 border border-zinc-200 rounded-md p-3 flex items-center justify-between">
-          <div className="text-sm text-zinc-700">
-            {previewCount === null ? (
-              <span className="text-zinc-500">条件に合致する件数を事前確認できます</span>
-            ) : (
-              <>該当件数: <span className="font-bold text-lg text-indigo-700 tabular-nums">{previewCount.toLocaleString()}</span> 件
-                {form.pcNumbers.length > 0 && (
-                  <span className="ml-2 text-xs text-zinc-500">
-                    (合計予定 {(Number(form.targetCount) * form.pcNumbers.length).toLocaleString()} 件)
-                  </span>
-                )}
-              </>
-            )}
+        <div className="bg-zinc-50 border border-zinc-200 rounded-md p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-zinc-700">
+              {previewCount === null ? (
+                <span className="text-zinc-500">FAX番号が登録されている顧客 × 業種/都道府県/N日以内除外 を満たす件数</span>
+              ) : (
+                <>該当件数 (FAX付き): <span className="font-bold text-lg text-indigo-700 tabular-nums">{previewCount.toLocaleString()}</span> 件
+                  {form.pcNumbers.length > 0 && (
+                    <span className="ml-2 text-xs text-zinc-500">
+                      (合計予定 {(Number(form.targetCount) * form.pcNumbers.length).toLocaleString()} 件)
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+            <button type="button" onClick={doPreview} disabled={previewing}
+                    className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-100 disabled:opacity-50">
+              {previewing ? '集計中…' : '件数プレビュー'}
+            </button>
           </div>
-          <button type="button" onClick={doPreview} disabled={previewing}
-                  className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-100 disabled:opacity-50">
-            {previewing ? '集計中…' : '件数プレビュー'}
-          </button>
+          {previewCount === 0 && (
+            <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+              <strong>FAX番号付きの顧客が0件です</strong>。 callcenter由来の顧客は phone のみ FAX未登録のため抽出対象外です。
+              顧客マスタに FAX 付きの顧客を CSV インポート等で追加してください。
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
