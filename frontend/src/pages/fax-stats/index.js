@@ -98,8 +98,44 @@ export default function FaxStatsPage() {
   const [syncing, setSyncing] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // PC明細モーダル: { pcNumber, from, to, rows, loading }
+  const [pcDetail, setPcDetail] = useState(null);
 
   const reload = () => setReloadKey((k) => k + 1);
+
+  // ESCで PC明細モーダルを閉じる
+  useEffect(() => {
+    if (!pcDetail) return;
+    const onKey = (e) => { if (e.key === 'Escape') setPcDetail(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pcDetail]);
+
+  // PC別サマリ行クリック → モーダルで指定PCの日別明細を表示
+  const openPcDetail = async (pcNumber) => {
+    const from = filter.from || null;
+    const to   = filter.to || null;
+    setPcDetail({ pcNumber, from, to, rows: [], loading: true });
+    if (isDemo) {
+      // demo: 該当PC のダミー日次を返す
+      const rows = (DEMO_DAILY || []).map((d) => ({
+        stat_date: d.stat_date, pc_number: pcNumber,
+        sent_count: Math.round((d.sent || 0) / 5),
+        error_count: Math.round((d.errors || 0) / 5),
+      }));
+      setPcDetail({ pcNumber, from, to, rows, loading: false });
+      return;
+    }
+    try {
+      const { data } = await api.get('/api/fax-stats', {
+        params: { from, to, pcNumber },
+      });
+      setPcDetail({ pcNumber, from, to, rows: data.data || [], loading: false });
+    } catch (e) {
+      toast.error(e.userMessage || '明細の取得に失敗');
+      setPcDetail((p) => p && ({ ...p, loading: false, rows: [] }));
+    }
+  };
 
   const applyPreset = (key) => {
     setPreset(key);
@@ -399,8 +435,13 @@ export default function FaxStatsPage() {
               <tr><td colSpan={4} className="px-4 py-10 text-center text-zinc-400">データがありません</td></tr>
             )}
             {byPc.map((p) => (
-              <tr key={p.pc_number} className="border-t border-zinc-100">
-                <td className="px-4 py-2 font-mono text-xs">{p.pc_number}</td>
+              <tr key={p.pc_number}
+                  className="border-t border-zinc-100 hover:bg-indigo-50/40 cursor-pointer"
+                  onClick={() => openPcDetail(p.pc_number)}
+                  title="クリックで日別明細を表示">
+                <td className="px-4 py-2 font-mono text-xs">
+                  <span className="text-indigo-700 hover:underline">{p.pc_number}</span>
+                </td>
                 <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{Number(p.sent || 0).toLocaleString()}</td>
                 <td className="px-4 py-2 text-right tabular-nums text-red-700">{Number(p.errors || 0).toLocaleString()}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{Number(p.error_rate || 0).toFixed(2)}%</td>
@@ -474,6 +515,119 @@ export default function FaxStatsPage() {
           onCompleted={() => { setShowImport(false); reload(); }}
         />
       )}
+
+      {pcDetail && (
+        <PcDailyDetailModal
+          state={pcDetail}
+          onClose={() => setPcDetail(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PcDailyDetailModal({ state, onClose }) {
+  const { pcNumber, from, to, rows, loading } = state || {};
+  // 日付昇順で表示
+  const sorted = useMemo(
+    () => [...(rows || [])].sort((a, b) => String(a.stat_date).localeCompare(String(b.stat_date))),
+    [rows]
+  );
+  const totals = useMemo(() => {
+    let sent = 0, errors = 0;
+    for (const r of sorted) {
+      sent += Number(r.sent_count || r.sent || 0);
+      errors += Number(r.error_count || r.errors || 0);
+    }
+    const attempts = sent + errors;
+    return {
+      sent, errors, attempts,
+      error_rate: attempts ? (errors / attempts) * 100 : 0,
+      days: sorted.length,
+    };
+  }, [sorted]);
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-zinc-200 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-zinc-900">
+              <span className="font-mono">{pcNumber}</span> の日別明細
+            </h3>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              期間: {from || '〜'} 〜 {to || '〜'} / {totals.days} 日
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded hover:bg-zinc-100 text-zinc-500 text-xl leading-none"
+            aria-label="閉じる"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-auto">
+          {loading ? (
+            <div className="px-4 py-16 text-center text-zinc-400 text-sm">読み込み中…</div>
+          ) : sorted.length === 0 ? (
+            <div className="px-4 py-16 text-center text-zinc-400 text-sm">
+              該当期間の明細データがありません
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 border-b border-zinc-200 sticky top-0">
+                <tr>
+                  <th className="text-left px-4 py-2 text-xs font-medium text-zinc-600 uppercase">日付</th>
+                  <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">送信数</th>
+                  <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">エラー</th>
+                  <th className="text-right px-4 py-2 text-xs font-medium text-zinc-600 uppercase">エラー率</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((r, i) => {
+                  const sent = Number(r.sent_count || r.sent || 0);
+                  const err = Number(r.error_count || r.errors || 0);
+                  const attempts = sent + err;
+                  const rate = attempts ? (err / attempts) * 100 : 0;
+                  return (
+                    <tr key={r.id || `${r.stat_date}-${i}`} className="border-t border-zinc-100">
+                      <td className="px-4 py-2 text-xs">{r.stat_date}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{sent.toLocaleString()}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-red-700">{err.toLocaleString()}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{rate.toFixed(2)}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot className="bg-zinc-50 border-t border-zinc-200">
+                <tr className="font-semibold">
+                  <td className="px-4 py-2 text-xs text-zinc-700">合計</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{totals.sent.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-red-700">{totals.errors.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{totals.error_rate.toFixed(2)}%</td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-zinc-200 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50"
+          >
+            閉じる
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
