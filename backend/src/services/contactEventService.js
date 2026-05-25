@@ -130,8 +130,21 @@ async function lookup({ fax, phone, external_callcenter_id, company_name }) {
   const where = [];
   const params = [];
   if (external_callcenter_id) { where.push('external_callcenter_id = ?'); params.push(external_callcenter_id); }
-  if (fax)                    { where.push('fax_number = ?');             params.push(String(fax).replace(/[^0-9+]/g, '')); }
-  if (phone)                  { where.push('phone_number = ?');           params.push(String(phone).replace(/[^0-9+]/g, '')); }
+  // 電話 / FAX はハイフン無視で比較 (数字のみで完全一致)
+  if (fax) {
+    const d = String(fax).replace(/[^0-9]/g, '');
+    if (d.length >= 6) {
+      where.push(`REGEXP_REPLACE(COALESCE(fax_number, ''), '[^0-9]', '') = ?`);
+      params.push(d);
+    }
+  }
+  if (phone) {
+    const d = String(phone).replace(/[^0-9]/g, '');
+    if (d.length >= 6) {
+      where.push(`REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') = ?`);
+      params.push(d);
+    }
+  }
   if (company_name)           { where.push('company_name = ?');           params.push(company_name); }
 
   if (!where.length) {

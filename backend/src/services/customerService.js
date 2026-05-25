@@ -20,9 +20,21 @@ async function listCustomers(query = {}) {
   const params = [];
 
   if (query.q) {
-    const like = `%${query.q}%`;
-    where.push(`(${SEARCHABLE.map((col) => `c.${col} LIKE ?`).join(' OR ')})`);
+    const raw = String(query.q);
+    const like = `%${raw}%`;
+    // 文字列カラムは通常の LIKE
+    // 電話 / FAX カラムは「ハイフン無視」 にするため、 数字のみで部分一致もチェック
+    const digitsOnly = raw.replace(/[^0-9]/g, '');
+    const orParts = SEARCHABLE.map((col) => `c.${col} LIKE ?`);
     SEARCHABLE.forEach(() => params.push(like));
+    if (digitsOnly.length >= 3) {
+      // fax_number / phone_number の 「-」 や空白を取り除いた状態で部分一致
+      orParts.push(`REGEXP_REPLACE(c.fax_number, '[^0-9]', '') LIKE ?`);
+      params.push(`%${digitsOnly}%`);
+      orParts.push(`REGEXP_REPLACE(c.phone_number, '[^0-9]', '') LIKE ?`);
+      params.push(`%${digitsOnly}%`);
+    }
+    where.push(`(${orParts.join(' OR ')})`);
   }
   // industry フィルタは「業種カテゴリ (6種)」のいずれかに正規化された値で絞る
   if (query.industry) {
@@ -101,14 +113,28 @@ async function quickCreate(payload = {}) {
     e.status = 400; e.code = 'NO_KEY'; throw e;
   }
 
-  // 1. 既存検索 (fax → phone → company)
+  // 1. 既存検索 (fax → phone → company)、 ハイフン等の差を吸収するため数字のみで比較
   if (fax) {
-    const [r] = await pool.query('SELECT id, company_name, fax_number, phone_number FROM customers WHERE fax_number = ? LIMIT 1', [fax]);
-    if (r[0]) return { ...r[0], reused: 'fax' };
+    const faxDigits = fax.replace(/[^0-9]/g, '');
+    if (faxDigits.length >= 6) {
+      const [r] = await pool.query(
+        `SELECT id, company_name, fax_number, phone_number FROM customers
+          WHERE REGEXP_REPLACE(COALESCE(fax_number, ''), '[^0-9]', '') = ? LIMIT 1`,
+        [faxDigits]
+      );
+      if (r[0]) return { ...r[0], reused: 'fax' };
+    }
   }
   if (phone) {
-    const [r] = await pool.query('SELECT id, company_name, fax_number, phone_number FROM customers WHERE phone_number = ? LIMIT 1', [phone]);
-    if (r[0]) return { ...r[0], reused: 'phone' };
+    const phoneDigits = phone.replace(/[^0-9]/g, '');
+    if (phoneDigits.length >= 6) {
+      const [r] = await pool.query(
+        `SELECT id, company_name, fax_number, phone_number FROM customers
+          WHERE REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') = ? LIMIT 1`,
+        [phoneDigits]
+      );
+      if (r[0]) return { ...r[0], reused: 'phone' };
+    }
   }
   if (company && !fax && !phone) {
     // 会社名のみで完全一致 → 既存があれば再利用
