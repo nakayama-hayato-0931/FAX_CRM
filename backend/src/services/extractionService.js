@@ -1,5 +1,6 @@
 const ExcelJS = require('exceljs');
 const { getPool, isConfigured } = require('../../config/db');
+const drive = require('./driveService');
 
 function buildWhere({ industry, prefecture, recentDays }) {
   // 抽出条件:
@@ -339,13 +340,48 @@ function formatDateLong(d) {
  * バッチ削除
  *   - extraction_records は ON DELETE CASCADE で自動削除される
  *   - incoming_call_reports.batch_id は ON DELETE SET NULL で受電履歴は残る
- *   - Drive 上のファイルは触らない (slot 側で個別管理されるため)
+ *   - Drive 上の Excel ファイル (extraction_batches.drive_file_id) は:
+ *       * 同じ drive_file_id が manuscript_slot_files にも記録 (= extract-and-upload で
+ *         スロットに格納したケース) → スロット側に管理を任せて削除しない
+ *       * スロット非紐づき (= 単独 /upload-to-drive で日付フォルダに保存したケース)
+ *         → drive.deleteFile で削除 (permanent delete 優先)
  */
 async function deleteBatch(id) {
   const pool = getPool();
-  if (!pool) return false;
+  if (!pool) return { deleted: 0, drive: null };
+
+  const [batchRows] = await pool.query(
+    'SELECT id, drive_file_id FROM extraction_batches WHERE id = ?',
+    [id]
+  );
+  if (!batchRows.length) return { deleted: 0, drive: null };
+  const batch = batchRows[0];
+
+  let driveResult = null;
+  if (batch.drive_file_id) {
+    try {
+      const [shared] = await pool.query(
+        'SELECT 1 FROM manuscript_slot_files WHERE drive_file_id = ? LIMIT 1',
+        [batch.drive_file_id]
+      );
+      if (shared.length) {
+        driveResult = {
+          ok: true,
+          deleted: false,
+          note: 'スロット格納と共有のため Drive 上は削除せず',
+        };
+      } else {
+        const r = await drive.deleteFile(batch.drive_file_id);
+        driveResult = { ok: true, deleted: true, mode: r.mode };
+      }
+    } catch (e) {
+      driveResult = { ok: false, error: e.message };
+      console.error('[deleteBatch] Drive 削除失敗:', e.message);
+    }
+  }
+
   const [r] = await pool.query('DELETE FROM extraction_batches WHERE id = ?', [id]);
-  return r.affectedRows > 0;
+  return { deleted: r.affectedRows, drive: driveResult };
 }
 
 module.exports = {

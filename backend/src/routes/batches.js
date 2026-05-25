@@ -48,13 +48,14 @@ router.get('/:id(\\d+)', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// DELETE /api/batches/:id - バッチ削除
+// DELETE /api/batches/:id - バッチ削除 (DB + Drive)
 //   extraction_records は CASCADE で同時削除、incoming_call_reports.batch_id は SET NULL
+//   Drive Excel は スロット未参照なら一緒に削除、参照あればスロット側に任せる
 router.delete('/:id(\\d+)', async (req, res, next) => {
   try {
-    const deleted = await extraction.deleteBatch(req.params.id);
-    if (!deleted) return fail(res, 404, 'NOT_FOUND', 'batch not found');
-    return ok(res, { deleted: 1 });
+    const result = await extraction.deleteBatch(req.params.id);
+    if (!result || !result.deleted) return fail(res, 404, 'NOT_FOUND', 'batch not found');
+    return ok(res, result);
   } catch (e) { next(e); }
 });
 

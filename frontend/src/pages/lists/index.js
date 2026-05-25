@@ -63,13 +63,28 @@ export default function ListsPage() {
 
   const deleteBatch = async (b) => {
     if (isDemo) { toast('デモ表示中は削除できません', { icon: 'ℹ' }); return; }
-    const note = b.actual_count > 0
-      ? `\n注意: ${b.actual_count.toLocaleString()} 件の抽出明細も同時に削除されます。`
-      : '';
-    if (!confirm(`バッチ「${b.name}」を削除します。${note}\nよろしいですか？`)) return;
+    const notes = [];
+    if (b.actual_count > 0) {
+      notes.push(`${b.actual_count.toLocaleString()} 件の抽出明細も同時に削除されます。`);
+    }
+    if (b.drive_file_url) {
+      notes.push('Drive 上の Excel ファイルも削除されます (スロット格納と共有している場合はスロット側で管理されます)。');
+    }
+    const noteText = notes.length ? `\n注意:\n- ${notes.join('\n- ')}` : '';
+    if (!confirm(`バッチ「${b.name}」を削除します。${noteText}\nよろしいですか？`)) return;
     try {
-      await api.delete(`/api/batches/${b.id}`);
-      toast.success('削除しました');
+      const { data } = await api.delete(`/api/batches/${b.id}`);
+      const r = data.data || {};
+      const drv = r.drive || {};
+      const parts = ['DB削除'];
+      if (drv.ok && drv.deleted) {
+        parts.push(drv.mode === 'deleted' ? 'Drive 完全削除' : 'Drive ゴミ箱へ移動');
+      } else if (drv.ok && drv.note) {
+        parts.push(drv.note);
+      } else if (drv.ok === false) {
+        parts.push(`Drive 削除失敗: ${drv.error || '不明'}`);
+      }
+      toast.success(`削除完了 (${parts.join(' / ')})`);
       setReloadKey((k) => k + 1);
     } catch (e) {
       toast.error(e.userMessage || '削除失敗');
