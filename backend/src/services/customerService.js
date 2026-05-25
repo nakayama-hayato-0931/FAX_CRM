@@ -68,6 +68,77 @@ async function listCustomers(query = {}) {
   };
 }
 
+/**
+ * 受電報告 手動入力等で「会社名/電話/FAX のいずれか」 から顧客を確保する
+ *   - phone/fax は半角化 + 数字のみに正規化
+ *   - 既存 (fax_number / phone_number で照合) があれば再利用
+ *   - 無ければ新規 INSERT
+ *   - 必要なら industry / prefecture / address / industry_category なども初期化
+ *
+ *   payload: { company_name, phone_number, fax_number, industry, prefecture, address, source_file }
+ */
+function _normalizeDigit(s) {
+  if (!s) return null;
+  // 全角数字を半角に
+  let t = String(s).replace(/[0-9]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  // 全角ハイフン類を半角に
+  t = t.replace(/[‐‑‒–—―−ー－]/g, '-');
+  // 全角(+) を半角に
+  t = t.replace(/[+]/g, '+');
+  // 数字 / + / - 以外を除去 + 32文字 clip
+  t = t.replace(/[^0-9+\-]/g, '').slice(0, 32);
+  return t || null;
+}
+
+async function quickCreate(payload = {}) {
+  const pool = getPool();
+  if (!pool) { const e = new Error('DB未設定'); e.status = 500; throw e; }
+  const company = (payload.company_name || '').trim();
+  const fax     = _normalizeDigit(payload.fax_number);
+  const phone   = _normalizeDigit(payload.phone_number);
+  if (!company && !fax && !phone) {
+    const e = new Error('company_name / fax_number / phone_number のいずれか必須');
+    e.status = 400; e.code = 'NO_KEY'; throw e;
+  }
+
+  // 1. 既存検索 (fax → phone → company)
+  if (fax) {
+    const [r] = await pool.query('SELECT id, company_name, fax_number, phone_number FROM customers WHERE fax_number = ? LIMIT 1', [fax]);
+    if (r[0]) return { ...r[0], reused: 'fax' };
+  }
+  if (phone) {
+    const [r] = await pool.query('SELECT id, company_name, fax_number, phone_number FROM customers WHERE phone_number = ? LIMIT 1', [phone]);
+    if (r[0]) return { ...r[0], reused: 'phone' };
+  }
+  if (company && !fax && !phone) {
+    // 会社名のみで完全一致 → 既存があれば再利用
+    const [r] = await pool.query('SELECT id, company_name, fax_number, phone_number FROM customers WHERE company_name = ? LIMIT 1', [company]);
+    if (r[0]) return { ...r[0], reused: 'company_name' };
+  }
+
+  // 2. 新規 INSERT
+  const [result] = await pool.query(
+    `INSERT INTO customers (
+       company_name, fax_number, phone_number,
+       industry, prefecture, address, source_file, imported_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [
+      company || '(名称未登録)',
+      fax || null,
+      phone || null,
+      payload.industry || null,
+      payload.prefecture || null,
+      payload.address || null,
+      payload.source_file || 'manual-entry',
+    ]
+  );
+  const [created] = await pool.query(
+    'SELECT id, company_name, fax_number, phone_number FROM customers WHERE id = ?',
+    [result.insertId]
+  );
+  return { ...created[0], reused: false, created: true };
+}
+
 async function getById(id) {
   const pool = getPool();
   if (!pool) return null;
@@ -114,6 +185,7 @@ async function setBlacklist(id, isBlacklisted, reason) {
 module.exports = {
   listCustomers,
   getById,
+  quickCreate,
   getDistinctIndustries,
   getDistinctPrefectures,
   setBlacklist,

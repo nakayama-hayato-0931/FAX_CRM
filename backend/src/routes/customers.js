@@ -26,6 +26,16 @@ router.get('/', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/customers/quick-create — 会社名 or 電話 or FAX 最低1つで顧客を確保
+//   既存とマッチすれば再利用、無ければ新規作成
+//   電話/FAX は全角→半角自動正規化
+router.post('/quick-create', async (req, res, next) => {
+  try {
+    const r = await customerService.quickCreate(req.body || {});
+    return created(res, r);
+  } catch (e) { next(e); }
+});
+
 router.get('/facets/industries', async (_req, res, next) => {
   try { return ok(res, await customerService.getDistinctIndustries()); }
   catch (e) { next(e); }

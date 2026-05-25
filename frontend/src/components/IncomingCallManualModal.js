@@ -11,6 +11,16 @@ const RESULTS = [
   { v: 'other',            l: 'その他' },
 ];
 
+// 全角数字 → 半角 + 全角ハイフン類 → 半角 + 数字/ハイフン/+ 以外を除去
+function normalizeDigit(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/[0-9]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/[‐‑‒–—―−ー－]/g, '-')
+    .replace(/[+]/g, '+')
+    .replace(/[^0-9+\-]/g, '');
+}
+
 /**
  * 受電報告 手動入力モーダル (バッチ無しで1件保存)
  *   - 会社名検索で customer を選択
@@ -18,10 +28,15 @@ const RESULTS = [
  *   - POST /api/incoming-calls
  */
 export default function IncomingCallManualModal({ onClose, onCompleted, initial = {} }) {
+  // 顧客入力モード: 'search' = 既存検索 / 'direct' = 会社名/電話/FAX を直接入力
+  const [mode, setMode] = useState('search');
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [candidates, setCandidates] = useState([]);
   const [customer, setCustomer] = useState(initial.customer || null);
+
+  // 直接入力モード用
+  const [direct, setDirect] = useState({ company_name: '', fax_number: '', phone_number: '' });
 
   const todayYMD = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
@@ -51,12 +66,38 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!customer) { toast.error('顧客を選択してください'); return; }
     if (!form.sendDate || !form.pcNumber || !form.result) { toast.error('送信日 / PC / 結果 は必須'); return; }
+
+    let customerId = customer?.id;
+
+    // 直接入力モードなら quick-create で顧客を確保してから報告を保存
+    if (mode === 'direct' && !customerId) {
+      const c = direct.company_name.trim();
+      const f = direct.fax_number;
+      const p = direct.phone_number;
+      if (!c && !f && !p) { toast.error('会社名 / 電話 / FAX のいずれかを入力してください'); return; }
+      setBusy(true);
+      try {
+        const { data } = await api.post('/api/customers/quick-create', {
+          company_name: c || null,
+          fax_number: f || null,
+          phone_number: p || null,
+        });
+        customerId = data.data?.id;
+        if (!customerId) throw new Error('顧客の確保に失敗しました');
+      } catch (err) {
+        toast.error(err.userMessage || '顧客作成失敗');
+        setBusy(false);
+        return;
+      }
+    }
+
+    if (!customerId) { toast.error('顧客を選択 or 直接入力してください'); return; }
+
     setBusy(true);
     try {
       const body = {
-        customerId: customer.id,
+        customerId,
         sendDate: form.sendDate,
         pcNumber: form.pcNumber,
         result: form.result,
@@ -71,6 +112,16 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
     } catch (err) {
       toast.error(err.userMessage || '保存失敗');
     } finally { setBusy(false); }
+  };
+
+  // 電話 / FAX の onChange: 全角数字を即座に半角に変換、 全角入力を弾く
+  const onDigitChange = (key, raw) => {
+    const normalized = normalizeDigit(raw);
+    if (normalized !== raw && /[^\x00-\x7F]/.test(raw)) {
+      // 全角文字が含まれていた場合は警告 (静かに) → 1回だけ
+      toast('全角は半角に自動変換しました', { icon: 'ℹ', duration: 1500 });
+    }
+    setDirect((d) => ({ ...d, [key]: normalized }));
   };
 
   useEffect(() => {
@@ -90,49 +141,94 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
           </div>
 
           <div className="p-6 space-y-4">
-            {/* 顧客選択 */}
-            <Field label="顧客 *" hint="会社名 / 電話番号 / FAX番号 で検索">
-              {!customer ? (
-                <>
-                  <input type="text" value={query}
-                         onChange={(e) => setQuery(e.target.value)}
-                         placeholder="例: 株式会社○○"
-                         className="rep-input"
-                         autoFocus />
-                  {searching && <div className="text-[11px] text-zinc-400 mt-1">検索中…</div>}
-                  {candidates.length > 0 && (
-                    <ul className="mt-1 border border-zinc-200 rounded max-h-48 overflow-auto bg-white shadow">
-                      {candidates.map((c) => (
-                        <li key={c.id}>
-                          <button type="button"
-                                  onClick={() => { setCustomer(c); setQuery(''); setCandidates([]); }}
-                                  className="block w-full text-left px-3 py-1.5 text-sm hover:bg-indigo-50">
-                            <div className="font-medium">{c.company_name}</div>
-                            <div className="text-xs text-zinc-500">
-                              {c.fax_number ? `FAX: ${c.fax_number}` : ''}
-                              {c.phone_number ? ` / 電話: ${c.phone_number}` : ''}
-                              {c.prefecture ? ` / ${c.prefecture}` : ''}
-                            </div>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              ) : (
-                <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded px-3 py-2">
-                  <div>
-                    <div className="font-medium">{customer.company_name}</div>
-                    <div className="text-xs text-zinc-600">
-                      {customer.fax_number ? `FAX: ${customer.fax_number}` : ''}
-                      {customer.phone_number ? ` / 電話: ${customer.phone_number}` : ''}
+            {/* 顧客 — モード切替 */}
+            <div>
+              <div className="text-xs font-medium text-zinc-700 mb-1.5">顧客 *</div>
+              <div className="inline-flex rounded-md border border-zinc-300 overflow-hidden mb-2">
+                <button type="button"
+                        onClick={() => { setMode('search'); setCustomer(null); }}
+                        className={['px-3 py-1.5 text-xs transition',
+                          mode === 'search' ? 'bg-indigo-600 text-white' : 'bg-white text-zinc-700 hover:bg-zinc-50'].join(' ')}>
+                  既存顧客を検索
+                </button>
+                <button type="button"
+                        onClick={() => { setMode('direct'); setCustomer(null); }}
+                        className={['px-3 py-1.5 text-xs transition border-l border-zinc-300',
+                          mode === 'direct' ? 'bg-indigo-600 text-white' : 'bg-white text-zinc-700 hover:bg-zinc-50'].join(' ')}>
+                  直接入力
+                </button>
+              </div>
+
+              {mode === 'search' && (
+                customer ? (
+                  <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded px-3 py-2">
+                    <div>
+                      <div className="font-medium">{customer.company_name}</div>
+                      <div className="text-xs text-zinc-600">
+                        {customer.fax_number ? `FAX: ${customer.fax_number}` : ''}
+                        {customer.phone_number ? ` / 電話: ${customer.phone_number}` : ''}
+                      </div>
                     </div>
+                    <button type="button" onClick={() => setCustomer(null)}
+                            className="text-xs text-indigo-700 hover:underline">変更</button>
                   </div>
-                  <button type="button" onClick={() => setCustomer(null)}
-                          className="text-xs text-indigo-700 hover:underline">変更</button>
+                ) : (
+                  <>
+                    <input type="text" value={query}
+                           onChange={(e) => setQuery(e.target.value)}
+                           placeholder="会社名 / 電話番号 / FAX番号 で検索"
+                           className="rep-input"
+                           autoFocus />
+                    {searching && <div className="text-[11px] text-zinc-400 mt-1">検索中…</div>}
+                    {candidates.length > 0 && (
+                      <ul className="mt-1 border border-zinc-200 rounded max-h-48 overflow-auto bg-white shadow">
+                        {candidates.map((c) => (
+                          <li key={c.id}>
+                            <button type="button"
+                                    onClick={() => { setCustomer(c); setQuery(''); setCandidates([]); }}
+                                    className="block w-full text-left px-3 py-1.5 text-sm hover:bg-indigo-50">
+                              <div className="font-medium">{c.company_name}</div>
+                              <div className="text-xs text-zinc-500">
+                                {c.fax_number ? `FAX: ${c.fax_number}` : ''}
+                                {c.phone_number ? ` / 電話: ${c.phone_number}` : ''}
+                                {c.prefecture ? ` / ${c.prefecture}` : ''}
+                              </div>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {query.length >= 2 && !searching && candidates.length === 0 && (
+                      <div className="mt-1 text-xs text-zinc-500 bg-amber-50 border border-amber-200 rounded p-2">
+                        該当顧客が見つかりません。 「直接入力」 タブで会社名 / 電話 / FAX を入力してください。
+                      </div>
+                    )}
+                  </>
+                )
+              )}
+
+              {mode === 'direct' && (
+                <div className="bg-zinc-50 border border-zinc-200 rounded p-3 space-y-2">
+                  <div className="text-[11px] text-zinc-500 mb-1">
+                    会社名 / 電話 / FAX の<strong>いずれか1つ以上</strong>を入力。 既存と同じ電話/FAXがあれば自動再利用します。
+                  </div>
+                  <input type="text" value={direct.company_name}
+                         onChange={(e) => setDirect({ ...direct, company_name: e.target.value })}
+                         placeholder="会社名 (任意)"
+                         className="rep-input" />
+                  <input type="tel" value={direct.phone_number}
+                         onChange={(e) => onDigitChange('phone_number', e.target.value)}
+                         inputMode="numeric"
+                         placeholder="電話番号 (例: 03-1234-5678 / 全角→半角自動変換)"
+                         className="rep-input font-mono" />
+                  <input type="tel" value={direct.fax_number}
+                         onChange={(e) => onDigitChange('fax_number', e.target.value)}
+                         inputMode="numeric"
+                         placeholder="FAX番号 (例: 03-1234-5679 / 全角→半角自動変換)"
+                         className="rep-input font-mono" />
                 </div>
               )}
-            </Field>
+            </div>
 
             <div className="grid grid-cols-3 gap-3">
               <Field label="送信日 *">
@@ -195,7 +291,9 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                     className="px-4 py-1.5 text-sm bg-white border border-zinc-300 rounded hover:bg-zinc-50">
               キャンセル
             </button>
-            <button type="submit" disabled={busy || !customer}
+            <button type="submit"
+                    disabled={busy || (mode === 'search' && !customer) ||
+                              (mode === 'direct' && !direct.company_name.trim() && !direct.fax_number && !direct.phone_number)}
                     className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
               {busy ? '保存中…' : '保存'}
             </button>
