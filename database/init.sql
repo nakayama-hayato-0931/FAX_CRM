@@ -124,6 +124,12 @@ ALTER TABLE manuscript_slot_files
     COMMENT '原稿管理(manuscript_contents.id) から選択した場合の元 ID',
   ADD INDEX IF NOT EXISTS idx_msf_content (manuscript_content_id);
 
+-- 既存DB向け: interview_records.pass_count を NULL 許容に変更
+-- (CPA 不合格の判定で NULL=空欄 と 0=明示ゼロ を区別する必要があるため)
+ALTER TABLE interview_records
+  MODIFY COLUMN pass_count INT DEFAULT NULL
+    COMMENT 'NQ列: 合格者数 (NULL=空欄 / 0=明示ゼロ)';
+
 -- --------------------------------------------
 -- 原稿管理 (PDFファイル + メタデータ) ※旧「原稿管理」(Drive スロット) は ドライブ格納 に改名
 -- --------------------------------------------
@@ -424,7 +430,7 @@ CREATE TABLE IF NOT EXISTS interview_records (
   sales_owner VARCHAR(100) DEFAULT NULL COMMENT 'NL列: 営業担当',
   industry VARCHAR(100) DEFAULT NULL   COMMENT 'NU列: 業種',
   interview_count INT NOT NULL DEFAULT 0 COMMENT 'NP列: 面接人数',
-  pass_count INT NOT NULL DEFAULT 0    COMMENT 'NQ列: 合格者数',
+  pass_count INT DEFAULT NULL          COMMENT 'NQ列: 合格者数 (NULL=空欄 / 0=明示ゼロ。CPA 不合格の判定で区別)',
   source_kind VARCHAR(40) DEFAULT NULL COMMENT 'NR列: FAX受電 等の案件区分',
   source_row INT DEFAULT NULL,
   synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

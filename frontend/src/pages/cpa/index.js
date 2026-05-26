@@ -36,7 +36,7 @@ const COLUMNS = [
   { key: 'interview_rate',  label: '面接実施率',          kind: 'derived', format: pct, align: 'right' },
   { key: 'interview_cpa',   label: '面接CPA',            kind: 'derived', format: yen, align: 'right' },
   { key: 'offers',          label: '内定社数',            kind: 'raw',     format: num, align: 'right', clickable: 'offers' },
-  { key: 'rejects',         label: '不合格',             kind: 'raw',     format: num, align: 'right' },
+  { key: 'rejects',         label: '不合格',             kind: 'raw',     format: num, align: 'right', clickable: 'rejects' },
   { key: 'cancels',         label: 'バラシ',             kind: 'raw',     format: num, align: 'right', clickable: 'cancels' },
   { key: 'first_payment',   label: '初回入金',            kind: 'raw',     format: yen, align: 'right' },
   { key: 'expected_revenue',label: '見込売上',            kind: 'raw',     format: yen, align: 'right' },
@@ -64,6 +64,8 @@ export default function CpaPage() {
   const [detailMonth, setDetailMonth] = useState(null);
   // 面接詳細モーダル: {month, monthLabel, interviewsCount}
   const [interviewDetailMonth, setInterviewDetailMonth] = useState(null);
+  // 不合格 詳細モーダル: {month, monthLabel, rejectsCount}
+  const [rejectsDetailMonth, setRejectsDetailMonth] = useState(null);
   // 求人詳細モーダル: {month, monthLabel, filter:'all'|'cancelled', expectedCount}
   const [jobsDetail, setJobsDetail] = useState(null);
   const [syncingJobs, setSyncingJobs] = useState(false);
@@ -302,12 +304,19 @@ export default function CpaPage() {
                           filter: 'cancelled',
                           expectedCount: Number(value),
                         });
+                      } else if (c.clickable === 'rejects') {
+                        setRejectsDetailMonth({
+                          month: row.month,
+                          monthLabel: formatMonth(row.month),
+                          rejectsCount: Number(value),
+                        });
                       }
                     };
                     const titleText = c.clickable === 'offers' ? '内定社の内訳を表示'
                                     : c.clickable === 'interviews' ? '面接の内訳を表示'
                                     : c.clickable === 'projects' ? '案件の内訳を表示'
-                                    : c.clickable === 'cancels' ? 'バラシの内訳を表示' : '';
+                                    : c.clickable === 'cancels' ? 'バラシの内訳を表示'
+                                    : c.clickable === 'rejects' ? '不合格の内訳を表示' : '';
                     return (
                       <td key={c.key} className={cellClass}>
                         {isClickable ? (
@@ -376,6 +385,17 @@ export default function CpaPage() {
           expectedCount={interviewDetailMonth.interviewsCount}
           basis={basis}
           onClose={() => setInterviewDetailMonth(null)}
+        />
+      )}
+
+      {rejectsDetailMonth && (
+        <InterviewsDetailModal
+          month={rejectsDetailMonth.month}
+          monthLabel={rejectsDetailMonth.monthLabel}
+          expectedCount={rejectsDetailMonth.rejectsCount}
+          basis={basis}
+          kind="rejects"
+          onClose={() => setRejectsDetailMonth(null)}
         />
       )}
 

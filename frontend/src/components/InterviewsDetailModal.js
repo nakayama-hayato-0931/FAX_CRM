@@ -9,11 +9,13 @@ import { api } from '@/utils/api';
  *   - monthLabel: '2026年5月'
  *   - expectedCount?: number (CPA表の値、参考表示)
  *   - basis: 'acquired' | 'offer'
+ *   - kind?: 'all' (既定) | 'rejects'  ※ rejects は 不合格 のみフィルタ
  *   - onClose: () => void
  */
-export default function InterviewsDetailModal({ month, monthLabel, expectedCount, basis = 'acquired', onClose }) {
+export default function InterviewsDetailModal({ month, monthLabel, expectedCount, basis = 'acquired', kind = 'all', onClose }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const isRejects = kind === 'rejects';
 
   useEffect(() => {
     let cancelled = false;
@@ -21,7 +23,7 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
       setLoading(true);
       try {
         const { data } = await api.get('/api/interviews', {
-          params: { month, basis, limit: 2000 },
+          params: { month, basis, kind, limit: 2000 },
         });
         if (!cancelled) setRows(data.data || []);
       } catch (e) {
@@ -34,7 +36,7 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
       }
     })();
     return () => { cancelled = true; };
-  }, [month, basis]);
+  }, [month, basis, kind]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -72,17 +74,21 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 flex-shrink-0">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">
-              面接内訳 — {monthLabel}
+              {isRejects ? '不合格 内訳' : '面接内訳'} — {monthLabel}
             </h2>
             <p className="text-xs text-zinc-500 mt-0.5">
-              『2024_面接内訳』 シートより / 抽出条件: NR='FAX受電' AND 面接日≦当日 / 月キー: {basisLabel}
+              『2024_面接内訳』 シートより / 抽出条件: NR='FAX受電' AND 面接日≦当日
+              {isRejects && ' AND (NQ=0 OR (NQ空欄 AND NM≦今日-1ヶ月))'}
+              {' '}/ 月キー: {basisLabel}
               {!loading && (
                 <span className="ml-2">
-                  面接 <strong className="text-zinc-700">{distinctCompanyCount}</strong> 社
-                  / 面接人数 {totalInterviewers} 名 / 合格 {totalPasses} 名
-                  {passRate != null && <span className="ml-1">(合格率 {passRate}%)</span>}
-                  {expectedCount != null && expectedCount !== distinctCompanyCount && (
-                    <span className="text-amber-600 ml-2">(CPA表: {expectedCount} 社)</span>
+                  {isRejects
+                    ? <>不合格 <strong className="text-red-700">{rows.length}</strong> 件 / {distinctCompanyCount} 社</>
+                    : <>面接 <strong className="text-zinc-700">{distinctCompanyCount}</strong> 社
+                        / 面接人数 {totalInterviewers} 名 / 合格 {totalPasses} 名
+                        {passRate != null && <span className="ml-1">(合格率 {passRate}%)</span>}</>}
+                  {expectedCount != null && expectedCount !== (isRejects ? rows.length : distinctCompanyCount) && (
+                    <span className="text-amber-600 ml-2">(CPA表: {expectedCount})</span>
                   )}
                 </span>
               )}

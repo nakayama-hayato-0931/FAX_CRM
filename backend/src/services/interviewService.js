@@ -71,6 +71,18 @@ function parseInt0(v) {
   return Number.isFinite(n) ? Math.round(n) : 0;
 }
 
+// pass_count (NQ列) は 空欄 と 0 を区別する必要があるため
+//   未入力/空文字 → null
+//   数値          → 整数化
+//   解釈不能      → null
+function parseIntNullable(v) {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  if (s === '') return null;
+  const n = Number(s.replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
 function clean(s) {
   if (s === undefined || s === null) return null;
   const t = String(s).trim();
@@ -116,7 +128,7 @@ function parseInterviewsSheet(values, opts = {}) {
       sales_owner: clean(row[COL.NL]),
       industry: clean(row[COL.NU]),
       interview_count: parseInt0(row[COL.NP]),
-      pass_count: parseInt0(row[COL.NQ]),
+      pass_count: parseIntNullable(row[COL.NQ]),
       source_kind: nr,
       source_row: r + 1,
     });
@@ -267,8 +279,11 @@ async function syncFromSheets() {
  *   month=YYYY-MM-01, basis='acquired'|'offer'
  *   acquired → NS列(acquired_date) で月絞り
  *   offer    → NM列(interview_date) で月絞り
+ *   kind:
+ *     'all' (既定) → 面接が実施済の全行 (NR=FAX受電 AND 面接日≦今日)
+ *     'rejects'    → 不合格判定: NQ=0 (空欄含まない) OR (NQ空欄 AND 面接日≦今日-1ヶ月)
  */
-async function list({ month, basis = 'acquired', limit = 1000 } = {}) {
+async function list({ month, basis = 'acquired', kind = 'all', limit = 1000 } = {}) {
   const pool = getPool();
   if (!pool) return [];
   const dateCol = basis === 'offer' ? 'interview_date' : 'acquired_date';
@@ -277,6 +292,13 @@ async function list({ month, basis = 'acquired', limit = 1000 } = {}) {
   if (month) {
     where.push(`${dateCol} >= ?`); params.push(month);
     where.push(`${dateCol} < DATE_ADD(?, INTERVAL 1 MONTH)`); params.push(month);
+  }
+  if (kind === 'rejects') {
+    // ②NQ=0 (空欄含まない) OR ③NQ空欄 AND 面接日(NM)≦今日-1ヶ月
+    where.push(`(
+      pass_count = 0
+      OR (pass_count IS NULL AND interview_date <= DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+    )`);
   }
   const whereSql = 'WHERE ' + where.join(' AND ');
   const [rows] = await pool.query(

@@ -127,7 +127,9 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       ROUND(COALESCE(iv.interviews, 0)
             / NULLIF(COALESCE(jp.projects, 0), 0) * 100, 2)           AS interview_rate,
       COALESCE(sp.offers, 0)                                          AS offers,
-      COALESCE(pr.rejects, 0)                                         AS rejects,
+      -- 不合格: 面接シート (interview_records) ベース
+      --   NR='FAX受電' AND (NQ=0 (空欄含まない) OR (NQ空欄 AND NM日≦今日-1ヶ月))
+      COALESCE(ir.rejects, 0)                                         AS rejects,
       COALESCE(jp.cancels, 0)                                         AS cancels,
       COALESCE(sp.first_payment, 0)                                   AS first_payment,
       COALESCE(sp.expected_revenue, 0)                                AS expected_revenue,
@@ -169,6 +171,20 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
         AND interview_date <= CURDATE()
       GROUP BY 1
     ) iv ON iv.month = m.month
+    LEFT JOIN (
+      -- 不合格 (行数カウント): NR=FAX受電 AND (NQ=0 (空欄含まない) OR (NQ空欄 AND NM≦今日-1ヶ月))
+      SELECT DATE_FORMAT(${ivCol}, '%Y-%m-01') AS month,
+        COUNT(*) AS rejects
+      FROM interview_records
+      WHERE ${ivCol} IS NOT NULL
+        AND source_kind = 'FAX受電'
+        AND interview_date <= CURDATE()
+        AND (
+          pass_count = 0
+          OR (pass_count IS NULL AND interview_date <= DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+        )
+      GROUP BY 1
+    ) ir ON ir.month = m.month
     LEFT JOIN (
       SELECT DATE_FORMAT(stat_date, '%Y-%m-01') AS month, SUM(sent_count) AS sends
       FROM fax_send_stats GROUP BY 1
