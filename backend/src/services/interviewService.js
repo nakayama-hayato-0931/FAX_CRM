@@ -338,6 +338,8 @@ async function list({ month, basis = 'acquired', kind = 'all', limit = 1000 } = 
     where.push(`${dateCol} >= ?`); params.push(month);
     where.push(`${dateCol} < DATE_ADD(?, INTERVAL 1 MONTH)`); params.push(month);
   }
+  // CPA 表 (面接数/不合格) と同じく、面接人数=0 AND 合格者数=0/空欄 のプレースホルダ行は除外
+  where.push(`NOT (interview_count = 0 AND (pass_count = 0 OR pass_count IS NULL))`);
   if (kind === 'rejects') {
     // ②NQ=0 (空欄含まない) OR ③NQ空欄 AND 面接日(NM)≦今日-1ヶ月
     where.push(`(

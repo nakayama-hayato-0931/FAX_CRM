@@ -163,22 +163,28 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       FROM performance_records GROUP BY 1
     ) pr ON pr.month = m.month
     LEFT JOIN (
+      -- 面接数: 面接した会社数 (同一求人は1社カウント)
+      -- 面接人数(NP)=0 AND 合格者数(NQ)=0/空欄 のプレースホルダ行は ノイズ なので除外
       SELECT DATE_FORMAT(${ivCol}, '%Y-%m-01') AS month,
-        COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS interviews  -- 面接した会社数 (同一求人は1社カウント)
+        COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS interviews
       FROM interview_records
       WHERE ${ivCol} IS NOT NULL
         AND source_kind = 'FAX受電'
         AND interview_date <= CURDATE()
+        AND NOT (interview_count = 0 AND (pass_count = 0 OR pass_count IS NULL))
       GROUP BY 1
     ) iv ON iv.month = m.month
     LEFT JOIN (
-      -- 不合格 (行数カウント): NR=FAX受電 AND (NQ=0 (空欄含まない) OR (NQ空欄 AND NM≦今日-1ヶ月))
+      -- 不合格: 不合格となった会社数 (同一求人は1社カウント、面接数と同じ COUNT(DISTINCT) ロジック)
+      -- 条件: NR=FAX受電 AND (NQ=0 (空欄含まない) OR (NQ空欄 AND NM≦今日-1ヶ月))
+      -- 同じノイズ行(面接人数0&合格0)は除外
       SELECT DATE_FORMAT(${ivCol}, '%Y-%m-01') AS month,
-        COUNT(*) AS rejects
+        COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS rejects
       FROM interview_records
       WHERE ${ivCol} IS NOT NULL
         AND source_kind = 'FAX受電'
         AND interview_date <= CURDATE()
+        AND NOT (interview_count = 0 AND (pass_count = 0 OR pass_count IS NULL))
         AND (
           pass_count = 0
           OR (pass_count IS NULL AND interview_date <= DATE_SUB(CURDATE(), INTERVAL 1 MONTH))

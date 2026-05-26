@@ -78,16 +78,17 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
             </h2>
             <p className="text-xs text-zinc-500 mt-0.5">
               『2024_面接内訳』 シートより / 抽出条件: NR='FAX受電' AND 面接日≦当日
+              AND NOT (面接人数=0 AND 合格=0/空欄)
               {isRejects && ' AND (NQ=0 OR (NQ空欄 AND NM≦今日-1ヶ月))'}
               {' '}/ 月キー: {basisLabel}
               {!loading && (
                 <span className="ml-2">
                   {isRejects
-                    ? <>不合格 <strong className="text-red-700">{rows.length}</strong> 件 / {distinctCompanyCount} 社</>
+                    ? <>不合格 <strong className="text-red-700">{distinctCompanyCount}</strong> 社 / 行 {rows.length} 件</>
                     : <>面接 <strong className="text-zinc-700">{distinctCompanyCount}</strong> 社
                         / 面接人数 {totalInterviewers} 名 / 合格 {totalPasses} 名
                         {passRate != null && <span className="ml-1">(合格率 {passRate}%)</span>}</>}
-                  {expectedCount != null && expectedCount !== (isRejects ? rows.length : distinctCompanyCount) && (
+                  {expectedCount != null && expectedCount !== distinctCompanyCount && (
                     <span className="text-amber-600 ml-2">(CPA表: {expectedCount})</span>
                   )}
                 </span>
