@@ -363,8 +363,46 @@ async function list({ month, basis = 'acquired', kind = 'all', limit = 1000 } = 
   return rows;
 }
 
+/**
+ * 面接数 UNION の "内定のみ" 加算分を取得
+ *   sales_projects に offer があるが、 同月の interview_records (面接条件を満たす行) に
+ *   同じ 求人番号(or 企業名) が存在しないレコードを返す。
+ *   CPA 表 の 面接数 が UNION で加算しているのと整合させるための モーダル表示用。
+ */
+async function listOfferOnly({ month, basis = 'acquired', limit = 1000 } = {}) {
+  const pool = getPool();
+  if (!pool || !month) return [];
+  const col   = basis === 'offer' ? 'offer_date'     : 'acquired_date';   // sales_projects 側
+  const ivCol = basis === 'offer' ? 'interview_date' : 'acquired_date';   // interview_records 側
+  const [rows] = await pool.query(
+    `SELECT sp.id, sp.acquired_date, sp.offer_date, sp.job_number, sp.company_name,
+            sp.sales_owner, sp.industry, sp.first_payment, sp.expected_revenue,
+            sp.status_label, sp.is_cancelled, sp.is_declined
+       FROM sales_projects sp
+      WHERE sp.${col} IS NOT NULL
+        AND sp.${col} >= ?
+        AND sp.${col} < DATE_ADD(?, INTERVAL 1 MONTH)
+        AND NOT EXISTS (
+          SELECT 1 FROM interview_records ir
+          WHERE ir.${ivCol} IS NOT NULL
+            AND ir.${ivCol} >= ? AND ir.${ivCol} < DATE_ADD(?, INTERVAL 1 MONTH)
+            AND ir.source_kind = 'FAX受電'
+            AND ir.interview_date <= CURDATE()
+            AND NOT (ir.interview_count = 0 AND (ir.pass_count = 0 OR ir.pass_count IS NULL))
+            AND COALESCE(NULLIF(ir.job_number, ''), ir.company_name)
+              = COALESCE(NULLIF(sp.job_number, ''), sp.company_name)
+        )
+      ORDER BY
+        COALESCE(NULLIF(sp.job_number, ''), sp.company_name) ASC,
+        sp.${col} DESC, sp.id DESC
+      LIMIT ?`,
+    [month, month, month, month, Math.min(Number(limit) || 1000, 5000)]
+  );
+  return rows;
+}
+
 module.exports = {
-  parseInterviewsSheet, upsertRecords, syncFromSheets, list,
+  parseInterviewsSheet, upsertRecords, syncFromSheets, list, listOfferOnly,
   getConfig, updateConfig,
   COL, colIndex,
 };

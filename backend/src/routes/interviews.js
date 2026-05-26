@@ -9,6 +9,13 @@ router.get('/', async (req, res, next) => {
   catch (e) { next(e); }
 });
 
+// GET /api/interviews/offers-only?month=YYYY-MM-01&basis=acquired|offer
+//   その月の 内定はあるが 面接記録に無い 企業 (= CPA 面接数 UNION で加算された分)
+router.get('/offers-only', async (req, res, next) => {
+  try { return ok(res, await svc.listOfferOnly(req.query)); }
+  catch (e) { next(e); }
+});
+
 router.get('/config', async (_req, res, next) => {
   try { return ok(res, await svc.getConfig()); }
   catch (e) { next(e); }

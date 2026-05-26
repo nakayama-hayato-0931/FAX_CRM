@@ -14,6 +14,7 @@ import { api } from '@/utils/api';
  */
 export default function InterviewsDetailModal({ month, monthLabel, expectedCount, basis = 'acquired', kind = 'all', onClose }) {
   const [rows, setRows] = useState([]);
+  const [offerOnly, setOfferOnly] = useState([]);  // 内定はあるが面接記録に無い加算分
   const [loading, setLoading] = useState(true);
   const isRejects = kind === 'rejects';
 
@@ -22,21 +23,30 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
     (async () => {
       setLoading(true);
       try {
-        const { data } = await api.get('/api/interviews', {
-          params: { month, basis, kind, limit: 2000 },
-        });
-        if (!cancelled) setRows(data.data || []);
+        // 不合格モードでは offer-only は表示しない (面接記録が無いので不合格判定対象外)
+        const tasks = [
+          api.get('/api/interviews', { params: { month, basis, kind, limit: 2000 } }),
+        ];
+        if (!isRejects) {
+          tasks.push(api.get('/api/interviews/offers-only', { params: { month, basis, limit: 2000 } }));
+        }
+        const results = await Promise.all(tasks);
+        if (!cancelled) {
+          setRows(results[0].data.data || []);
+          setOfferOnly(isRejects ? [] : (results[1].data.data || []));
+        }
       } catch (e) {
         if (!cancelled) {
           toast.error(e.userMessage || '面接一覧の取得に失敗しました');
           setRows([]);
+          setOfferOnly([]);
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [month, basis, kind]);
+  }, [month, basis, kind, isRejects]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -55,9 +65,11 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
   const totalInterviewers = rows.reduce((a, r) => a + Number(r.interview_count || 0), 0);
   const totalPasses = rows.reduce((a, r) => a + Number(r.pass_count || 0), 0);
   const passRate = totalInterviewers > 0 ? Math.round((totalPasses / totalInterviewers) * 1000) / 10 : null;
-  // 面接した会社数 = DISTINCT 求人番号 (CPA表の「面接数」 と一致するロジック)
-  const distinctJobKeys = new Set(rows.map((r) => r.job_number || r.company_name || `__row${r.id}`));
-  const distinctCompanyCount = distinctJobKeys.size;
+  // 面接した会社数 = DISTINCT 求人番号
+  const interviewJobKeys = new Set(rows.map((r) => r.job_number || r.company_name || `__row${r.id}`));
+  const offerJobKeys = new Set(offerOnly.map((r) => r.job_number || r.company_name || `__sp${r.id}`));
+  // 面接数 (CPA 表 と一致): 面接シート社数 + 内定のみ加算分 (UNION 結果)
+  const distinctCompanyCount = interviewJobKeys.size + offerJobKeys.size;
 
   const basisLabel = basis === 'offer' ? '面接日(NM列)' : '案件取得日(NS列)';
 
@@ -85,9 +97,22 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
                 <span className="ml-2">
                   {isRejects
                     ? <>不合格 <strong className="text-red-700">{distinctCompanyCount}</strong> 社 / 行 {rows.length} 件</>
-                    : <>面接 <strong className="text-zinc-700">{distinctCompanyCount}</strong> 社
-                        / 面接人数 {totalInterviewers} 名 / 合格 {totalPasses} 名
-                        {passRate != null && <span className="ml-1">(合格率 {passRate}%)</span>}</>}
+                    : (
+                      <>
+                        面接 <strong className="text-zinc-700">{distinctCompanyCount}</strong> 社
+                        <span className="text-zinc-400 mx-1">=</span>
+                        面接シート {interviewJobKeys.size} 社
+                        {offerOnly.length > 0 && (
+                          <span className="text-amber-700 font-medium ml-0.5">
+                            {' '}+ 内定のみ <strong>{offerOnly.length}</strong> 社
+                          </span>
+                        )}
+                        <span className="text-zinc-400 ml-2">
+                          / 面接人数 {totalInterviewers} 名 / 合格 {totalPasses} 名
+                          {passRate != null && <span className="ml-1">(合格率 {passRate}%)</span>}
+                        </span>
+                      </>
+                    )}
                   {expectedCount != null && expectedCount !== distinctCompanyCount && (
                     <span className="text-amber-600 ml-2">(CPA表: {expectedCount})</span>
                   )}
@@ -109,12 +134,12 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
           {loading && (
             <div className="text-center text-zinc-400 py-12">読み込み中…</div>
           )}
-          {!loading && rows.length === 0 && (
+          {!loading && rows.length === 0 && offerOnly.length === 0 && (
             <div className="text-center text-zinc-400 py-12">
               この月の面接記録はありません
             </div>
           )}
-          {!loading && rows.length > 0 && (
+          {!loading && (rows.length > 0 || offerOnly.length > 0) && (
             <table className="w-full text-xs">
               <thead className="bg-zinc-50 border-b border-zinc-200 sticky top-0 z-10">
                 <tr>
@@ -156,11 +181,49 @@ export default function InterviewsDetailModal({ month, monthLabel, expectedCount
                     </tr>
                   );
                 })}
+
+                {/* 内定のみ加算分 (面接記録に無いが内定がある企業) */}
+                {offerOnly.length > 0 && (
+                  <>
+                    <tr className="bg-amber-100 border-t-4 border-amber-400 sticky">
+                      <Td colSpan={8} className="!py-2 font-bold text-amber-900">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="px-2 py-0.5 bg-amber-500 text-white text-[10px] rounded">+ 加算</span>
+                          内定のみ (面接記録に無いが面接数に加算された企業) — {offerOnly.length} 社
+                        </span>
+                      </Td>
+                    </tr>
+                    {offerOnly.map((r) => (
+                      <tr
+                        key={`sp-${r.id}`}
+                        className="border-t border-amber-200 bg-amber-50/70 hover:bg-amber-100/60"
+                      >
+                        <Td className="text-zinc-400 italic">— (記録なし)</Td>
+                        <Td>{date(r.acquired_date)}</Td>
+                        <Td className="font-mono">{r.job_number || '—'}</Td>
+                        <Td className="max-w-[260px] truncate font-medium text-amber-900" title={r.company_name || ''}>
+                          {r.company_name || '—'}
+                          <span className="ml-2 px-1.5 py-0.5 bg-amber-500/80 text-white text-[9px] rounded align-middle">
+                            内定 {date(r.offer_date)}
+                          </span>
+                        </Td>
+                        <Td>{r.sales_owner || '—'}</Td>
+                        <Td>{r.industry || '—'}</Td>
+                        <Td align="right" className="text-zinc-400 italic">—</Td>
+                        <Td align="right" className="text-zinc-400 italic">—</Td>
+                      </tr>
+                    ))}
+                  </>
+                )}
               </tbody>
               <tfoot className="bg-zinc-50 border-t-2 border-zinc-300 sticky bottom-0">
                 <tr className="font-semibold">
                   <Td colSpan={6} align="right" className="text-zinc-700">
-                    面接 <strong>{distinctCompanyCount}</strong> 社 / 行 {rows.length} 件
+                    面接 <strong>{distinctCompanyCount}</strong> 社
+                    {offerOnly.length > 0 && (
+                      <span className="text-amber-700 ml-1">(内 内定のみ {offerOnly.length} 社)</span>
+                    )}
+                    {' '}/ 面接行 {rows.length} 件
                   </Td>
                   <Td align="right" className="tabular-nums">{num(totalInterviewers)}</Td>
                   <Td align="right" className="tabular-nums">{num(totalPasses)}</Td>
