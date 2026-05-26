@@ -62,7 +62,7 @@ export default function ScriptsPage() {
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">原稿管理</h1>
           <p className="text-zinc-500 mt-1 text-sm">
-            {pagination.total.toLocaleString()} 件 / PDF原稿 + メタデータ(登録番号・国籍・性別・業種) + 使用記録
+            {pagination.total.toLocaleString()} 件 / PDF原稿 + メタデータ(登録番号・国籍・性別・業種) + ドライブ格納 紐づけ集計
           </p>
         </div>
         <div className="flex gap-2">
@@ -109,11 +109,11 @@ export default function ScriptsPage() {
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-zinc-600">国籍</th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-zinc-600">性別</th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-zinc-600">業種</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-zinc-600">送信日数</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-zinc-600">送信合計</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-zinc-600">問合せ</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-zinc-600">発注</th>
-                <th className="text-left px-3 py-2.5 text-xs font-medium text-zinc-600">最終使用</th>
+                <th className="text-right px-3 py-2.5 text-xs font-medium text-zinc-600" title="格納された PC 台数">使用台数</th>
+                <th className="text-right px-3 py-2.5 text-xs font-medium text-zinc-600" title="同スロットに格納されたリストの件数合計">使用回数</th>
+                <th className="text-right px-3 py-2.5 text-xs font-medium text-zinc-600" title="同スロットで発生した 受電報告 全件 (案件化 / NG / リコール / 資料送付 / その他 の合計)">反響</th>
+                <th className="text-right px-3 py-2.5 text-xs font-medium text-zinc-600" title="同スロットで発生した 受電報告 のうち 結果=案件化">案件化</th>
+                <th className="text-left px-3 py-2.5 text-xs font-medium text-zinc-600" title="格納されたスロットの最新の日付">最終使用</th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-zinc-600">PDF</th>
                 <th className="text-right px-3 py-2.5 text-xs font-medium text-zinc-600">操作</th>
               </tr>
@@ -138,10 +138,14 @@ export default function ScriptsPage() {
                   <td className="px-3 py-2.5 text-zinc-700">{r.nationality || '—'}</td>
                   <td className="px-3 py-2.5 text-zinc-700">{r.gender || '—'}</td>
                   <td className="px-3 py-2.5 text-zinc-700">{r.industry_category || '—'}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{r.usage_send_days || 0}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{r.usage_total_sent || 0}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{r.usage_total_inquiry || 0}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{r.usage_total_order || 0}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{Number(r.usage_pc_count || 0)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{Number(r.usage_list_total || 0).toLocaleString()}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{Number(r.usage_response_total || 0)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {Number(r.usage_project_total || 0) > 0
+                      ? <span className="text-emerald-700 font-semibold">{r.usage_project_total}</span>
+                      : 0}
+                  </td>
                   <td className="px-3 py-2.5 text-zinc-500 text-xs">{date(r.last_used_date)}</td>
                   <td className="px-3 py-2.5">
                     {r.pdf_file_path ? (

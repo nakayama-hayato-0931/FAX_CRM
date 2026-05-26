@@ -78,27 +78,47 @@ async function list(query = {}) {
   const limit = Math.min(Number(query.pageSize) || 50, 200);
   const offset = (page - 1) * limit;
 
-  // メイン + usage の合算 SUBSELECT
+  // ドライブ格納 スロット紐づけ ベースの 自動集計
+  //   sl: PC使用台数 (DISTINCT slot_number) + 最終使用日 (MAX folder_date)
+  //   ll: 同スロット の Excel batches の actual_count SUM = 使用回数
+  //   rr: 受電報告 全件COUNT (= 反響) + result='project' COUNT (= 案件化)
   const [rows] = await pool.query(
     `SELECT mc.*,
-            COALESCE(u.send_days, 0) AS usage_send_days,
-            COALESCE(u.total_sent, 0) AS usage_total_sent,
-            COALESCE(u.total_inquiry, 0) AS usage_total_inquiry,
-            COALESCE(u.total_order, 0) AS usage_total_order,
-            COALESCE(u.total_refusal, 0) AS usage_total_refusal,
-            u.last_used_date
+            COALESCE(sl.pc_count, 0)        AS usage_pc_count,        -- 使用台数
+            COALESCE(ll.list_total, 0)      AS usage_list_total,      -- 使用回数 (リスト件数SUM)
+            COALESCE(rr.response_total, 0)  AS usage_response_total,  -- 反響 (全結果COUNT)
+            COALESCE(rr.project_total, 0)   AS usage_project_total,   -- 案件化 (result=project)
+            sl.last_used_date               AS last_used_date         -- 最終使用 (MAX folder_date)
        FROM manuscript_contents mc
        LEFT JOIN (
-         SELECT manuscript_content_id,
-                COUNT(*) AS send_days,
-                SUM(sent_count) AS total_sent,
-                SUM(response_inquiry_count) AS total_inquiry,
-                SUM(response_order_count) AS total_order,
-                SUM(refusal_count) AS total_refusal,
-                MAX(send_date) AS last_used_date
-           FROM manuscript_content_usage
-          GROUP BY manuscript_content_id
-       ) u ON u.manuscript_content_id = mc.id
+         SELECT msf.manuscript_content_id,
+                COUNT(DISTINCT m.slot_number) AS pc_count,
+                MAX(m.folder_date)            AS last_used_date
+           FROM manuscript_slot_files msf
+           JOIN manuscripts m ON m.id = msf.manuscript_id
+          WHERE msf.manuscript_content_id IS NOT NULL AND msf.kind = 'manuscript'
+          GROUP BY msf.manuscript_content_id
+       ) sl ON sl.manuscript_content_id = mc.id
+       LEFT JOIN (
+         SELECT msf.manuscript_content_id,
+                COALESCE(SUM(eb.actual_count), 0) AS list_total
+           FROM manuscript_slot_files msf
+           JOIN manuscript_slot_files msf2
+             ON msf2.manuscript_id = msf.manuscript_id AND msf2.kind = 'excel'
+           JOIN extraction_batches eb
+             ON eb.drive_file_id = msf2.drive_file_id
+          WHERE msf.manuscript_content_id IS NOT NULL AND msf.kind = 'manuscript'
+          GROUP BY msf.manuscript_content_id
+       ) ll ON ll.manuscript_content_id = mc.id
+       LEFT JOIN (
+         SELECT msf.manuscript_content_id,
+                COUNT(*)                                                    AS response_total,
+                SUM(CASE WHEN icr.result = 'project' THEN 1 ELSE 0 END)     AS project_total
+           FROM manuscript_slot_files msf
+           JOIN incoming_call_reports icr ON icr.manuscript_id = msf.manuscript_id
+          WHERE msf.manuscript_content_id IS NOT NULL AND msf.kind = 'manuscript'
+          GROUP BY msf.manuscript_content_id
+       ) rr ON rr.manuscript_content_id = mc.id
        ${whereSql}
        ORDER BY mc.created_at DESC
        LIMIT ? OFFSET ?`,
