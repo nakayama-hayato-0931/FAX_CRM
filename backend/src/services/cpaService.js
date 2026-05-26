@@ -14,6 +14,26 @@ async function getCostPerFax() {
   return DEFAULT_COST_PER_FAX;
 }
 
+/**
+ * cpa_monthly_costs テーブルが無い環境 (本番が起動時マイグ前 or DB再構築直後)
+ * でも getMonthly が落ちないよう、 ここで CREATE TABLE IF NOT EXISTS を流す。
+ * 冪等で軽量なので、 各 getMonthly 呼び出しの先頭で呼んでも問題なし。
+ */
+async function ensureMonthlyCostsTable() {
+  const pool = getPool();
+  if (!pool) return;
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS cpa_monthly_costs (
+       month DATE NOT NULL PRIMARY KEY,
+       in_house_cost BIGINT NOT NULL DEFAULT 0
+         COMMENT '自社FAX 月別 確定版コスト (円、 手動入力)',
+       memo VARCHAR(255) DEFAULT NULL,
+       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+         ON UPDATE CURRENT_TIMESTAMP
+     ) ENGINE=InnoDB COMMENT='CPA 月別 確定版コスト (手動入力)'`
+  );
+}
+
 const RAW_COLUMNS = [
   'period_date', 'pc_number', 'segment',
   'cost', 'call_count', 'project_count', 'interview_count',
@@ -105,6 +125,8 @@ function basisColumn(basis) {
 async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
   const pool = getPool();
   if (!pool) return [];
+  // 起動時マイグ未適用環境でも落ちないように、 cpa_monthly_costs を保証
+  await ensureMonthlyCostsTable();
   const col = basisColumn(basis);
   // 面接の月キー: acquired→NS列(acquired_date)、 offer→NM列(interview_date)
   const ivCol = basis === 'offer' ? 'interview_date' : 'acquired_date';
@@ -368,6 +390,7 @@ async function getMonthlyCost(month) {
   assertMonth(month);
   const pool = getPool();
   if (!pool) return null;
+  await ensureMonthlyCostsTable();
   const [rows] = await pool.query(
     `SELECT month, in_house_cost, memo, updated_at FROM cpa_monthly_costs WHERE month = ?`,
     [month]
@@ -383,6 +406,7 @@ async function setMonthlyCost(month, { in_house_cost, memo }) {
   }
   const pool = getPool();
   if (!pool) { const err = new Error('DB未設定'); err.status = 500; throw err; }
+  await ensureMonthlyCostsTable();
   await pool.query(
     `INSERT INTO cpa_monthly_costs (month, in_house_cost, memo)
      VALUES (?, ?, ?)
@@ -398,6 +422,7 @@ async function deleteMonthlyCost(month) {
   assertMonth(month);
   const pool = getPool();
   if (!pool) return false;
+  await ensureMonthlyCostsTable();
   const [r] = await pool.query(`DELETE FROM cpa_monthly_costs WHERE month = ?`, [month]);
   return r.affectedRows > 0;
 }
@@ -405,6 +430,7 @@ async function deleteMonthlyCost(month) {
 async function listMonthlyCosts() {
   const pool = getPool();
   if (!pool) return [];
+  await ensureMonthlyCostsTable();
   const [rows] = await pool.query(
     `SELECT month, in_house_cost, memo, updated_at FROM cpa_monthly_costs ORDER BY month DESC`
   );
