@@ -137,43 +137,66 @@ function parseInterviewsSheet(values, opts = {}) {
   return { records, stats };
 }
 
+/**
+ * 面接記録を シート → DB に全リフレッシュ で同期する。
+ *   旧実装は external_key に __r${row} (シート行番号) を含む UPSERT だったため、
+ *   シートに行が追加/削除されると同じ論理レコードに違う external_key が発行され、
+ *   ON DUPLICATE KEY UPDATE が効かず INSERT が累積していた (= 不合格件数が
+ *   実際より過大になる原因)。
+ *   シートが唯一の真実源なので、source_kind='FAX受電' の行を一旦全削除して
+ *   渡された records だけを INSERT する。 全体を トランザクション で囲む。
+ */
 async function upsertRecords(records) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です'); err.status = 500; throw err;
   }
-  if (!records.length) return { inserted: 0, updated: 0 };
   const pool = getPool();
   const conn = await pool.getConnection();
-  let inserted = 0, updated = 0;
+  let inserted = 0, deleted = 0;
   try {
-    for (const r of records) {
-      const [result] = await conn.query(
-        `INSERT INTO interview_records (
-          external_key, interview_date, acquired_date, job_number, company_name,
-          sales_owner, industry, interview_count, pass_count, source_kind, source_row, synced_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-        ON DUPLICATE KEY UPDATE
-          interview_date = VALUES(interview_date),
-          acquired_date = VALUES(acquired_date),
-          job_number = VALUES(job_number),
-          company_name = VALUES(company_name),
-          sales_owner = VALUES(sales_owner),
-          industry = VALUES(industry),
-          interview_count = VALUES(interview_count),
-          pass_count = VALUES(pass_count),
-          source_kind = VALUES(source_kind),
-          source_row = VALUES(source_row),
-          synced_at = NOW()`,
-        [
-          r.external_key, r.interview_date, r.acquired_date, r.job_number, r.company_name,
-          r.sales_owner, r.industry, r.interview_count, r.pass_count, r.source_kind, r.source_row,
-        ]
-      );
-      if (result.affectedRows === 1) inserted++;
-      else if (result.affectedRows >= 2) updated++;
+    await conn.beginTransaction();
+
+    // 既存 'FAX受電' レコードを全削除 (フルリフレッシュ)
+    const [delResult] = await conn.query(
+      `DELETE FROM interview_records WHERE source_kind = 'FAX受電'`
+    );
+    deleted = delResult.affectedRows || 0;
+
+    // 新規 INSERT (チャンク 500件ずつ)
+    if (records.length) {
+      const CHUNK = 500;
+      const cols = [
+        'external_key', 'interview_date', 'acquired_date', 'job_number', 'company_name',
+        'sales_owner', 'industry', 'interview_count', 'pass_count', 'source_kind', 'source_row',
+        'synced_at',
+      ];
+      const colList = cols.join(',');
+      const now = new Date();
+      for (let i = 0; i < records.length; i += CHUNK) {
+        const slice = records.slice(i, i + CHUNK);
+        const placeholders = slice.map(() => `(${cols.map(() => '?').join(',')})`).join(',');
+        const values = [];
+        for (const r of slice) {
+          values.push(
+            r.external_key, r.interview_date, r.acquired_date, r.job_number, r.company_name,
+            r.sales_owner, r.industry, r.interview_count, r.pass_count, r.source_kind, r.source_row,
+            now
+          );
+        }
+        await conn.query(
+          `INSERT INTO interview_records (${colList}) VALUES ${placeholders}`,
+          values
+        );
+        inserted += slice.length;
+      }
     }
+
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    throw e;
   } finally { conn.release(); }
-  return { inserted, updated };
+  return { inserted, deleted, updated: 0 };  // updated は互換のため 0 で残す
 }
 
 async function getConfig() {
@@ -269,7 +292,7 @@ async function syncFromSheets() {
 
   const { records, stats } = parseInterviewsSheet(values);
   const upsertResult = await upsertRecords(records);
-  const msg = `keep=${stats.kept} (notFax=${stats.skippedNotFax}, futureOrNoDate=${stats.skippedFutureOrNoDate}, noKey=${stats.skippedNoKey}) / inserted=${upsertResult.inserted}, updated=${upsertResult.updated}`;
+  const msg = `keep=${stats.kept} (notFax=${stats.skippedNotFax}, futureOrNoDate=${stats.skippedFutureOrNoDate}, noKey=${stats.skippedNoKey}) / 削除=${upsertResult.deleted}, 投入=${upsertResult.inserted} (全リフレッシュ)`;
   await markSync('ok', msg);
   return { ...stats, ...upsertResult };
 }
