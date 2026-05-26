@@ -58,9 +58,38 @@ function validateEnum(value, allowed, field) {
 /**
  * 一覧取得 (フィルタ + ページング + usage 集計付き)
  */
+/**
+ * 起動時マイグレーションがまだ走っていない環境向けの 防御的スキーマ補正
+ *   - manuscript_slot_files.manuscript_content_id 列が無ければ ALTER で追加
+ *   冪等。1リクエストの先頭で呼んでも軽量。
+ */
+async function ensureSlotFilesSchema(pool) {
+  const [cols] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'manuscript_slot_files'
+        AND COLUMN_NAME = 'manuscript_content_id' LIMIT 1`
+  );
+  if (cols.length === 0) {
+    console.log('[manuscriptContent] manuscript_slot_files.manuscript_content_id を追加します');
+    await pool.query(
+      `ALTER TABLE manuscript_slot_files
+         ADD COLUMN manuscript_content_id INT UNSIGNED DEFAULT NULL
+           COMMENT '原稿管理(manuscript_contents.id) から選択した場合の元 ID'`
+    );
+    // index も同時に
+    try {
+      await pool.query(
+        `ALTER TABLE manuscript_slot_files ADD INDEX idx_msf_content (manuscript_content_id)`
+      );
+    } catch (_) { /* 既にあれば無視 */ }
+  }
+}
+
 async function list(query = {}) {
   const pool = getPool();
   if (!pool) return { items: [], pagination: { total: 0, page: 1, pageSize: 50, totalPages: 0 } };
+  await ensureSlotFilesSchema(pool);
 
   const where = [];
   const params = [];
@@ -348,6 +377,7 @@ async function deleteUsage(usageId) {
 async function getStorageHistory(manuscriptContentId) {
   const pool = getPool();
   if (!pool) return [];
+  await ensureSlotFilesSchema(pool);
   const [rows] = await pool.query(
     `SELECT
        msf.id              AS slot_file_id,
@@ -399,6 +429,7 @@ async function getStorageHistory(manuscriptContentId) {
 async function getStorageResponses(manuscriptContentId, slotId) {
   const pool = getPool();
   if (!pool) return [];
+  await ensureSlotFilesSchema(pool);
   // manuscriptContentId は 検証用 (このスロットがこの原稿に紐づいていることを確認)
   const [check] = await pool.query(
     `SELECT 1 FROM manuscript_slot_files

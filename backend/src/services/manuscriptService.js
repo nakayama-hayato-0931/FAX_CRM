@@ -377,9 +377,33 @@ async function uploadFileToSlot(manuscriptId, { kind, file }) {
   return { id: r.insertId, drive_file_id: driveFile.id, drive_url: driveFile.webViewLink };
 }
 
+// 起動時マイグレーション未適用でも落ちないように、 manuscript_slot_files に
+// manuscript_content_id 列が無ければここで追加 (冪等)
+async function ensureSlotFilesContentIdColumn(pool) {
+  const [cols] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'manuscript_slot_files'
+        AND COLUMN_NAME = 'manuscript_content_id' LIMIT 1`
+  );
+  if (cols.length === 0) {
+    await pool.query(
+      `ALTER TABLE manuscript_slot_files
+         ADD COLUMN manuscript_content_id INT UNSIGNED DEFAULT NULL
+           COMMENT '原稿管理(manuscript_contents.id) から選択した場合の元 ID'`
+    );
+    try {
+      await pool.query(
+        `ALTER TABLE manuscript_slot_files ADD INDEX idx_msf_content (manuscript_content_id)`
+      );
+    } catch (_) { /* index already exists */ }
+  }
+}
+
 async function listSlotFiles(manuscriptId) {
   const pool = getPool();
   if (!pool) return [];
+  await ensureSlotFilesContentIdColumn(pool);
   const [rows] = await pool.query(
     `SELECT f.id, f.kind, f.original_name, f.mime_type, f.size_bytes,
             f.drive_file_id, f.drive_url, f.uploaded_at,
@@ -405,6 +429,7 @@ async function listSlotFiles(manuscriptId) {
 async function attachContentToSlot(slotId, contentId) {
   const pool = getPool();
   if (!pool) { const e = new Error('DB未設定'); e.status = 500; throw e; }
+  await ensureSlotFilesContentIdColumn(pool);
 
   const [slotRows] = await pool.query(
     'SELECT id, folder_date, slot_number, drive_folder_id FROM manuscripts WHERE id = ? LIMIT 1',
