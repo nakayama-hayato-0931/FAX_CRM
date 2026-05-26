@@ -7,10 +7,11 @@ import OutsourcedFaxSection from '@/components/OutsourcedFaxSection';
 import SalesProjectsDetailModal from '@/components/SalesProjectsDetailModal';
 import InterviewsDetailModal from '@/components/InterviewsDetailModal';
 import JobPostingsDetailModal from '@/components/JobPostingsDetailModal';
+import CpaCostInputModal from '@/components/CpaCostInputModal';
 
 // ROAS = first_payment / cost * 100
 const DEMO_ROWS = [
-  { month: '2025-12-01', cost: 1040283, sends: 10831, incoming_calls: 92, incoming_rate: 0.85, project_rate: 0.42, projects: 45, project_cpa: 23117, interviews: 30, interview_cpa: 34676, interview_rate: 66.67, offers: 11, offer_rate: 36.67, rejects: 18, cancels: 14, first_payment: 3420000, expected_revenue: 7020000, roas: 328.76 },
+  { month: '2025-12-01', cost: 1040283, sends: 10831, in_house_cost_is_manual: 0, in_house_sends: 10000, incoming_calls: 92, incoming_rate: 0.85, project_rate: 0.42, projects: 45, project_cpa: 23117, interviews: 30, interview_cpa: 34676, interview_rate: 66.67, offers: 11, offer_rate: 36.67, rejects: 18, cancels: 14, first_payment: 3420000, expected_revenue: 7020000, roas: 328.76 },
   { month: '2026-01-01', cost:  883157, sends:  7753, incoming_calls: 71, incoming_rate: 0.92, project_rate: 0.68, projects: 53, project_cpa: 16663, interviews: 29, interview_cpa: 30454, interview_rate: 54.72, offers: 13, offer_rate: 44.83, rejects: 17, cancels: 17, first_payment: 4736000, expected_revenue: 6736000, roas: 536.26 },
   { month: '2026-02-01', cost:  835599, sends:  6962, incoming_calls: 65, incoming_rate: 0.93, project_rate: 0.72, projects: 50, project_cpa: 16712, interviews: 37, interview_cpa: 22584, interview_rate: 74.00, offers: 13, offer_rate: 35.14, rejects: 24, cancels: 12, first_payment: 2760000, expected_revenue: 7310000, roas: 330.30 },
   { month: '2026-03-01', cost: 1120097, sends:  7925, incoming_calls: 78, incoming_rate: 0.98, project_rate: 0.69, projects: 55, project_cpa: 20365, interviews: 23, interview_cpa: 48700, interview_rate: 41.82, offers: 11, offer_rate: 47.83, rejects:  4, cancels: 21, first_payment: 1680000, expected_revenue: 3730000, roas: 149.99 },
@@ -25,7 +26,7 @@ const pct = (v) => (v == null ? '—' : `${Number(v).toFixed(2)}%`);
 // 列定義: kind=raw(実数, 黒) / kind=derived(算出, 青背景) / clickable=trueでクリック可能セル
 const COLUMNS = [
   { key: 'month',           label: '期間',              kind: 'raw',     format: (v) => formatMonth(v), align: 'left' },
-  { key: 'cost',            label: 'コスト',             kind: 'raw',     format: yen, align: 'right' },
+  { key: 'cost',            label: 'コスト',             kind: 'raw',     format: yen, align: 'right', clickable: 'cost' },
   { key: 'sends',           label: '送信数',             kind: 'raw',     format: num, align: 'right' },
   { key: 'incoming_calls',  label: '受電数',             kind: 'raw',     format: num, align: 'right' },
   { key: 'incoming_rate',   label: '受電率',             kind: 'derived', format: pct, align: 'right' },
@@ -68,6 +69,10 @@ export default function CpaPage() {
   const [interviewDetailMonth, setInterviewDetailMonth] = useState(null);
   // 不合格 詳細モーダル: {month, monthLabel, rejectsCount}
   const [rejectsDetailMonth, setRejectsDetailMonth] = useState(null);
+  // コスト手動入力モーダル: { month, monthLabel, row }
+  const [costInputMonth, setCostInputMonth] = useState(null);
+  // 概算単価
+  const [costPerFax, setCostPerFax] = useState(9.385423213);
   // 求人詳細モーダル: {month, monthLabel, filter:'all'|'cancelled', expectedCount}
   const [jobsDetail, setJobsDetail] = useState(null);
   const [syncingJobs, setSyncingJobs] = useState(false);
@@ -128,8 +133,15 @@ export default function CpaPage() {
       }
       setLoading(true);
       try {
-        const { data } = await api.get('/api/cpa/monthly', { params: { months: 12, basis } });
-        if (!cancelled) setRows(data.data || []);
+        const [{ data }, rateRes] = await Promise.all([
+          api.get('/api/cpa/monthly', { params: { months: 12, basis } }),
+          api.get('/api/cpa/cost-per-fax').catch(() => ({ data: { data: { value: 9.385423213 } } })),
+        ]);
+        if (!cancelled) {
+          setRows(data.data || []);
+          const v = Number(rateRes.data?.data?.value);
+          if (Number.isFinite(v) && v > 0) setCostPerFax(v);
+        }
       } catch (err) {
         if (!cancelled) {
           toast.error(err.userMessage || '読み込み失敗');
@@ -273,7 +285,8 @@ export default function CpaPage() {
                 <tr key={row.month} className="border-t border-zinc-100 hover:bg-zinc-50/60">
                   {COLUMNS.map((c) => {
                     const value = row[c.key];
-                    const isClickable = c.clickable && Number(value) > 0;
+                    // cost は 0 でも編集できるよう常にクリック可
+                    const isClickable = c.clickable && (c.clickable === 'cost' || Number(value) > 0);
                     const cellClass = [
                       'px-3 py-2.5 whitespace-nowrap tabular-nums',
                       c.align === 'right' ? 'text-right' : 'text-left',
@@ -312,13 +325,26 @@ export default function CpaPage() {
                           monthLabel: formatMonth(row.month),
                           rejectsCount: Number(value),
                         });
+                      } else if (c.clickable === 'cost') {
+                        if (isDemo) { toast('デモ表示中はコスト編集できません', { icon: 'ℹ' }); return; }
+                        setCostInputMonth({
+                          month: row.month,
+                          monthLabel: formatMonth(row.month),
+                          row,
+                        });
                       }
                     };
                     const titleText = c.clickable === 'offers' ? '内定社の内訳を表示'
                                     : c.clickable === 'interviews' ? '面接の内訳を表示'
                                     : c.clickable === 'projects' ? '案件の内訳を表示'
                                     : c.clickable === 'cancels' ? 'バラシの内訳を表示'
-                                    : c.clickable === 'rejects' ? '不合格の内訳を表示' : '';
+                                    : c.clickable === 'rejects' ? '不合格の内訳を表示'
+                                    : c.clickable === 'cost' ? 'クリックで確定値を入力 / 概算に戻す' : '';
+                    const costBadge = c.key === 'cost'
+                      ? (row.in_house_cost_is_manual
+                          ? <span className="ml-1 px-1 py-0.5 text-[9px] rounded bg-emerald-100 text-emerald-700 align-middle">確定</span>
+                          : <span className="ml-1 px-1 py-0.5 text-[9px] rounded bg-zinc-200 text-zinc-600 align-middle">概算</span>)
+                      : null;
                     return (
                       <td key={c.key} className={cellClass}>
                         {isClickable ? (
@@ -333,6 +359,7 @@ export default function CpaPage() {
                         ) : (
                           c.format(value)
                         )}
+                        {costBadge}
                       </td>
                     );
                   })}
@@ -348,7 +375,9 @@ export default function CpaPage() {
           面接CPA = コスト / 面接数 / 面接実施率 = 面接数 / 案件数 /
           <strong>内定率 = 内定社数 / 面接数</strong> / <strong>ROAS = 初回入金 / コスト</strong>
         <br />
-        ※ 「コスト」「送信数」は <strong>自社FAX(Sheets同期)+ 委託FAX(下記の手入力分)</strong> の合算です。
+        ※ 「コスト」 = (自社FAX 確定値 (手動入力) または 概算 = 自社送信数 × {costPerFax} 円 端数切捨て) + 外注費。
+           コスト セルをクリックで月別に確定値を入力 ⇆ 概算に戻すができます。
+           「送信数」 は 自社FAX(Sheets同期) + 委託FAX(下記の手入力分) の合算。
         <br />
         ※ 「受電数」は <strong>受電報告</strong> の登録件数 (送信日 月別 COUNT、暫定算出)。 正式な算出ルールは今後調整予定。
         <br />
@@ -402,6 +431,17 @@ export default function CpaPage() {
           basis={basis}
           kind="rejects"
           onClose={() => setRejectsDetailMonth(null)}
+        />
+      )}
+
+      {costInputMonth && (
+        <CpaCostInputModal
+          month={costInputMonth.month}
+          monthLabel={costInputMonth.monthLabel}
+          row={costInputMonth.row}
+          costPerFax={costPerFax}
+          onClose={() => setCostInputMonth(null)}
+          onSaved={() => reload()}
         />
       )}
 

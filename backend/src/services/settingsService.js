@@ -6,6 +6,7 @@ const ALLOWED_KEYS = new Set([
   'drive_auto_upload',
   'manuscript_auto_create_folders',
   'manuscript_pdf_drive_folder_id',  // 原稿PDFを保存する Drive 親フォルダ ID
+  'cpa_cost_per_fax',                // CPA コスト概算 単価 (送信1通あたり 円)
 ]);
 
 async function getAll() {

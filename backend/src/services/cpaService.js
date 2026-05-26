@@ -1,6 +1,18 @@
 const fs = require('fs');
 const csv = require('csv-parser');
 const { getPool, isConfigured } = require('../../config/db');
+const settings = require('./settingsService');
+
+const DEFAULT_COST_PER_FAX = 9.385423213;
+
+async function getCostPerFax() {
+  try {
+    const v = await settings.get('cpa_cost_per_fax');
+    const n = parseFloat(v);
+    if (Number.isFinite(n) && n >= 0) return n;
+  } catch (_e) { /* fall through */ }
+  return DEFAULT_COST_PER_FAX;
+}
 
 const RAW_COLUMNS = [
   'period_date', 'pc_number', 'segment',
@@ -97,14 +109,22 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
   // 面接の月キー: acquired→NS列(acquired_date)、 offer→NM列(interview_date)
   const ivCol = basis === 'offer' ? 'interview_date' : 'acquired_date';
   const limit = Math.min(Number(months) || 12, 60);
+  const costPerFax = await getCostPerFax();
+  // 自社FAX in_house_cost = 手動入力 (cmc.in_house_cost) があればそれ、
+  //                          無ければ 送信数 × 単価 (端数切捨て) の 概算値
+  const inHouseCostExpr = `COALESCE(
+    cmc.in_house_cost,
+    FLOOR(COALESCE(fs.sends, 0) * ${costPerFax})
+  )`;
 
   // sales_projects の月キーになる列を basis に応じて差し替えた SQL
   //   v_cpa_monthly View の定義と完全に揃える (cost/sends 等の組み立ては同じ)
   const sql = `
     SELECT
       m.month,
-      COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0)        AS cost,
-      COALESCE(pr.cost, 0)                                            AS in_house_cost,
+      ${inHouseCostExpr} + COALESCE(out_.outsourced_cost, 0)         AS cost,
+      ${inHouseCostExpr}                                              AS in_house_cost,
+      CASE WHEN cmc.in_house_cost IS NOT NULL THEN 1 ELSE 0 END       AS in_house_cost_is_manual,
       COALESCE(out_.outsourced_cost, 0)                               AS outsourced_cost,
       COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0)      AS sends,
       COALESCE(fs.sends, 0)                                           AS in_house_sends,
@@ -119,10 +139,10 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
             / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
                                                                       AS project_rate,
       COALESCE(jp.projects, 0)                                        AS projects,
-      ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
+      ROUND((${inHouseCostExpr} + COALESCE(out_.outsourced_cost, 0))
             / NULLIF(COALESCE(jp.projects, 0), 0))                    AS project_cpa,
       COALESCE(iv.interviews, 0)                                      AS interviews,
-      ROUND((COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0))
+      ROUND((${inHouseCostExpr} + COALESCE(out_.outsourced_cost, 0))
             / NULLIF(COALESCE(iv.interviews, 0), 0))                  AS interview_cpa,
       ROUND(COALESCE(iv.interviews, 0)
             / NULLIF(COALESCE(jp.projects, 0), 0) * 100, 2)           AS interview_rate,
@@ -139,7 +159,7 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       COALESCE(sp.first_payment, 0)                                   AS first_payment,
       COALESCE(sp.expected_revenue, 0)                                AS expected_revenue,
       ROUND(COALESCE(sp.first_payment, 0)
-            / NULLIF(COALESCE(pr.cost, 0) + COALESCE(out_.outsourced_cost, 0), 0) * 100, 2)
+            / NULLIF(${inHouseCostExpr} + COALESCE(out_.outsourced_cost, 0), 0) * 100, 2)
                                                                       AS roas
     FROM (
       SELECT DISTINCT month FROM (
@@ -167,6 +187,7 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
         SUM(reject_count) AS rejects
       FROM performance_records GROUP BY 1
     ) pr ON pr.month = m.month
+    LEFT JOIN cpa_monthly_costs cmc ON cmc.month = m.month
     LEFT JOIN (
       -- 面接数: 面接した会社数 (同一求人は1社カウント) を 求人番号 で集計
       --   ① interview_records (FAX受電 / NM≦today / 面接人数0&合格0 除外)
@@ -330,4 +351,68 @@ async function importCsv(filePath, originalName) {
   return { totalRows, inserted: records.length, skipped };
 }
 
-module.exports = { getMonthly, listDetail, importCsv };
+// ============================================================
+// 月別 確定版コスト (cpa_monthly_costs テーブル) の CRUD
+// ============================================================
+
+const MONTH_RE = /^\d{4}-\d{2}-01$/;
+function assertMonth(month) {
+  if (!MONTH_RE.test(month)) {
+    const err = new Error(`month は YYYY-MM-01 形式で指定してください (got: ${month})`);
+    err.status = 400; err.code = 'INVALID_MONTH';
+    throw err;
+  }
+}
+
+async function getMonthlyCost(month) {
+  assertMonth(month);
+  const pool = getPool();
+  if (!pool) return null;
+  const [rows] = await pool.query(
+    `SELECT month, in_house_cost, memo, updated_at FROM cpa_monthly_costs WHERE month = ?`,
+    [month]
+  );
+  return rows[0] || null;
+}
+
+async function setMonthlyCost(month, { in_house_cost, memo }) {
+  assertMonth(month);
+  const cost = Number(in_house_cost);
+  if (!Number.isFinite(cost) || cost < 0) {
+    const err = new Error(`in_house_cost は 0 以上の数値`); err.status = 400; throw err;
+  }
+  const pool = getPool();
+  if (!pool) { const err = new Error('DB未設定'); err.status = 500; throw err; }
+  await pool.query(
+    `INSERT INTO cpa_monthly_costs (month, in_house_cost, memo)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       in_house_cost = VALUES(in_house_cost),
+       memo = VALUES(memo)`,
+    [month, Math.round(cost), memo || null]
+  );
+  return getMonthlyCost(month);
+}
+
+async function deleteMonthlyCost(month) {
+  assertMonth(month);
+  const pool = getPool();
+  if (!pool) return false;
+  const [r] = await pool.query(`DELETE FROM cpa_monthly_costs WHERE month = ?`, [month]);
+  return r.affectedRows > 0;
+}
+
+async function listMonthlyCosts() {
+  const pool = getPool();
+  if (!pool) return [];
+  const [rows] = await pool.query(
+    `SELECT month, in_house_cost, memo, updated_at FROM cpa_monthly_costs ORDER BY month DESC`
+  );
+  return rows;
+}
+
+module.exports = {
+  getMonthly, listDetail, importCsv,
+  getCostPerFax,
+  getMonthlyCost, setMonthlyCost, deleteMonthlyCost, listMonthlyCosts,
+};

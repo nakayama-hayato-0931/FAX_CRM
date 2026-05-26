@@ -131,6 +131,20 @@ ALTER TABLE interview_records
     COMMENT 'NQ列: 合格者数 (NULL=空欄 / 0=明示ゼロ)';
 
 -- --------------------------------------------
+-- CPA 月別コスト (確定版)
+--   未入力月は 送信数 × cpa_cost_per_fax (端数切捨て) で 概算 を自動算出する
+-- --------------------------------------------
+CREATE TABLE IF NOT EXISTS cpa_monthly_costs (
+  month DATE NOT NULL PRIMARY KEY,
+  in_house_cost BIGINT NOT NULL DEFAULT 0 COMMENT '自社FAX 月別 確定版コスト (円、 手動入力)',
+  memo VARCHAR(255) DEFAULT NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB COMMENT='CPA 月別 確定版コスト (手動入力)';
+
+INSERT IGNORE INTO system_settings (setting_key, setting_value, description) VALUES
+  ('cpa_cost_per_fax', '9.385423213', 'CPA コスト概算: 送信数1通あたりのコスト (円)');
+
+-- --------------------------------------------
 -- 原稿管理 (PDFファイル + メタデータ) ※旧「原稿管理」(Drive スロット) は ドライブ格納 に改名
 -- --------------------------------------------
 CREATE TABLE IF NOT EXISTS manuscript_contents (

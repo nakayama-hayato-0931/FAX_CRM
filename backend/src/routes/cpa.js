@@ -49,4 +49,42 @@ router.post('/import', upload.single('file'), async (req, res, next) => {
   finally { if (p && fs.existsSync(p)) fs.unlink(p, () => {}); }
 });
 
+// ========================================
+// 月別 確定版コスト (cpa_monthly_costs)
+// ========================================
+
+// GET /api/cpa/cost-per-fax  概算単価 (現在の cpa_cost_per_fax 設定値)
+router.get('/cost-per-fax', async (_req, res, next) => {
+  try { return ok(res, { value: await cpa.getCostPerFax() }); }
+  catch (e) { next(e); }
+});
+
+// GET /api/cpa/monthly-costs  確定版コスト一覧
+router.get('/monthly-costs', async (_req, res, next) => {
+  try { return ok(res, await cpa.listMonthlyCosts()); }
+  catch (e) { next(e); }
+});
+
+// GET /api/cpa/monthly-cost/:month (YYYY-MM-01)
+router.get('/monthly-cost/:month(\\d{4}-\\d{2}-\\d{2})', async (req, res, next) => {
+  try { return ok(res, await cpa.getMonthlyCost(req.params.month)); }
+  catch (e) { next(e); }
+});
+
+// PUT /api/cpa/monthly-cost/:month  body: { in_house_cost, memo }
+router.put('/monthly-cost/:month(\\d{4}-\\d{2}-\\d{2})', async (req, res, next) => {
+  try {
+    const r = await cpa.setMonthlyCost(req.params.month, req.body || {});
+    return ok(res, r);
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/cpa/monthly-cost/:month  概算に戻す
+router.delete('/monthly-cost/:month(\\d{4}-\\d{2}-\\d{2})', async (req, res, next) => {
+  try {
+    const deleted = await cpa.deleteMonthlyCost(req.params.month);
+    return ok(res, { deleted });
+  } catch (e) { next(e); }
+});
+
 module.exports = router;

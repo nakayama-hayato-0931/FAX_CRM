@@ -81,6 +81,41 @@ async function runStartupMigrations() {
     failed.push({ name: 'manuscript_slot_files.manuscript_content_id', error: e.message });
   }
 
+  // ③ cpa_monthly_costs テーブル新設 (CPA コスト確定版手入力)
+  try {
+    const [tbls] = await pool.query(
+      `SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cpa_monthly_costs' LIMIT 1`
+    );
+    if (tbls.length === 0) {
+      await pool.query(
+        `CREATE TABLE cpa_monthly_costs (
+           month DATE NOT NULL PRIMARY KEY,
+           in_house_cost BIGINT NOT NULL DEFAULT 0
+             COMMENT '自社FAX 月別 確定版コスト (円、 手動入力)',
+           memo VARCHAR(255) DEFAULT NULL,
+           updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+             ON UPDATE CURRENT_TIMESTAMP
+         ) ENGINE=InnoDB COMMENT='CPA 月別 確定版コスト (手動入力)'`
+      );
+      applied.push('cpa_monthly_costs テーブル作成');
+    }
+  } catch (e) {
+    failed.push({ name: 'cpa_monthly_costs CREATE', error: e.message });
+  }
+
+  // ④ cpa_cost_per_fax 設定 既定値 投入
+  try {
+    await pool.query(
+      `INSERT IGNORE INTO system_settings (setting_key, setting_value, description)
+       VALUES ('cpa_cost_per_fax', '9.385423213',
+               'CPA コスト概算: 送信数1通あたりのコスト (円)')`
+    );
+    applied.push('cpa_cost_per_fax 設定 既定値 投入 (既に存在する場合は no-op)');
+  } catch (e) {
+    failed.push({ name: 'cpa_cost_per_fax setting', error: e.message });
+  }
+
   return { applied, failed };
 }
 
