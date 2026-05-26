@@ -34,6 +34,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 
 const { ping, isConfigured } = require('../config/db');
+const { runStartupMigrations } = require('./migrations/runtime');
 const { notFound, errorHandler, attachRequestId } = require('./middlewares/errorHandler');
 const cpaRouter = require('./routes/cpa');
 const customersRouter = require('./routes/customers');
@@ -82,9 +83,23 @@ app.use(notFound);
 app.use(errorHandler);
 
 const PORT = Number(process.env.PORT || 4001);
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`[server] FAX CRM Backend listening on :${PORT}`);
   if (!isConfigured()) {
     console.log('[server] ⚠ DB未設定 (DB_HOST が空)。.env を設定するとDB機能が有効になります。');
+    return;
+  }
+  // 起動時 自動スキーマ補正 (冪等)
+  try {
+    const r = await runStartupMigrations();
+    if (r.skipped) {
+      console.log('[migrations] skipped (DB未設定)');
+    } else {
+      if (r.applied.length) console.log('[migrations] applied:', r.applied);
+      else                  console.log('[migrations] 適用済み (no-op)');
+      if (r.failed.length)  console.warn('[migrations] failed:', r.failed);
+    }
+  } catch (e) {
+    console.error('[migrations] 起動時マイグレーション失敗:', e.message);
   }
 });
