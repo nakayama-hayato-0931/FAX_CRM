@@ -368,6 +368,10 @@ async function list({ month, basis = 'acquired', kind = 'all', limit = 1000 } = 
  *   sales_projects に offer があるが、 同月の interview_records (面接条件を満たす行) に
  *   同じ 求人番号(or 企業名) が存在しないレコードを返す。
  *   CPA 表 の 面接数 が UNION で加算しているのと整合させるための モーダル表示用。
+ *
+ *   重要: sales_projects は同一 求人番号 に複数行 (内定者ごとに行を持つ等) があり得るため
+ *   ROW_NUMBER() で 求人番号 ごとに 1 行 (= 最新内定日の行) に絞ってから返す。
+ *   これで CPA の 面接数 UNION 社数 と モーダル表示 行数 が一致する。
  */
 async function listOfferOnly({ month, basis = 'acquired', limit = 1000 } = {}) {
   const pool = getPool();
@@ -375,26 +379,34 @@ async function listOfferOnly({ month, basis = 'acquired', limit = 1000 } = {}) {
   const col   = basis === 'offer' ? 'offer_date'     : 'acquired_date';   // sales_projects 側
   const ivCol = basis === 'offer' ? 'interview_date' : 'acquired_date';   // interview_records 側
   const [rows] = await pool.query(
-    `SELECT sp.id, sp.acquired_date, sp.offer_date, sp.job_number, sp.company_name,
-            sp.sales_owner, sp.industry, sp.first_payment, sp.expected_revenue,
-            sp.status_label, sp.is_cancelled, sp.is_declined
-       FROM sales_projects sp
-      WHERE sp.${col} IS NOT NULL
-        AND sp.${col} >= ?
-        AND sp.${col} < DATE_ADD(?, INTERVAL 1 MONTH)
-        AND NOT EXISTS (
-          SELECT 1 FROM interview_records ir
-          WHERE ir.${ivCol} IS NOT NULL
-            AND ir.${ivCol} >= ? AND ir.${ivCol} < DATE_ADD(?, INTERVAL 1 MONTH)
-            AND ir.source_kind = 'FAX受電'
-            AND ir.interview_date <= CURDATE()
-            AND NOT (ir.interview_count = 0 AND (ir.pass_count = 0 OR ir.pass_count IS NULL))
-            AND COALESCE(NULLIF(ir.job_number, ''), ir.company_name)
-              = COALESCE(NULLIF(sp.job_number, ''), sp.company_name)
-        )
+    `SELECT id, acquired_date, offer_date, job_number, company_name,
+            sales_owner, industry, first_payment, expected_revenue,
+            status_label, is_cancelled, is_declined
+       FROM (
+         SELECT sp.*,
+                ROW_NUMBER() OVER (
+                  PARTITION BY COALESCE(NULLIF(sp.job_number, ''), sp.company_name)
+                  ORDER BY sp.offer_date DESC, sp.id DESC
+                ) AS rn
+           FROM sales_projects sp
+          WHERE sp.${col} IS NOT NULL
+            AND sp.${col} >= ?
+            AND sp.${col} < DATE_ADD(?, INTERVAL 1 MONTH)
+            AND NOT EXISTS (
+              SELECT 1 FROM interview_records ir
+              WHERE ir.${ivCol} IS NOT NULL
+                AND ir.${ivCol} >= ? AND ir.${ivCol} < DATE_ADD(?, INTERVAL 1 MONTH)
+                AND ir.source_kind = 'FAX受電'
+                AND ir.interview_date <= CURDATE()
+                AND NOT (ir.interview_count = 0 AND (ir.pass_count = 0 OR ir.pass_count IS NULL))
+                AND COALESCE(NULLIF(ir.job_number, ''), ir.company_name)
+                  = COALESCE(NULLIF(sp.job_number, ''), sp.company_name)
+            )
+       ) ranked
+      WHERE rn = 1
       ORDER BY
-        COALESCE(NULLIF(sp.job_number, ''), sp.company_name) ASC,
-        sp.${col} DESC, sp.id DESC
+        COALESCE(NULLIF(job_number, ''), company_name) ASC,
+        ${col} DESC, id DESC
       LIMIT ?`,
     [month, month, month, month, Math.min(Number(limit) || 1000, 5000)]
   );
