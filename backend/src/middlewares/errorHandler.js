@@ -20,7 +20,7 @@ function notFound(req, res) {
 
 function errorHandler(err, req, res, _next) {
   const status = err.status || 500;
-  const code = err.code || 'INTERNAL_ERROR';
+  const code = err.code || err.sqlMessage ? (err.code || 'DB_ERROR') : 'INTERNAL_ERROR';
   const requestId = req.requestId || '-';
 
   // 構造化ログ(本番では JSON ログ収集に流せる形)
@@ -32,17 +32,30 @@ function errorHandler(err, req, res, _next) {
     status,
     code,
     message: err.message,
+    sqlMessage: err.sqlMessage || undefined,
+    sqlState: err.sqlState || undefined,
   };
   console.error('[error]', JSON.stringify(logLine));
   if (status >= 500 && err.stack) console.error(err.stack);
+
+  // 500 でも SQL 由来エラーや明示的に safeMessage を持つものは原因を表示
+  //   (デバッグ性のため。 セキュリティ的に機微な情報は含まれない想定)
+  let userMessage;
+  if (status < 500) {
+    userMessage = err.message;
+  } else if (err.sqlMessage) {
+    userMessage = `DBエラー: ${err.sqlMessage}`;
+  } else if (err.userMessage) {
+    userMessage = err.userMessage;
+  } else {
+    userMessage = 'サーバー内部でエラーが発生しました。担当者にお問い合わせください。';
+  }
 
   return res.status(status).json({
     success: false,
     error: {
       code,
-      message: status >= 500
-        ? 'サーバー内部でエラーが発生しました。担当者にお問い合わせください。'
-        : err.message,
+      message: userMessage,
       request_id: requestId,
     },
   });

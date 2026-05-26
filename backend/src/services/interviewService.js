@@ -146,6 +146,25 @@ function parseInterviewsSheet(values, opts = {}) {
  *   シートが唯一の真実源なので、source_kind='FAX受電' の行を一旦全削除して
  *   渡された records だけを INSERT する。 全体を トランザクション で囲む。
  */
+// 起動時 migration が走っていない環境向けに、 ここでも 1 度 schema を確認して
+// pass_count が NOT NULL のままなら NULL 許容に ALTER する (冪等)。
+async function ensureSchemaUpToDate(conn) {
+  const [rows] = await conn.query(
+    `SELECT IS_NULLABLE FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'interview_records'
+        AND COLUMN_NAME = 'pass_count'`
+  );
+  if (rows.length && rows[0].IS_NULLABLE === 'NO') {
+    console.log('[interview.sync] pass_count を NULL 許容化します (ALTER 実行)');
+    await conn.query(
+      `ALTER TABLE interview_records
+         MODIFY COLUMN pass_count INT DEFAULT NULL
+           COMMENT 'NQ列: 合格者数 (NULL=空欄 / 0=明示ゼロ)'`
+    );
+  }
+}
+
 async function upsertRecords(records) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です'); err.status = 500; throw err;
@@ -154,6 +173,9 @@ async function upsertRecords(records) {
   const conn = await pool.getConnection();
   let inserted = 0, deleted = 0;
   try {
+    // ① スキーマ確認 (pass_count NULL 許容に保証)
+    await ensureSchemaUpToDate(conn);
+
     await conn.beginTransaction();
 
     // 既存 'FAX受電' レコードを全削除 (フルリフレッシュ)
