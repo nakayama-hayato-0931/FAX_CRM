@@ -10,12 +10,12 @@ import JobPostingsDetailModal from '@/components/JobPostingsDetailModal';
 
 // ROAS = first_payment / cost * 100
 const DEMO_ROWS = [
-  { month: '2025-12-01', cost: 1040283, sends: 10831, incoming_calls: 92, incoming_rate: 0.85, project_rate: 0.42, projects: 45, project_cpa: 23117, interviews: 30, interview_cpa: 34676, interview_rate: 66.67, offers: 11, rejects: 18, cancels: 14, first_payment: 3420000, expected_revenue: 7020000, roas: 328.76 },
-  { month: '2026-01-01', cost:  883157, sends:  7753, incoming_calls: 71, incoming_rate: 0.92, project_rate: 0.68, projects: 53, project_cpa: 16663, interviews: 29, interview_cpa: 30454, interview_rate: 54.72, offers: 13, rejects: 17, cancels: 17, first_payment: 4736000, expected_revenue: 6736000, roas: 536.26 },
-  { month: '2026-02-01', cost:  835599, sends:  6962, incoming_calls: 65, incoming_rate: 0.93, project_rate: 0.72, projects: 50, project_cpa: 16712, interviews: 37, interview_cpa: 22584, interview_rate: 74.00, offers: 13, rejects: 24, cancels: 12, first_payment: 2760000, expected_revenue: 7310000, roas: 330.30 },
-  { month: '2026-03-01', cost: 1120097, sends:  7925, incoming_calls: 78, incoming_rate: 0.98, project_rate: 0.69, projects: 55, project_cpa: 20365, interviews: 23, interview_cpa: 48700, interview_rate: 41.82, offers: 11, rejects:  4, cancels: 21, first_payment: 1680000, expected_revenue: 3730000, roas: 149.99 },
-  { month: '2026-04-01', cost:  868799, sends:  7411, incoming_calls: 82, incoming_rate: 1.11, project_rate: 0.89, projects: 66, project_cpa: 13164, interviews: 20, interview_cpa: 43440, interview_rate: 30.30, offers:  6, rejects:  9, cancels: 22, first_payment: 1540000, expected_revenue: 1540000, roas: 177.26 },
-  { month: '2026-05-01', cost:  121249, sends:  2006, incoming_calls: 18, incoming_rate: 0.90, project_rate: 1.25, projects: 25, project_cpa:  4850, interviews:  0, interview_cpa: 0,     interview_rate:  0.00, offers:  0, rejects:  0, cancels:  1, first_payment:       0, expected_revenue:       0, roas:   0.00 },
+  { month: '2025-12-01', cost: 1040283, sends: 10831, incoming_calls: 92, incoming_rate: 0.85, project_rate: 0.42, projects: 45, project_cpa: 23117, interviews: 30, interview_cpa: 34676, interview_rate: 66.67, offers: 11, offer_rate: 36.67, rejects: 18, cancels: 14, first_payment: 3420000, expected_revenue: 7020000, roas: 328.76 },
+  { month: '2026-01-01', cost:  883157, sends:  7753, incoming_calls: 71, incoming_rate: 0.92, project_rate: 0.68, projects: 53, project_cpa: 16663, interviews: 29, interview_cpa: 30454, interview_rate: 54.72, offers: 13, offer_rate: 44.83, rejects: 17, cancels: 17, first_payment: 4736000, expected_revenue: 6736000, roas: 536.26 },
+  { month: '2026-02-01', cost:  835599, sends:  6962, incoming_calls: 65, incoming_rate: 0.93, project_rate: 0.72, projects: 50, project_cpa: 16712, interviews: 37, interview_cpa: 22584, interview_rate: 74.00, offers: 13, offer_rate: 35.14, rejects: 24, cancels: 12, first_payment: 2760000, expected_revenue: 7310000, roas: 330.30 },
+  { month: '2026-03-01', cost: 1120097, sends:  7925, incoming_calls: 78, incoming_rate: 0.98, project_rate: 0.69, projects: 55, project_cpa: 20365, interviews: 23, interview_cpa: 48700, interview_rate: 41.82, offers: 11, offer_rate: 47.83, rejects:  4, cancels: 21, first_payment: 1680000, expected_revenue: 3730000, roas: 149.99 },
+  { month: '2026-04-01', cost:  868799, sends:  7411, incoming_calls: 82, incoming_rate: 1.11, project_rate: 0.89, projects: 66, project_cpa: 13164, interviews: 20, interview_cpa: 43440, interview_rate: 30.30, offers:  6, offer_rate: 30.00, rejects:  9, cancels: 22, first_payment: 1540000, expected_revenue: 1540000, roas: 177.26 },
+  { month: '2026-05-01', cost:  121249, sends:  2006, incoming_calls: 18, incoming_rate: 0.90, project_rate: 1.25, projects: 25, project_cpa:  4850, interviews:  0, interview_cpa: 0,     interview_rate:  0.00, offers:  0, offer_rate:  0.00, rejects:  0, cancels:  1, first_payment:       0, expected_revenue:       0, roas:   0.00 },
 ];
 
 const yen = (v) => (v == null ? '—' : '¥' + Number(v).toLocaleString());
@@ -36,6 +36,7 @@ const COLUMNS = [
   { key: 'interview_rate',  label: '面接実施率',          kind: 'derived', format: pct, align: 'right' },
   { key: 'interview_cpa',   label: '面接CPA',            kind: 'derived', format: yen, align: 'right' },
   { key: 'offers',          label: '内定社数',            kind: 'raw',     format: num, align: 'right', clickable: 'offers' },
+  { key: 'offer_rate',      label: '内定率',             kind: 'derived', format: pct, align: 'right' },
   // 不合格列は一旦非表示 (算出ルール調整中)。 再開する場合は下を有効化:
   // { key: 'rejects',         label: '不合格',             kind: 'raw',     format: num, align: 'right', clickable: 'rejects' },
   { key: 'cancels',         label: 'バラシ',             kind: 'raw',     format: num, align: 'right', clickable: 'cancels' },
@@ -344,11 +345,15 @@ export default function CpaPage() {
 
       <div className="mt-3 text-xs text-zinc-500 leading-relaxed">
         ※ <strong>受電率 = 受電数 / 送信数</strong> / 案件化率 = 案件数 / 送信数 / 案件CPA = コスト / 案件数 /
-          面接CPA = コスト / 面接数 / 面接実施率 = 面接数 / 案件数 / <strong>ROAS = 初回入金 / コスト</strong>
+          面接CPA = コスト / 面接数 / 面接実施率 = 面接数 / 案件数 /
+          <strong>内定率 = 内定社数 / 面接数</strong> / <strong>ROAS = 初回入金 / コスト</strong>
         <br />
         ※ 「コスト」「送信数」は <strong>自社FAX(Sheets同期)+ 委託FAX(下記の手入力分)</strong> の合算です。
         <br />
         ※ 「受電数」は <strong>受電報告</strong> の登録件数 (送信日 月別 COUNT、暫定算出)。 正式な算出ルールは今後調整予定。
+        <br />
+        ※ 「面接数」は 面接シート + 案件シート(内定社) の <strong>求人番号 UNION</strong> 社数。
+           内定はあるが面接記録に無い企業も面接数に含めます。
         <br />
         ※ 「案件数」「内定社数」「初回入金」「見込売上」は <strong>案件シート(『ビザ申請 進捗』)</strong> から同期されます。
         <br />

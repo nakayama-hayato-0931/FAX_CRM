@@ -127,6 +127,11 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       ROUND(COALESCE(iv.interviews, 0)
             / NULLIF(COALESCE(jp.projects, 0), 0) * 100, 2)           AS interview_rate,
       COALESCE(sp.offers, 0)                                          AS offers,
+      -- 内定率 = 内定社数 / 面接数 × 100
+      --   面接数 (iv.interviews) は 内定社の不足分を加算 した UNION 値なので
+      --   常に 内定率 ≦ 100% が成立
+      ROUND(COALESCE(sp.offers, 0)
+            / NULLIF(COALESCE(iv.interviews, 0), 0) * 100, 2)         AS offer_rate,
       -- 不合格: 面接シート (interview_records) ベース
       --   NR='FAX受電' AND (NQ=0 (空欄含まない) OR (NQ空欄 AND NM日≦今日-1ヶ月))
       COALESCE(ir.rejects, 0)                                         AS rejects,
@@ -163,16 +168,27 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       FROM performance_records GROUP BY 1
     ) pr ON pr.month = m.month
     LEFT JOIN (
-      -- 面接数: 面接した会社数 (同一求人は1社カウント)
-      -- 面接人数(NP)=0 AND 合格者数(NQ)=0/空欄 のプレースホルダ行は ノイズ なので除外
-      SELECT DATE_FORMAT(${ivCol}, '%Y-%m-01') AS month,
-        COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS interviews
-      FROM interview_records
-      WHERE ${ivCol} IS NOT NULL
-        AND source_kind = 'FAX受電'
-        AND interview_date <= CURDATE()
-        AND NOT (interview_count = 0 AND (pass_count = 0 OR pass_count IS NULL))
-      GROUP BY 1
+      -- 面接数: 面接した会社数 (同一求人は1社カウント) を 求人番号 で集計
+      --   ① interview_records (FAX受電 / NM≦today / 面接人数0&合格0 除外)
+      --   ② sales_projects.offers (内定はあるが面接記録に無い企業も加算)
+      --   どちらの行も 求人番号 (job_number) で同一企業を判定。UNION で月×job_key を dedupe
+      SELECT month, COUNT(DISTINCT job_key) AS interviews
+      FROM (
+        SELECT DATE_FORMAT(${ivCol}, '%Y-%m-01') AS month,
+               COALESCE(NULLIF(job_number, ''), company_name) AS job_key
+        FROM interview_records
+        WHERE ${ivCol} IS NOT NULL
+          AND source_kind = 'FAX受電'
+          AND interview_date <= CURDATE()
+          AND NOT (interview_count = 0 AND (pass_count = 0 OR pass_count IS NULL))
+        UNION
+        SELECT DATE_FORMAT(${col}, '%Y-%m-01') AS month,
+               COALESCE(NULLIF(job_number, ''), company_name) AS job_key
+        FROM sales_projects
+        WHERE ${col} IS NOT NULL
+      ) u
+      WHERE month IS NOT NULL AND job_key IS NOT NULL
+      GROUP BY month
     ) iv ON iv.month = m.month
     LEFT JOIN (
       -- 不合格: 不合格となった会社数 (同一求人は1社カウント、面接数と同じ COUNT(DISTINCT) ロジック)
