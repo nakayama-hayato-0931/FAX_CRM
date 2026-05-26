@@ -132,4 +132,19 @@ router.delete('/:id(\\d+)/usage/:usageId(\\d+)', async (req, res, next) => {
   catch (e) { next(e); }
 });
 
+// ----- 自動集計 送信使用履歴 -----
+// GET /api/manuscript-contents/:id/storage-history
+//   原稿が紐づいた スロット ごとの 格納日/PC/地域/反応/案件化 集計
+router.get('/:id(\\d+)/storage-history', async (req, res, next) => {
+  try { return ok(res, await svc.getStorageHistory(req.params.id)); }
+  catch (e) { next(e); }
+});
+
+// GET /api/manuscript-contents/:id/storage-history/:slotId/responses
+//   反応セルクリック時の 受電報告明細
+router.get('/:id(\\d+)/storage-history/:slotId(\\d+)/responses', async (req, res, next) => {
+  try { return ok(res, await svc.getStorageResponses(req.params.id, req.params.slotId)); }
+  catch (e) { next(e); }
+});
+
 module.exports = router;

@@ -318,6 +318,91 @@ async function deleteUsage(usageId) {
 }
 
 /**
+ * 原稿の 自動集計 送信使用履歴
+ *   原稿が ドライブ格納 スロットに 紐づけられた (manuscript_slot_files.kind='manuscript'
+ *   + manuscript_content_id=?) 各スロット を行単位として:
+ *     - 格納日 (uploaded_at) / PC (slot_number) / 地域 (同スロットの Excel batch の filter_prefecture)
+ *     - 反応 (incoming_call_reports カウント) / 案件化 (result='project' カウント)
+ *   を集計して返す。
+ */
+async function getStorageHistory(manuscriptContentId) {
+  const pool = getPool();
+  if (!pool) return [];
+  const [rows] = await pool.query(
+    `SELECT
+       msf.id              AS slot_file_id,
+       msf.uploaded_at     AS storage_date,
+       msf.drive_url       AS drive_url,
+       m.id                AS slot_id,
+       m.folder_date       AS folder_date,
+       m.slot_number       AS slot_number,
+       -- 地域: 同スロット に Excel として格納された batches の filter_prefecture を集約
+       (SELECT GROUP_CONCAT(DISTINCT eb.filter_prefecture ORDER BY eb.filter_prefecture SEPARATOR ', ')
+          FROM manuscript_slot_files msf2
+          JOIN extraction_batches eb ON eb.drive_file_id = msf2.drive_file_id
+         WHERE msf2.manuscript_id = m.id AND msf2.kind = 'excel'
+           AND eb.filter_prefecture IS NOT NULL AND eb.filter_prefecture <> ''
+       )                                                            AS prefectures,
+       (SELECT GROUP_CONCAT(DISTINCT eb.filter_industry ORDER BY eb.filter_industry SEPARATOR ', ')
+          FROM manuscript_slot_files msf2
+          JOIN extraction_batches eb ON eb.drive_file_id = msf2.drive_file_id
+         WHERE msf2.manuscript_id = m.id AND msf2.kind = 'excel'
+           AND eb.filter_industry IS NOT NULL AND eb.filter_industry <> ''
+       )                                                            AS industries,
+       -- 反応 (= 受電報告 件数)
+       (SELECT COUNT(*) FROM incoming_call_reports icr
+         WHERE icr.manuscript_id = m.id)                            AS response_count,
+       -- 結果別 内訳
+       (SELECT COUNT(*) FROM incoming_call_reports icr
+         WHERE icr.manuscript_id = m.id AND icr.result = 'project') AS project_count,
+       (SELECT COUNT(*) FROM incoming_call_reports icr
+         WHERE icr.manuscript_id = m.id AND icr.result = 'ng')      AS ng_count,
+       (SELECT COUNT(*) FROM incoming_call_reports icr
+         WHERE icr.manuscript_id = m.id AND icr.result = 'recall')  AS recall_count,
+       (SELECT COUNT(*) FROM incoming_call_reports icr
+         WHERE icr.manuscript_id = m.id AND icr.result = 'material_sent') AS material_count,
+       (SELECT COUNT(*) FROM incoming_call_reports icr
+         WHERE icr.manuscript_id = m.id AND icr.result = 'other')   AS other_count
+     FROM manuscript_slot_files msf
+     JOIN manuscripts m ON m.id = msf.manuscript_id
+     WHERE msf.manuscript_content_id = ? AND msf.kind = 'manuscript'
+     ORDER BY m.folder_date DESC, m.slot_number ASC, msf.uploaded_at DESC`,
+    [manuscriptContentId]
+  );
+  return rows;
+}
+
+/**
+ * 原稿 × スロット 反応 (incoming_call_reports) の明細
+ *   "反応" セルクリックで一覧表示する用
+ */
+async function getStorageResponses(manuscriptContentId, slotId) {
+  const pool = getPool();
+  if (!pool) return [];
+  // manuscriptContentId は 検証用 (このスロットがこの原稿に紐づいていることを確認)
+  const [check] = await pool.query(
+    `SELECT 1 FROM manuscript_slot_files
+      WHERE manuscript_id = ? AND manuscript_content_id = ? AND kind = 'manuscript' LIMIT 1`,
+    [slotId, manuscriptContentId]
+  );
+  if (!check.length) return [];
+
+  const [rows] = await pool.query(
+    `SELECT icr.id, icr.send_date, icr.pc_number, icr.responded_at,
+            icr.result, icr.result_detail, icr.candidate_registration_no,
+            c.id AS customer_id, c.company_name, c.fax_number, c.phone_number,
+            c.industry_category, c.prefecture
+       FROM incoming_call_reports icr
+  LEFT JOIN customers c ON c.id = icr.customer_id
+      WHERE icr.manuscript_id = ?
+      ORDER BY icr.responded_at DESC, icr.id DESC
+      LIMIT 1000`,
+    [slotId]
+  );
+  return rows;
+}
+
+/**
  * 既存のローカル保存 PDF を Drive に一括移行 (drive folder 設定済の場合のみ)
  *   pdf_file_path がある & pdf_drive_file_id が無い 全レコードを処理
  */
@@ -366,6 +451,7 @@ module.exports = {
   list, getById, create, update, remove,
   getPdfPath, getPdfSource,
   listUsage, upsertUsage, deleteUsage,
+  getStorageHistory, getStorageResponses,
   migrateLocalToDrive, getPdfDriveFolderId,
   NATIONALITIES, GENDERS, INDUSTRY_CATEGORIES,
 };
