@@ -36,7 +36,8 @@ const COLUMNS = [
   { key: 'interview_rate',  label: '面接実施率',          kind: 'derived', format: pct, align: 'right' },
   { key: 'interview_cpa',   label: '面接CPA',            kind: 'derived', format: yen, align: 'right' },
   { key: 'offers',          label: '内定社数',            kind: 'raw',     format: num, align: 'right', clickable: 'offers' },
-  { key: 'rejects',         label: '不合格',             kind: 'raw',     format: num, align: 'right', clickable: 'rejects' },
+  // 不合格列は一旦非表示 (算出ルール調整中)。 再開する場合は下を有効化:
+  // { key: 'rejects',         label: '不合格',             kind: 'raw',     format: num, align: 'right', clickable: 'rejects' },
   { key: 'cancels',         label: 'バラシ',             kind: 'raw',     format: num, align: 'right', clickable: 'cancels' },
   { key: 'first_payment',   label: '初回入金',            kind: 'raw',     format: yen, align: 'right' },
   { key: 'expected_revenue',label: '見込売上',            kind: 'raw',     format: yen, align: 'right' },
