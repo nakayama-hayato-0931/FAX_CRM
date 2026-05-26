@@ -109,6 +109,12 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0)      AS sends,
       COALESCE(fs.sends, 0)                                           AS in_house_sends,
       COALESCE(out_.outsourced_sends, 0)                              AS outsourced_sends,
+      -- 受電数 (受電報告の件数。 算出方法は別途見直し予定 → ic サブクエリの定義を差し替えるだけでOK)
+      COALESCE(ic.incoming_calls, 0)                                  AS incoming_calls,
+      -- 受電率 = 受電数 / 送信数
+      ROUND(COALESCE(ic.incoming_calls, 0)
+            / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
+                                                                      AS incoming_rate,
       ROUND(COALESCE(jp.projects, 0)
             / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
                                                                       AS project_rate,
@@ -143,6 +149,9 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
         UNION
         SELECT DATE_FORMAT(acquired_date, '%Y-%m-01')         AS month FROM job_postings
          WHERE acquired_date IS NOT NULL AND source_kind = 'FAX受電'
+        UNION
+        SELECT DATE_FORMAT(send_date, '%Y-%m-01')             AS month FROM incoming_call_reports
+         WHERE send_date IS NOT NULL
       ) u WHERE month IS NOT NULL
     ) m
     LEFT JOIN (
@@ -164,6 +173,14 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       SELECT DATE_FORMAT(stat_date, '%Y-%m-01') AS month, SUM(sent_count) AS sends
       FROM fax_send_stats GROUP BY 1
     ) fs ON fs.month = m.month
+    LEFT JOIN (
+      -- 受電数 の暫定計算: incoming_call_reports を send_date 月で COUNT
+      -- TODO: 正式な算出方法が決まり次第このサブクエリの WHERE/集計を差し替える
+      SELECT DATE_FORMAT(send_date, '%Y-%m-01') AS month, COUNT(*) AS incoming_calls
+      FROM incoming_call_reports
+      WHERE send_date IS NOT NULL
+      GROUP BY 1
+    ) ic ON ic.month = m.month
     LEFT JOIN (
       SELECT DATE_FORMAT(report_month, '%Y-%m-01') AS month,
         SUM(send_count) AS outsourced_sends, SUM(cost) AS outsourced_cost
