@@ -4,7 +4,7 @@ import { api } from '@/utils/api';
 
 const NATIONALITIES = ['ベトナム','ミャンマー','ネパール','モンゴル','スリランカ','バングラディシュ'];
 const GENDERS = ['男','女'];
-const INDUSTRIES = ['飲食','製造','小売','宿泊','建設','その他'];
+const INDUSTRIES = ['飲食','製造','小売','宿泊','建設','農業','介護','運送','その他'];
 
 /**
  * 原稿管理 (manuscript_contents) から1件選択するピッカーモーダル

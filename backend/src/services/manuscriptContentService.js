@@ -38,7 +38,7 @@ async function getPdfDriveFolderId() {
 
 const NATIONALITIES = ['ベトナム','ミャンマー','ネパール','モンゴル','スリランカ','バングラディシュ'];
 const GENDERS = ['男','女'];
-const INDUSTRY_CATEGORIES = ['飲食','製造','小売','宿泊','建設','その他'];
+const { INDUSTRY_CATEGORIES } = require('../utils/industryCategory');
 
 function ensurePdfDir() {
   const dir = path.join(UPLOAD_DIR, PDF_SUBDIR);

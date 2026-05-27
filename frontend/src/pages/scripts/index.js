@@ -6,7 +6,7 @@ import ManuscriptContentDetailModal from '@/components/ManuscriptContentDetailMo
 
 const NATIONALITIES = ['ベトナム','ミャンマー','ネパール','モンゴル','スリランカ','バングラディシュ'];
 const GENDERS = ['男','女'];
-const INDUSTRIES = ['飲食','製造','小売','宿泊','建設','その他'];
+const INDUSTRIES = ['飲食','製造','小売','宿泊','建設','農業','介護','運送','その他'];
 
 export default function ScriptsPage() {
   const [items, setItems] = useState([]);

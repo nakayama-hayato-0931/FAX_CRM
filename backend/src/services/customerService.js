@@ -183,7 +183,7 @@ async function getDistinctIndustries() {
     `SELECT industry_category AS industry, COUNT(*) AS cnt FROM customers
       WHERE industry_category IS NOT NULL AND industry_category <> ''
       GROUP BY industry_category
-      ORDER BY FIELD(industry_category, '飲食','製造','小売','宿泊','建設','その他')`
+      ORDER BY FIELD(industry_category, '飲食','製造','小売','宿泊','建設','農業','介護','運送','その他')`
   );
   return rows;
 }

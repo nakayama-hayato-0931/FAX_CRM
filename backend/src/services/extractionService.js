@@ -14,7 +14,7 @@ function buildWhere({ industry, prefecture, recentDays }) {
     "REGEXP_REPLACE(fax_number, '[^0-9]', '') <> ''",
   ];
   const params = [];
-  // 業種フィルタ: 6カテゴリ (飲食/製造/小売/宿泊/建設/その他) → industry_category 列で絞る
+  // 業種フィルタ: 9カテゴリ (飲食/製造/小売/宿泊/建設/農業/介護/運送/その他) → industry_category 列で絞る
   //   旧仕様で 詳細業種(製造業 等) を渡してきた場合のフォールバックも入れる
   if (industry) {
     where.push('(industry_category = ? OR industry = ?)');

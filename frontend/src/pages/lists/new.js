@@ -10,6 +10,9 @@ const DEMO_INDUSTRIES = [
   { industry: '小売', cnt: 32888 },
   { industry: '宿泊', cnt: 9031 },
   { industry: '建設', cnt: 83826 },
+  { industry: '農業', cnt: 4521 },
+  { industry: '介護', cnt: 18234 },
+  { industry: '運送', cnt: 12876 },
   { industry: 'その他', cnt: 71567 },
 ];
 const DEMO_PREFECTURES = [
