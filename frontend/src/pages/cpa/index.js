@@ -292,11 +292,6 @@ export default function CpaPage() {
                       ].join(' ')}
                     >
                       {c.label}
-                      {isIncomingToggle && (
-                        <span className="ml-1 text-zinc-400 text-[10px]">
-                          {incomingExpanded ? '◀ 合計' : '▼ 分割'}
-                        </span>
-                      )}
                     </th>
                   );
                 })}
