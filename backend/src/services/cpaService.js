@@ -19,6 +19,75 @@ async function getCostPerFax() {
  * でも getMonthly が落ちないよう、 ここで CREATE TABLE IF NOT EXISTS を流す。
  * 冪等で軽量なので、 各 getMonthly 呼び出しの先頭で呼んでも問題なし。
  */
+
+/**
+ * 同一 caller_number の通話に「2ヶ月クールダウン」を適用して count 対象を絞る。
+ *   rows は { caller_number, date_time } を含み caller_number, date_time 昇順 で来る前提。
+ *   仕様: 直近 count した通話日から 2ヶ月 (DATE_ADD INTERVAL 2 MONTH 相当) は カウントしない。
+ *         次回 count 可能日 = (前回 count 日 + 2ヶ月)。 比較は >= 。
+ *   例: 1/1 → count (cooldown終了 = 3/1)
+ *       2/28 → 3/1 未満 → skip
+ *       3/1  → 3/1 以上 → count (cooldown終了 = 5/1)
+ *       4/1 → 5/1 未満 → skip
+ *       5/1 → 5/1 以上 → count
+ * 戻り値: { 'YYYY-MM-01': count, ... }
+ */
+function applyCooldownDedup(rows) {
+  const monthCounts = {};
+  let currentCaller = null;
+  let cooldownEndMs = null;
+  for (const r of rows) {
+    if (r.caller_number !== currentCaller) {
+      currentCaller = r.caller_number;
+      cooldownEndMs = null;
+    }
+    const dt = r.date_time instanceof Date ? r.date_time : new Date(r.date_time);
+    if (cooldownEndMs === null || dt.getTime() >= cooldownEndMs) {
+      const monthKey =
+        `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-01`;
+      monthCounts[monthKey] = (monthCounts[monthKey] || 0) + 1;
+      const next = new Date(dt);
+      next.setMonth(next.getMonth() + 2);
+      cooldownEndMs = next.getTime();
+    }
+  }
+  return monthCounts;
+}
+
+async function getZpPickedCountsByMonth(pool) {
+  const [rows] = await pool.query(
+    `SELECT caller_number, date_time
+       FROM zp_recordings
+      WHERE direction = '着信'
+        AND REPLACE(callee_name, ' ', '') IN (
+          'グーナビ0120FDM', 'グーナビFAX', 'グーナビ在庫速報',
+          'グーナビ代表番号', '特定技能グーナビ'
+        )
+        AND caller_name REGEXP '^[0-9]+$'
+        AND caller_number IS NOT NULL AND caller_number <> ''
+        AND caller_number <> 'anonymous'
+      ORDER BY caller_number, date_time`
+  );
+  return applyCooldownDedup(rows);
+}
+
+async function getZpMissedCountsByMonth(pool) {
+  const [rows] = await pool.query(
+    `SELECT caller_number, date_time
+       FROM zp_missed_calls
+      WHERE callee_number IN (
+        '+81120743142', '+81120905389', '+81120961610',
+        '+81120966791', '+81366941346', '+81366941311',
+        '+81120549547'
+      )
+      AND (accepted_by_name IS NULL OR accepted_by_name = '')
+      AND caller_number IS NOT NULL AND caller_number <> ''
+      AND caller_number <> 'Anonymous'
+      ORDER BY caller_number, date_time`
+  );
+  return applyCooldownDedup(rows);
+}
+
 async function ensureMonthlyCostsTable() {
   const pool = getPool();
   if (!pool) return;
@@ -151,16 +220,12 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0)      AS sends,
       COALESCE(fs.sends, 0)                                           AS in_house_sends,
       COALESCE(out_.outsourced_sends, 0)                              AS outsourced_sends,
-      -- 受電数 = 受電 (zp_recordings) + 不在 (zp_missed_calls)
-      --   zp_picked.cnt: 5 callee_name (グーナビ系) + caller_name 数字のみ + 2ヶ月 重複排除
-      --   zp_missed.cnt: 7 callee_number (+81 形式) + accepted_by_name 空欄 + 2ヶ月 重複排除
-      COALESCE(zp_picked.cnt, 0)                                      AS incoming_picked,
-      COALESCE(zp_missed.cnt, 0)                                      AS incoming_missed,
-      COALESCE(zp_picked.cnt, 0) + COALESCE(zp_missed.cnt, 0)         AS incoming_calls,
-      -- 受電率 = 受電数 (受電+不在) / 送信数
-      ROUND((COALESCE(zp_picked.cnt, 0) + COALESCE(zp_missed.cnt, 0))
-            / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
-                                                                      AS incoming_rate,
+      -- 受電数 (受電 + 不在) は JS 側で 2ヶ月クールダウン dedup を適用後に merge する。
+      -- ここでは 0 で placeholder。 incoming_rate も同様に JS で計算し直す。
+      0                                                               AS incoming_picked,
+      0                                                               AS incoming_missed,
+      0                                                               AS incoming_calls,
+      0                                                               AS incoming_rate,
       ROUND(COALESCE(jp.projects, 0)
             / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
                                                                       AS project_rate,
@@ -264,51 +329,8 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       SELECT DATE_FORMAT(stat_date, '%Y-%m-01') AS month, SUM(sent_count) AS sends
       FROM fax_send_stats GROUP BY 1
     ) fs ON fs.month = m.month
-    LEFT JOIN (
-      -- 受電 (zp_recordings):
-      --   ① direction='着信'
-      --   ② callee_name が グーナビ系5種 (スペース無視で比較)
-      --   ③ caller_name が 半角数字のみ (電話帳に登録されていない番号 = 新規候補)
-      --   ④ caller_number で 2ヶ月以内の重複を除外 (LAG で前回着信を見て >2ヶ月 空いてれば count)
-      SELECT month, COUNT(*) AS cnt
-      FROM (
-        SELECT
-          DATE_FORMAT(date_time, '%Y-%m-01') AS month,
-          date_time,
-          LAG(date_time) OVER (PARTITION BY caller_number ORDER BY date_time) AS prev_dt
-        FROM zp_recordings
-        WHERE direction = '着信'
-          AND REPLACE(callee_name, ' ', '') IN (
-            'グーナビ0120FDM', 'グーナビFAX', 'グーナビ在庫速報',
-            'グーナビ代表番号', '特定技能グーナビ'
-          )
-          AND caller_name REGEXP '^[0-9]+$'
-      ) t
-      WHERE prev_dt IS NULL OR date_time > DATE_ADD(prev_dt, INTERVAL 2 MONTH)
-      GROUP BY month
-    ) zp_picked ON zp_picked.month = m.month
-    LEFT JOIN (
-      -- 不在 (zp_missed_calls):
-      --   ① callee_number が 7つの番号 (+81 形式) のいずれか
-      --   ② accepted_by_name が空欄 (応対者なし = 真の不在着信)
-      --   ③ caller_number で 2ヶ月以内の重複を除外
-      SELECT month, COUNT(*) AS cnt
-      FROM (
-        SELECT
-          DATE_FORMAT(date_time, '%Y-%m-01') AS month,
-          date_time,
-          LAG(date_time) OVER (PARTITION BY caller_number ORDER BY date_time) AS prev_dt
-        FROM zp_missed_calls
-        WHERE callee_number IN (
-          '+81120743142', '+81120905389', '+81120961610',
-          '+81120966791', '+81366941346', '+81366941311',
-          '+81120549547'
-        )
-        AND (accepted_by_name IS NULL OR accepted_by_name = '')
-      ) t
-      WHERE prev_dt IS NULL OR date_time > DATE_ADD(prev_dt, INTERVAL 2 MONTH)
-      GROUP BY month
-    ) zp_missed ON zp_missed.month = m.month
+    -- (zp_recordings / zp_missed_calls は 2ヶ月クールダウン dedup が必要なため
+    --  メインクエリから分離し、 JS 側 で applyCooldownDedup → 月別 merge する)
     LEFT JOIN (
       SELECT DATE_FORMAT(report_month, '%Y-%m-01') AS month,
         SUM(send_count) AS outsourced_sends, SUM(cost) AS outsourced_cost
@@ -335,6 +357,33 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
     LIMIT ?`;
 
   const [rows] = await pool.query(sql, [limit]);
+
+  // 受電 (zp_recordings) / 不在 (zp_missed_calls) の 2ヶ月クールダウン dedup を
+  // JS 側で行い、 月別 count を rows に merge する
+  try {
+    const [pickedByMonth, missedByMonth] = await Promise.all([
+      getZpPickedCountsByMonth(pool),
+      getZpMissedCountsByMonth(pool),
+    ]);
+    for (const r of rows) {
+      const mKey = (r.month instanceof Date)
+        ? `${r.month.getFullYear()}-${String(r.month.getMonth() + 1).padStart(2, '0')}-01`
+        : String(r.month).slice(0, 10);
+      const picked = pickedByMonth[mKey] || 0;
+      const missed = missedByMonth[mKey] || 0;
+      r.incoming_picked  = picked;
+      r.incoming_missed  = missed;
+      r.incoming_calls   = picked + missed;
+      const denom = Number(r.sends || 0);
+      r.incoming_rate = denom > 0
+        ? Math.round((picked + missed) / denom * 10000) / 100
+        : 0;
+    }
+  } catch (e) {
+    console.error('[cpaService] zp_* 受電集計 失敗:', e.message);
+    // 失敗時は 受電数 0 のまま返却 (他指標には影響なし)
+  }
+
   return rows;
 }
 
