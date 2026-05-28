@@ -229,12 +229,15 @@ export default function FaxStatsPage() {
       .sort((a, b) => a.month.localeCompare(b.month));
   }, [daily]);
 
-  const sync = async () => {
+  const sync = async (mode = 'recent') => {
     if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
     setSyncing(true);
     try {
-      const { data } = await api.post('/api/fax-stats/sync');
-      toast.success(`同期完了: 新規${data.data.inserted} / 更新${data.data.updated}`);
+      const params = mode === 'recent' ? { recent: 1, days: 7 } : {};
+      const { data } = await api.post('/api/fax-stats/sync', null, { params });
+      const r = data.data || {};
+      const scope = r.scope === 'full' ? '全件' : `直近${r.scope?.replace('recent', '').replace('d', '')}日`;
+      toast.success(`同期完了 (${scope}): 新規${r.inserted} / 更新${r.updated}`);
       reload();
     } catch (e) {
       toast.error(e.userMessage || '同期失敗');
@@ -260,9 +263,15 @@ export default function FaxStatsPage() {
           <button onClick={() => setShowImport(true)} className="px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50">
             CSV取込
           </button>
-          <button onClick={sync} disabled={syncing}
+          <button onClick={() => sync('recent')} disabled={syncing}
+                  title="直近7日分のみ upsert (高速)"
                   className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
-            {syncing ? '同期中…' : 'Sheets同期'}
+            {syncing ? '同期中…' : '直近1週間同期'}
+          </button>
+          <button onClick={() => sync('full')} disabled={syncing}
+                  title="全期間 を upsert (時間がかかる)"
+                  className="px-3 py-2 text-sm bg-white border border-indigo-300 text-indigo-700 rounded-md hover:bg-indigo-50 disabled:opacity-50">
+            {syncing ? '…' : '全件同期'}
           </button>
         </div>
       </div>

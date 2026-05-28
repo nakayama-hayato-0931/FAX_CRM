@@ -229,7 +229,13 @@ async function importCsv(filePath, _originalName) {
 // --------------------------------------------
 // Google Sheets 同期(オプション: googleapis 未インストールでも動くようにlazy require)
 // --------------------------------------------
-async function syncFromSheets() {
+/**
+ * シートから FAX 送信実績を同期。
+ *   options:
+ *     recentOnly  true なら 直近 N日分 のみ upsert (シート読み込みは全範囲)
+ *     recentDays  recentOnly=true 時の対象日数 (既定 7)
+ */
+async function syncFromSheets({ recentOnly = false, recentDays = 7 } = {}) {
   const cfg = await getConfig();
   if (!cfg?.sheet_id) {
     const err = new Error('シートIDが未設定です。設定画面でシートIDを登録してください');
@@ -319,9 +325,33 @@ async function syncFromSheets() {
     }
   }
 
+  // 直近 N日 モードなら post-filter (シート読み込みは全範囲、 upsert する行のみ絞る)
+  //   sync を高速化したい時用 (毎回 全件 upsert すると 数千行になり 時間がかかる)
+  const parsedCount = rows.length;
+  let filteredOut = 0;
+  if (recentOnly) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const threshold = new Date(today.getTime() - Math.max(0, Number(recentDays) || 7) * 86400000);
+    const thresholdYMD =
+      `${threshold.getFullYear()}-${String(threshold.getMonth() + 1).padStart(2, '0')}-${String(threshold.getDate()).padStart(2, '0')}`;
+    const before = rows.length;
+    rows = rows.filter((r) => r.stat_date && r.stat_date >= thresholdYMD);
+    filteredOut = before - rows.length;
+  }
+
   const stats = await upsertRows(rows, 'sheets');
-  await markSync('ok', `${isPivot ? 'pivot' : 'flat'} / ${stats.inserted}件 新規 / ${stats.updated}件 更新`);
-  return { totalRows: values.length - 1, validRows: rows.length, format: isPivot ? 'pivot' : 'flat', ...stats };
+  const scopeMsg = recentOnly ? `直近${recentDays}日 (${parsedCount}行中${rows.length}行を対象)` : '全件';
+  await markSync('ok', `${isPivot ? 'pivot' : 'flat'} / ${scopeMsg} / ${stats.inserted}件 新規 / ${stats.updated}件 更新`);
+  return {
+    totalRows: values.length - 1,
+    parsedRows: parsedCount,
+    validRows: rows.length,
+    filteredOut,
+    scope: recentOnly ? `recent${recentDays}d` : 'full',
+    format: isPivot ? 'pivot' : 'flat',
+    ...stats,
+  };
 }
 
 // --------------------------------------------

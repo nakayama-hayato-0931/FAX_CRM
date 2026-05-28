@@ -41,9 +41,16 @@ router.put('/config', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/sync', async (_req, res, next) => {
+// POST /api/fax-stats/sync
+//   ?recent=1            直近 N日分のみ upsert (既定 7日)
+//   ?recent=1&days=14    日数指定
+router.post('/sync', async (req, res, next) => {
   try {
-    const result = await svc.syncFromSheets();
+    const recentOnly = ['1', 'true', 'yes'].includes(
+      String(req.query.recent ?? req.body?.recent ?? '').toLowerCase()
+    );
+    const recentDays = Number(req.query.days ?? req.body?.days ?? 7) || 7;
+    const result = await svc.syncFromSheets({ recentOnly, recentDays });
     return created(res, result);
   } catch (e) { next(e); }
 });
