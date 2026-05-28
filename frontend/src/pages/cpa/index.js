@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
@@ -11,7 +11,7 @@ import CpaCostInputModal from '@/components/CpaCostInputModal';
 
 // ROAS = first_payment / cost * 100
 const DEMO_ROWS = [
-  { month: '2025-12-01', cost: 1040283, sends: 10831, in_house_cost_is_manual: 0, in_house_sends: 10000, incoming_calls: 92, incoming_rate: 0.85, project_rate: 0.42, projects: 45, project_cpa: 23117, interviews: 30, interview_cpa: 34676, interview_rate: 66.67, offers: 11, offer_rate: 36.67, rejects: 18, cancels: 14, first_payment: 3420000, expected_revenue: 7020000, roas: 328.76 },
+  { month: '2025-12-01', cost: 1040283, sends: 10831, in_house_cost_is_manual: 0, in_house_sends: 10000, incoming_picked: 62, incoming_missed: 30, incoming_calls: 92, incoming_rate: 0.85, project_rate: 0.42, projects: 45, project_cpa: 23117, interviews: 30, interview_cpa: 34676, interview_rate: 66.67, offers: 11, offer_rate: 36.67, rejects: 18, cancels: 14, first_payment: 3420000, expected_revenue: 7020000, roas: 328.76 },
   { month: '2026-01-01', cost:  883157, sends:  7753, incoming_calls: 71, incoming_rate: 0.92, project_rate: 0.68, projects: 53, project_cpa: 16663, interviews: 29, interview_cpa: 30454, interview_rate: 54.72, offers: 13, offer_rate: 44.83, rejects: 17, cancels: 17, first_payment: 4736000, expected_revenue: 6736000, roas: 536.26 },
   { month: '2026-02-01', cost:  835599, sends:  6962, incoming_calls: 65, incoming_rate: 0.93, project_rate: 0.72, projects: 50, project_cpa: 16712, interviews: 37, interview_cpa: 22584, interview_rate: 74.00, offers: 13, offer_rate: 35.14, rejects: 24, cancels: 12, first_payment: 2760000, expected_revenue: 7310000, roas: 330.30 },
   { month: '2026-03-01', cost: 1120097, sends:  7925, incoming_calls: 78, incoming_rate: 0.98, project_rate: 0.69, projects: 55, project_cpa: 20365, interviews: 23, interview_cpa: 48700, interview_rate: 41.82, offers: 11, offer_rate: 47.83, rejects:  4, cancels: 21, first_payment: 1680000, expected_revenue: 3730000, roas: 149.99 },
@@ -24,11 +24,12 @@ const num = (v) => (v == null ? '—' : Number(v).toLocaleString());
 const pct = (v) => (v == null ? '—' : `${Number(v).toFixed(2)}%`);
 
 // 列定義: kind=raw(実数, 黒) / kind=derived(算出, 青背景) / clickable=trueでクリック可能セル
-const COLUMNS = [
+//   incoming_calls はヘッダクリックで 受電 / 不在 の2列に展開できる (buildColumns)
+const COLUMNS_BASE = [
   { key: 'month',           label: '期間',              kind: 'raw',     format: (v) => formatMonth(v), align: 'left' },
   { key: 'cost',            label: 'コスト',             kind: 'raw',     format: yen, align: 'right', clickable: 'cost' },
   { key: 'sends',           label: '送信数',             kind: 'raw',     format: num, align: 'right' },
-  { key: 'incoming_calls',  label: '受電数',             kind: 'raw',     format: num, align: 'right' },
+  // === ここに 受電数 系列を挿入 (buildColumns で展開分岐) ===
   { key: 'incoming_rate',   label: '受電率',             kind: 'derived', format: pct, align: 'right' },
   { key: 'projects',        label: '案件数',             kind: 'raw',     format: num, align: 'right', clickable: 'projects' },
   { key: 'project_rate',    label: '案件化率',           kind: 'derived', format: pct, align: 'right' },
@@ -45,6 +46,23 @@ const COLUMNS = [
   { key: 'expected_revenue',label: '見込売上',            kind: 'raw',     format: yen, align: 'right' },
   { key: 'roas',            label: 'ROAS',              kind: 'derived', format: pct, align: 'right' },
 ];
+
+// incomingExpanded で 受電数 を 受電/不在 の 2列に展開した COLUMNS を返す
+function buildColumns(incomingExpanded) {
+  const incomingCols = incomingExpanded
+    ? [
+        { key: 'incoming_picked', label: '受電',  kind: 'raw', format: num, align: 'right', headerToggle: 'incoming' },
+        { key: 'incoming_missed', label: '不在',  kind: 'raw', format: num, align: 'right', headerToggle: 'incoming' },
+      ]
+    : [
+        { key: 'incoming_calls',  label: '受電数', kind: 'raw', format: num, align: 'right', headerToggle: 'incoming' },
+      ];
+  const out = [...COLUMNS_BASE];
+  // 「送信数」 の直後 (index 3) に受電系を挿入
+  const sendsIdx = out.findIndex((c) => c.key === 'sends');
+  out.splice(sendsIdx + 1, 0, ...incomingCols);
+  return out;
+}
 
 function formatMonth(v) {
   if (!v) return '—';
@@ -73,6 +91,9 @@ export default function CpaPage() {
   const [costInputMonth, setCostInputMonth] = useState(null);
   // 概算単価
   const [costPerFax, setCostPerFax] = useState(9.385423213);
+  // 受電数 を 受電/不在 の 2列に展開するかどうか
+  const [incomingExpanded, setIncomingExpanded] = useState(false);
+  const COLUMNS = useMemo(() => buildColumns(incomingExpanded), [incomingExpanded]);
   // 求人詳細モーダル: {month, monthLabel, filter:'all'|'cancelled', expectedCount}
   const [jobsDetail, setJobsDetail] = useState(null);
   const [syncingJobs, setSyncingJobs] = useState(false);
@@ -256,18 +277,29 @@ export default function CpaPage() {
           <table className="w-full text-sm">
             <thead className="bg-zinc-50 border-b border-zinc-200">
               <tr>
-                {COLUMNS.map((c) => (
-                  <th
-                    key={c.key}
-                    className={[
-                      'px-3 py-2.5 text-xs font-medium uppercase tracking-wider whitespace-nowrap',
-                      c.align === 'right' ? 'text-right' : 'text-left',
-                      c.kind === 'derived' ? 'text-indigo-700 bg-indigo-50/60' : 'text-zinc-600',
-                    ].join(' ')}
-                  >
-                    {c.label}
-                  </th>
-                ))}
+                {COLUMNS.map((c) => {
+                  const isIncomingToggle = c.headerToggle === 'incoming';
+                  return (
+                    <th
+                      key={c.key}
+                      onClick={isIncomingToggle ? () => setIncomingExpanded((v) => !v) : undefined}
+                      title={isIncomingToggle ? (incomingExpanded ? 'クリックで合計表示に戻る' : 'クリックで 受電/不在 に分割') : undefined}
+                      className={[
+                        'px-3 py-2.5 text-xs font-medium uppercase tracking-wider whitespace-nowrap',
+                        c.align === 'right' ? 'text-right' : 'text-left',
+                        c.kind === 'derived' ? 'text-indigo-700 bg-indigo-50/60' : 'text-zinc-600',
+                        isIncomingToggle ? 'cursor-pointer hover:bg-indigo-100/50 select-none' : '',
+                      ].join(' ')}
+                    >
+                      {c.label}
+                      {isIncomingToggle && (
+                        <span className="ml-1 text-zinc-400 text-[10px]">
+                          {incomingExpanded ? '◀ 合計' : '▼ 分割'}
+                        </span>
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -379,7 +411,9 @@ export default function CpaPage() {
            コスト セルをクリックで月別に確定値を入力 ⇆ 概算に戻すができます。
            「送信数」 は 自社FAX(Sheets同期) + 委託FAX(下記の手入力分) の合算。
         <br />
-        ※ 「受電数」は <strong>受電報告</strong> の登録件数 (送信日 月別 COUNT、暫定算出)。 正式な算出ルールは今後調整予定。
+        ※ 「受電数」 = <strong>受電 + 不在</strong> (ヘッダクリックで 2列に展開)。
+          受電 は Zoom Phone (zp_recordings) でグーナビ系 5回線 への着信 (caller_name 数字のみ + 2ヶ月内重複除外)。
+          不在 は zp_missed_calls で 指定 7 番号 への着信 (応対者なし + 2ヶ月内重複除外)。
         <br />
         ※ 「面接数」は 面接シート + 案件シート(内定社) の <strong>求人番号 UNION</strong> 社数。
            内定はあるが面接記録に無い企業も面接数に含めます。

@@ -151,10 +151,14 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0)      AS sends,
       COALESCE(fs.sends, 0)                                           AS in_house_sends,
       COALESCE(out_.outsourced_sends, 0)                              AS outsourced_sends,
-      -- 受電数 (受電報告の件数。 算出方法は別途見直し予定 → ic サブクエリの定義を差し替えるだけでOK)
-      COALESCE(ic.incoming_calls, 0)                                  AS incoming_calls,
-      -- 受電率 = 受電数 / 送信数
-      ROUND(COALESCE(ic.incoming_calls, 0)
+      -- 受電数 = 受電 (zp_recordings) + 不在 (zp_missed_calls)
+      --   zp_picked.cnt: 5 callee_name (グーナビ系) + caller_name 数字のみ + 2ヶ月 重複排除
+      --   zp_missed.cnt: 7 callee_number (+81 形式) + accepted_by_name 空欄 + 2ヶ月 重複排除
+      COALESCE(zp_picked.cnt, 0)                                      AS incoming_picked,
+      COALESCE(zp_missed.cnt, 0)                                      AS incoming_missed,
+      COALESCE(zp_picked.cnt, 0) + COALESCE(zp_missed.cnt, 0)         AS incoming_calls,
+      -- 受電率 = 受電数 (受電+不在) / 送信数
+      ROUND((COALESCE(zp_picked.cnt, 0) + COALESCE(zp_missed.cnt, 0))
             / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
                                                                       AS incoming_rate,
       ROUND(COALESCE(jp.projects, 0)
@@ -201,6 +205,12 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
         UNION
         SELECT DATE_FORMAT(send_date, '%Y-%m-01')             AS month FROM incoming_call_reports
          WHERE send_date IS NOT NULL
+        UNION
+        SELECT DATE_FORMAT(date_time, '%Y-%m-01')             AS month FROM zp_recordings
+         WHERE direction = '着信' AND date_time IS NOT NULL
+        UNION
+        SELECT DATE_FORMAT(date_time, '%Y-%m-01')             AS month FROM zp_missed_calls
+         WHERE date_time IS NOT NULL
       ) u WHERE month IS NOT NULL
     ) m
     LEFT JOIN (
@@ -255,13 +265,50 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       FROM fax_send_stats GROUP BY 1
     ) fs ON fs.month = m.month
     LEFT JOIN (
-      -- 受電数 の暫定計算: incoming_call_reports を send_date 月で COUNT
-      -- TODO: 正式な算出方法が決まり次第このサブクエリの WHERE/集計を差し替える
-      SELECT DATE_FORMAT(send_date, '%Y-%m-01') AS month, COUNT(*) AS incoming_calls
-      FROM incoming_call_reports
-      WHERE send_date IS NOT NULL
-      GROUP BY 1
-    ) ic ON ic.month = m.month
+      -- 受電 (zp_recordings):
+      --   ① direction='着信'
+      --   ② callee_name が グーナビ系5種 (スペース無視で比較)
+      --   ③ caller_name が 半角数字のみ (電話帳に登録されていない番号 = 新規候補)
+      --   ④ caller_number で 2ヶ月以内の重複を除外 (LAG で前回着信を見て >2ヶ月 空いてれば count)
+      SELECT month, COUNT(*) AS cnt
+      FROM (
+        SELECT
+          DATE_FORMAT(date_time, '%Y-%m-01') AS month,
+          date_time,
+          LAG(date_time) OVER (PARTITION BY caller_number ORDER BY date_time) AS prev_dt
+        FROM zp_recordings
+        WHERE direction = '着信'
+          AND REPLACE(callee_name, ' ', '') IN (
+            'グーナビ0120FDM', 'グーナビFAX', 'グーナビ在庫速報',
+            'グーナビ代表番号', '特定技能グーナビ'
+          )
+          AND caller_name REGEXP '^[0-9]+$'
+      ) t
+      WHERE prev_dt IS NULL OR date_time > DATE_ADD(prev_dt, INTERVAL 2 MONTH)
+      GROUP BY month
+    ) zp_picked ON zp_picked.month = m.month
+    LEFT JOIN (
+      -- 不在 (zp_missed_calls):
+      --   ① callee_number が 7つの番号 (+81 形式) のいずれか
+      --   ② accepted_by_name が空欄 (応対者なし = 真の不在着信)
+      --   ③ caller_number で 2ヶ月以内の重複を除外
+      SELECT month, COUNT(*) AS cnt
+      FROM (
+        SELECT
+          DATE_FORMAT(date_time, '%Y-%m-01') AS month,
+          date_time,
+          LAG(date_time) OVER (PARTITION BY caller_number ORDER BY date_time) AS prev_dt
+        FROM zp_missed_calls
+        WHERE callee_number IN (
+          '+81120743142', '+81120905389', '+81120961610',
+          '+81120966791', '+81366941346', '+81366941311',
+          '+81120549547'
+        )
+        AND (accepted_by_name IS NULL OR accepted_by_name = '')
+      ) t
+      WHERE prev_dt IS NULL OR date_time > DATE_ADD(prev_dt, INTERVAL 2 MONTH)
+      GROUP BY month
+    ) zp_missed ON zp_missed.month = m.month
     LEFT JOIN (
       SELECT DATE_FORMAT(report_month, '%Y-%m-01') AS month,
         SUM(send_count) AS outsourced_sends, SUM(cost) AS outsourced_cost
