@@ -57,9 +57,18 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
   const totalExpectedRevenue = rows.reduce((a, r) => a + Number(r.expected_revenue || 0), 0);
   const totalPaymentActual = rows.reduce((a, r) => a + Number(r.payment_actual || 0), 0);
 
-  // 求人番号の DISTINCT 数 (= 内定社数の定義)
-  const distinctJobKeys = new Set(rows.map((r) => r.job_number || r.company_name || `__row${r.id}`));
-  const distinctCompanyCount = distinctJobKeys.size;
+  // 求人番号の DISTINCT 数 (= 内定社数の定義) と グループサイズ (= 1社あたりの合格人数)
+  const groupKeyOf = (r) => r.job_number || r.company_name || `__row${r.id}`;
+  const groupCount = {};
+  for (const r of rows) {
+    const k = groupKeyOf(r);
+    groupCount[k] = (groupCount[k] || 0) + 1;
+  }
+  const distinctCompanyCount = Object.keys(groupCount).length;
+  const totalPassCount = rows.length;  // 全行 = 全合格者
+  const avgPassPerCompany = distinctCompanyCount > 0
+    ? Math.round((totalPassCount / distinctCompanyCount) * 10) / 10
+    : 0;
 
   return (
     <div
@@ -82,7 +91,11 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
               / 取消・辞退も含む全件 (売上は0で記録)
               {!loading && (
                 <span className="ml-2">
-                  内定社 <strong className="text-zinc-700">{distinctCompanyCount}</strong> 社 / 候補者 {rows.length} 名
+                  内定社 <strong className="text-zinc-700">{distinctCompanyCount}</strong> 社 /
+                  合格者 <strong className="text-zinc-700">{totalPassCount}</strong> 名
+                  {distinctCompanyCount > 0 && (
+                    <span className="text-zinc-500 ml-1">(平均 {avgPassPerCompany} 名/社)</span>
+                  )}
                   {expectedCount != null && expectedCount !== distinctCompanyCount && (
                     <span className="text-amber-600 ml-1">(CPA表: {expectedCount} 社)</span>
                   )}
@@ -118,6 +131,7 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
                   <Th>案件取得日<br/><span className="text-[10px] text-zinc-400">BK列</span></Th>
                   <Th>求人番号<br/><span className="text-[10px] text-zinc-400">B列</span></Th>
                   <Th>会社名<br/><span className="text-[10px] text-zinc-400">BD列</span></Th>
+                  <Th align="right">合格人数<br/><span className="text-[10px] text-zinc-400">同求人番号 行数</span></Th>
                   <Th>登録番号<br/><span className="text-[10px] text-zinc-400">G列</span></Th>
                   <Th>営業担当<br/><span className="text-[10px] text-zinc-400">E列</span></Th>
                   <Th>業種<br/><span className="text-[10px] text-zinc-400">CF列</span></Th>
@@ -152,6 +166,11 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
                       <Td className="max-w-[200px] truncate" title={r.company_name || ''}>
                         {isGroupStart ? (r.company_name || '—') : <span className="text-zinc-300">″</span>}
                       </Td>
+                      <Td align="right" className="tabular-nums">
+                        {isGroupStart ? (
+                          <span className="font-semibold text-zinc-800">{groupCount[key]} 名</span>
+                        ) : <span className="text-zinc-300">″</span>}
+                      </Td>
                       <Td className="font-mono">{r.candidate_registration_no || '—'}</Td>
                       <Td>{r.sales_owner || '—'}</Td>
                       <Td>{isGroupStart ? (r.industry || '—') : <span className="text-zinc-300">″</span>}</Td>
@@ -164,14 +183,16 @@ export default function SalesProjectsDetailModal({ month, monthLabel, expectedCo
               </tbody>
               <tfoot className="bg-zinc-50 border-t-2 border-zinc-300 sticky bottom-0">
                 <tr className="font-semibold">
-                  <Td colSpan={8} align="right" className="text-zinc-700">
-                    内定 <strong>{distinctCompanyCount}</strong> 社 / 候補者 {rows.length} 名
+                  <Td colSpan={5} align="right" className="text-zinc-700">
+                    内定 <strong>{distinctCompanyCount}</strong> 社 / 合格者 <strong>{totalPassCount}</strong> 名
                     {rows.some((r) => r.is_cancelled || r.is_declined) && (
                       <span className="text-zinc-500 font-normal">
                         {' '}(取消 {rows.filter((r) => r.is_cancelled).length} / 辞退 {rows.filter((r) => r.is_declined).length})
                       </span>
                     )}
                   </Td>
+                  <Td align="right" className="tabular-nums">平均 {avgPassPerCompany} 名/社</Td>
+                  <Td colSpan={3} align="right" className="text-zinc-400">—</Td>
                   <Td align="right" className="tabular-nums">{yen(totalFirstPayment)}</Td>
                   <Td align="right" className="tabular-nums">{yen(totalExpectedRevenue)}</Td>
                   <Td align="right" className="tabular-nums">{yen(totalPaymentActual)}</Td>
