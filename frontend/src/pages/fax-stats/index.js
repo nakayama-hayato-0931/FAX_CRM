@@ -8,17 +8,21 @@ import { api } from '@/utils/api';
 import FaxStatsImportModal from '@/components/FaxStatsImportModal';
 
 // 期間プリセットから { from, to } の YYYY-MM-DD を返す
+//   to は 当日分が常に 0 のため 前日 を上限にする
 function computePresetRange(key) {
   const today = new Date();
+  const yesterday = new Date(today.getTime() - 86400000);
   const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   if (key === 'thisMonth') {
     const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: fmt(start), to: fmt(today) };
+    // 月初日が未来 (例: 月初に開いた場合) なら start=yesterday に合わせる
+    const startSafe = start > yesterday ? yesterday : start;
+    return { from: fmt(startSafe), to: fmt(yesterday) };
   }
   if (key === 'last3months') {
-    // 当月含む直近3ヶ月: 例 5月なら 3/1〜5/今日
+    // 当月含む直近3ヶ月: 例 5月なら 3/1〜前日
     const start = new Date(today.getFullYear(), today.getMonth() - 2, 1);
-    return { from: fmt(start), to: fmt(today) };
+    return { from: fmt(start), to: fmt(yesterday) };
   }
   // それ以外(custom含む)は空
   return { from: '', to: '' };

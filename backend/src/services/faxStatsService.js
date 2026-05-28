@@ -27,12 +27,13 @@ function excelSerialToYMD(serial) {
 async function listStats({ from, to, pcNumber } = {}) {
   const pool = getPool();
   if (!pool) return [];
-  const where = [];
+  // 当日分は必ず 0 (まだ同期が走っていない) のため常に除外
+  const where = ['stat_date < CURDATE()'];
   const params = [];
   if (from)     { where.push('stat_date >= ?'); params.push(from); }
   if (to)       { where.push('stat_date <= ?'); params.push(to); }
   if (pcNumber) { where.push('pc_number = ?');  params.push(pcNumber); }
-  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const whereSql = 'WHERE ' + where.join(' AND ');
   const [rows] = await pool.query(
     `SELECT id, stat_date, pc_number, sent_count, success_count, error_count,
             busy_count, no_answer_count, invalid_count, source, synced_at
@@ -48,11 +49,12 @@ async function listStats({ from, to, pcNumber } = {}) {
 async function getDailySummary({ from, to } = {}) {
   const pool = getPool();
   if (!pool) return [];
-  const where = [];
+  // 当日分は常に除外 (まだ集計されていないため)
+  const where = ['stat_date < CURDATE()'];
   const params = [];
   if (from) { where.push('stat_date >= ?'); params.push(from); }
   if (to)   { where.push('stat_date <= ?'); params.push(to); }
-  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const whereSql = 'WHERE ' + where.join(' AND ');
   // sent_count = 成功送信数, 試行数 = sent + error, error率 = error / (sent + error)
   const [rows] = await pool.query(
     `SELECT stat_date,
@@ -72,11 +74,12 @@ async function getDailySummary({ from, to } = {}) {
 async function getPcSummary({ from, to } = {}) {
   const pool = getPool();
   if (!pool) return [];
-  const where = [];
+  // 当日分は常に除外 (まだ集計されていないため)
+  const where = ['stat_date < CURDATE()'];
   const params = [];
   if (from) { where.push('stat_date >= ?'); params.push(from); }
   if (to)   { where.push('stat_date <= ?'); params.push(to); }
-  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const whereSql = 'WHERE ' + where.join(' AND ');
   // sent_count = 成功送信数, 試行数 = sent + error
   const [rows] = await pool.query(
     `SELECT pc_number,
