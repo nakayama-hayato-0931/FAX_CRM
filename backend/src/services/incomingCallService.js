@@ -1,6 +1,33 @@
 const { getPool, isConfigured } = require('../../config/db');
 const contactEvents = require('./contactEventService');
 
+// 本番デプロイで runtime migration が走る前に新コードが SELECT/INSERT してしまう
+// race condition への防御。 sales_owner 列が無ければ追加する。 1 度成功すれば以降は no-op。
+let _salesOwnerColumnEnsured = false;
+async function ensureSalesOwnerColumn(pool) {
+  if (_salesOwnerColumnEnsured) return;
+  try {
+    const [rows] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'incoming_call_reports'
+          AND COLUMN_NAME = 'sales_owner'`
+    );
+    if (rows.length === 0) {
+      await pool.query(
+        `ALTER TABLE incoming_call_reports
+           ADD COLUMN sales_owner VARCHAR(100) DEFAULT NULL
+             COMMENT '担当営業 (手動入力 / 自動補完)'`
+      );
+      console.log('[incomingCallService] sales_owner 列 自動追加 完了');
+    }
+    _salesOwnerColumnEnsured = true;
+  } catch (e) {
+    console.error('[incomingCallService] sales_owner 列 ensure 失敗:', e.message);
+    // 失敗時はフラグを立てずに次回再試行
+  }
+}
+
 // 新しい結果の選択肢
 //   project       ... 案件化
 //   ng            ... NG
@@ -29,6 +56,7 @@ function assertResult(r) {
 async function listReports(query = {}) {
   const pool = getPool();
   if (!pool) return { items: [], pagination: { page: 1, pageSize: 50, total: 0, totalPages: 0 } };
+  await ensureSalesOwnerColumn(pool);
   const where = [];
   const params = [];
   if (query.from)       { where.push('icr.send_date >= ?'); params.push(query.from); }
@@ -114,6 +142,7 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
   for (const it of items) assertResult(it.result);
 
   const pool = getPool();
+  await ensureSalesOwnerColumn(pool);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -239,6 +268,7 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
 async function getLastForCustomer(customerId) {
   const pool = getPool();
   if (!pool) return null;
+  await ensureSalesOwnerColumn(pool);
   const [rows] = await pool.query(
     `SELECT id, send_date, pc_number,
             manuscript_id, manuscript_folder_date, manuscript_slot,
