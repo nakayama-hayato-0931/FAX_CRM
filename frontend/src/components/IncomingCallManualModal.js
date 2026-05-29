@@ -68,6 +68,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
     sendDate: initial.sendDate || '',
     pcNumber: initial.pcNumber || '',
     candidateRegistrationNo: initial.candidateRegistrationNo || '',
+    salesOwner: initial.salesOwner || '',
     result: initial.result || 'project',
     resultDetail: '',
     respondedAt: initial.respondedAt || nowLocal,
@@ -93,9 +94,13 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
     api.get('/api/incoming-calls/last', { params: { customer_id: customer.id } })
       .then((r) => {
         const last = r.data?.data;
-        if (last?.candidate_registration_no) {
-          setForm((f) => ({ ...f, candidateRegistrationNo: last.candidate_registration_no }));
-        }
+        if (!last) return;
+        setForm((f) => ({
+          ...f,
+          candidateRegistrationNo: last.candidate_registration_no || f.candidateRegistrationNo,
+          // 担当営業も最新報告から補完 (上書きは行わない)
+          salesOwner: f.salesOwner || last.sales_owner || '',
+        }));
       })
       .catch(() => { /* ignore */ });
     // 詳細 + タイムライン
@@ -164,6 +169,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
         sendDate: form.sendDate || null,
         pcNumber: form.pcNumber || null,
         candidateRegistrationNo: form.candidateRegistrationNo || null,
+        salesOwner: form.salesOwner || null,
         result: form.result,
         resultDetail: form.resultDetail || null,
         respondedAt: form.respondedAt || null,
@@ -318,6 +324,16 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                      onChange={(e) => setForm({ ...form, candidateRegistrationNo: e.target.value })}
                      placeholder="QT4654 等"
                      className="rep-input font-mono" />
+            </Field>
+
+            <Field label="担当営業"
+                   hint={mode === 'search' && customer
+                     ? '同顧客の前回報告から自動補完 (変更可)'
+                     : '応対した営業担当者の名前 (任意)'}>
+              <input type="text" value={form.salesOwner}
+                     onChange={(e) => setForm({ ...form, salesOwner: e.target.value })}
+                     placeholder="例: 山田 / 佐藤 等"
+                     className="rep-input" />
             </Field>
 
             <Field label="結果 *">

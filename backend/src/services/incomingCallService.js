@@ -46,6 +46,7 @@ async function listReports(query = {}) {
   const [rows] = await pool.query(
     `SELECT icr.id, icr.customer_id, icr.batch_id, icr.send_date, icr.pc_number,
             icr.manuscript_folder_date, icr.manuscript_slot, icr.candidate_registration_no,
+            icr.sales_owner,
             icr.result, icr.result_detail, icr.responded_at, icr.recorded_at,
             c.company_name, c.fax_number, c.industry, c.prefecture
        FROM incoming_call_reports icr
@@ -132,13 +133,14 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
               SET result = ?, result_detail = ?, responded_at = ?,
                   send_date = ?, pc_number = ?,
                   manuscript_folder_date = ?, manuscript_slot = ?, manuscript_id = ?,
-                  candidate_registration_no = ?
+                  candidate_registration_no = ?, sales_owner = ?
             WHERE id = ?`,
           [
             it.result, it.result_detail || null, respondedAt,
             sendDate, pcNumber,
             manuscriptDate || null, manuscriptSlot || null, manuscriptId || null,
             it.candidate_registration_no || null,
+            it.sales_owner || null,
             existing[0].id,
           ]
         );
@@ -147,13 +149,13 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
           `INSERT INTO incoming_call_reports
              (customer_id, batch_id, send_date, pc_number,
               manuscript_id, manuscript_folder_date, manuscript_slot,
-              candidate_registration_no,
+              candidate_registration_no, sales_owner,
               result, result_detail, responded_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             it.customerId, batchId, sendDate, pcNumber,
             manuscriptId || null, manuscriptDate || null, manuscriptSlot || null,
-            it.candidate_registration_no || null,
+            it.candidate_registration_no || null, it.sales_owner || null,
             it.result, it.result_detail || null, respondedAt,
           ]
         );
@@ -240,7 +242,7 @@ async function getLastForCustomer(customerId) {
   const [rows] = await pool.query(
     `SELECT id, send_date, pc_number,
             manuscript_id, manuscript_folder_date, manuscript_slot,
-            candidate_registration_no,
+            candidate_registration_no, sales_owner,
             result, result_detail, responded_at, recorded_at
        FROM incoming_call_reports
       WHERE customer_id = ?
@@ -251,7 +253,7 @@ async function getLastForCustomer(customerId) {
   return rows[0] || null;
 }
 
-async function createSingle({ customerId, sendDate, pcNumber, result, resultDetail, respondedAt, batchId, manuscriptId, manuscriptDate, manuscriptSlot, candidateRegistrationNo }) {
+async function createSingle({ customerId, sendDate, pcNumber, result, resultDetail, respondedAt, batchId, manuscriptId, manuscriptDate, manuscriptSlot, candidateRegistrationNo, salesOwner }) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です'); err.status = 500; err.code = 'DB_NOT_CONFIGURED';
     throw err;
@@ -274,6 +276,7 @@ async function createSingle({ customerId, sendDate, pcNumber, result, resultDeta
       result_detail: resultDetail,
       responded_at: respondedAt,
       candidate_registration_no: candidateRegistrationNo || null,
+      sales_owner: salesOwner || null,
     }],
   });
 }

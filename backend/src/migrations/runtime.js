@@ -116,6 +116,21 @@ async function runStartupMigrations() {
     failed.push({ name: 'cpa_cost_per_fax setting', error: e.message });
   }
 
+  // ⑤a incoming_call_reports.sales_owner 列 (担当営業)
+  try {
+    if (await colExists(pool, 'incoming_call_reports', 'customer_id')
+        && !(await colExists(pool, 'incoming_call_reports', 'sales_owner'))) {
+      await pool.query(
+        `ALTER TABLE incoming_call_reports
+           ADD COLUMN sales_owner VARCHAR(100) DEFAULT NULL
+             COMMENT '担当営業 (手動入力 / 自動補完)'`
+      );
+      applied.push('incoming_call_reports.sales_owner 追加');
+    }
+  } catch (e) {
+    failed.push({ name: 'incoming_call_reports.sales_owner', error: e.message });
+  }
+
   // ⑤ users テーブル (ログイン認証)
   try {
     const [tbls] = await pool.query(

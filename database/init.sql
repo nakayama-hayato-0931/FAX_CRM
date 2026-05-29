@@ -261,6 +261,7 @@ CREATE TABLE IF NOT EXISTS incoming_call_reports (
   manuscript_folder_date DATE DEFAULT NULL,
   manuscript_slot TINYINT UNSIGNED DEFAULT NULL,
   candidate_registration_no VARCHAR(100) DEFAULT NULL COMMENT '原稿 (履歴書の登録番号)',
+  sales_owner VARCHAR(100) DEFAULT NULL COMMENT '担当営業 (手動入力 / 自動補完)',
 
   -- 結果: 案件化 / NG / リコール / 資料送付 / その他
   --   (旧 no_response/response_inquiry/response_order/refusal/invalid_number/other も後方互換)

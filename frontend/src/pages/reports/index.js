@@ -117,6 +117,7 @@ export default function ReportsIndex() {
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">FAX</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">PC</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">原稿</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">担当営業</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">結果</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">詳細</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">受電日時</th>
@@ -124,10 +125,10 @@ export default function ReportsIndex() {
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-zinc-400">読み込み中…</td></tr>
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-zinc-400">読み込み中…</td></tr>
               )}
               {!loading && items.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-zinc-400">
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-zinc-400">
                   受電報告がありません。バッチを開いて入力してください。
                 </td></tr>
               )}
@@ -145,6 +146,7 @@ export default function ReportsIndex() {
                     <td className="px-4 py-2.5 text-xs text-zinc-500">
                       {r.manuscript_folder_date ? `${r.manuscript_folder_date} / ${r.manuscript_slot}` : '—'}
                     </td>
+                    <td className="px-4 py-2.5 text-xs">{r.sales_owner || <span className="text-zinc-300">—</span>}</td>
                     <td className="px-4 py-2.5">
                       <span className={`px-2 py-0.5 text-xs rounded-full ${meta.cls}`}>{meta.label}</span>
                     </td>
@@ -198,6 +200,7 @@ function ReportDetailModal({ report, onClose, isDemo }) {
           <Row k="送信日" v={report.send_date} />
           <Row k="使用PC" v={report.pc_number} mono />
           <Row k="原稿(登録番号)" v={report.candidate_registration_no} mono />
+          <Row k="担当営業" v={report.sales_owner} />
           <Row k="原稿">
             {report.manuscript_folder_date
               ? <>{report.manuscript_folder_date} / スロット {report.manuscript_slot}</>
