@@ -82,7 +82,7 @@ router.patch('/:id(\\d+)/blacklist', async (req, res, next) => {
 router.post('/import', upload.single('file'), async (req, res, next) => {
   let p;
   try {
-    if (!req.file) return fail(res, 400, 'NO_FILE', 'CSVファイルが必要です');
+    if (!req.file) return fail(res, 400, 'NO_FILE', 'ファイル (CSV / Excel) が必要です');
     const mode = (req.body?.mode || req.query?.mode || 'new').toString();
     if (!customerImport.MODES.has(mode)) {
       return fail(res, 400, 'INVALID_INPUT', `不正な mode: ${mode} (許容: new / existing / ng)`);

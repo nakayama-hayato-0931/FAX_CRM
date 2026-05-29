@@ -36,7 +36,7 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!file) { toast.error('CSVファイルを選択してください'); return; }
+    if (!file) { toast.error('ファイルを選択してください'); return; }
     setBusy(true); setResult(null);
     try {
       const fd = new FormData();
@@ -67,7 +67,7 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-lg shadow-xl max-w-xl w-full p-6 max-h-[92vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-zinc-900">顧客マスタ CSV インポート</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">顧客マスタ インポート (CSV / Excel)</h2>
           <button className="text-zinc-400 hover:text-zinc-600 text-xl leading-none" onClick={onClose} disabled={busy}>×</button>
         </div>
 
@@ -99,12 +99,21 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
 
             {/* 対応列の説明 */}
             <div className="text-xs text-zinc-500 leading-relaxed mb-3 bg-zinc-50 border border-zinc-200 rounded p-2.5">
-              <div className="font-semibold text-zinc-700 mb-1">対応列 (自動マッピング)</div>
+              <div className="font-semibold text-zinc-700 mb-1">対応形式</div>
+              <div className="text-[11px] mb-1.5">
+                CSV (.csv) / Excel (.xls / .xlsx) — 1行目をヘッダとして自動マッピング。
+                Urizo (売り蔵) データリスト形式もそのまま取り込めます。
+              </div>
+              <div className="font-semibold text-zinc-700 mb-1 mt-2">対応列 (自動マッピング)</div>
               <code className="text-[11px] block">
-                会社名 / FAX / 電話番号 / 業種 / 都道府県 / 市区町村 / 住所 / 郵便番号 / URL / 従業員数 / 代表者 / 備考
+                会社名 / FAX / 電話番号 / 業種 / 業種詳細 / 都道府県 / 市区町村 / 住所 / 郵便番号 / URL / 従業員数 / 代表者(名) / 備考 / メモ / コメント
                 {(mode === 'ng' || mode === 'existing') && ' / NG理由'}
               </code>
-              <div className="mt-1 text-[11px]">
+              <div className="text-[11px] mt-1 text-zinc-500">
+                Urizo 補助列 (メール / データ元 / 設立日 / 売上高 / 資本金 / 担当者名 / 法人番号 / 職種 等) は備考欄に集約保存。
+                〒付き郵便番号 / 「企業全体...68人」形式の従業員数 / 都道府県無し住所 も自動正規化。
+              </div>
+              <div className="mt-2 text-[11px]">
                 {mode === 'new' && '会社名 必須。 電話/FAX は ハイフン無視 で照合。 同名別企業 (会社名のみ一致) は重複OKで新規登録。'}
                 {mode === 'existing' && '会社名 必須。 会社名 / 電話 / FAX のいずれか1つでも既存と一致したら is_blacklisted=1 に。 未一致は 「既存取引先」 理由で新規 NG 登録。'}
                 {mode === 'ng' && '会社名 必須。 会社名 / 電話 / FAX のいずれか1つでも既存と一致したら is_blacklisted=1 に。 未一致は NG 付きで新規登録。'}
@@ -112,7 +121,8 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
             </div>
 
             <input
-              type="file" accept=".csv,text/csv"
+              type="file"
+              accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
               className="block w-full text-sm border border-zinc-300 rounded-md px-3 py-2 mb-4"
               disabled={busy}

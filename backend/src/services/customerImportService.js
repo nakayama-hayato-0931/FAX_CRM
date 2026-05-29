@@ -1,9 +1,11 @@
 const fs = require('fs');
+const path = require('path');
 const csv = require('csv-parser');
+const XLSX = require('xlsx');
 const { getPool, isConfigured } = require('../../config/db');
 
 /**
- * CSV インポートの 3 モード:
+ * インポートの 3 モード:
  *   - 'new'      新規リスト    : 会社名/電話/FAX のいずれかで既存 (NG含む) と一致したらスキップ。
  *                  未一致のみ insert (is_blacklisted=0)
  *   - 'existing' 既存リスト    : 既に取引のある企業を 新規営業対象外 にする。NG とほぼ同じ
@@ -11,6 +13,16 @@ const { getPool, isConfigured } = require('../../config/db');
  *   - 'ng'       NGリスト      : 配信停止依頼などの NG 登録。一致した顧客を is_blacklisted=1
  *                  + 理由更新。未一致は NG 付きで 新規 insert。
  *                  blacklisted_reason のデフォルトは「NG」
+ *
+ * 入力形式は 自動判別:
+ *   - .csv / .txt  → csv-parser (UTF-8)
+ *   - .xls (BIFF8) → SheetJS で BIFF 解析
+ *   - .xlsx        → SheetJS で OOXML 解析
+ *
+ * Urizo (売り蔵) データリスト形式の列も そのまま取り込めるよう
+ * HEADER_ALIASES でマッピング。 自社で持っていない補助列
+ * (メール / データ元 / 設立日 / 売上高 / 資本金 / 担当者名 / 法人番号 等) は
+ * note フィールドに `ラベル: 値` 形式で集約して情報を残す。
  */
 const MODES = new Set(['new', 'existing', 'ng']);
 
@@ -19,21 +31,66 @@ const DEFAULT_REASON = {
   ng: 'NG',
 };
 
-const DEFAULT_MAPPING = {
+// 47都道府県 (住所からの抽出用)
+const PREFECTURES = [
+  '北海道',
+  '青森県','岩手県','宮城県','秋田県','山形県','福島県',
+  '茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県',
+  '新潟県','富山県','石川県','福井県','山梨県','長野県',
+  '岐阜県','静岡県','愛知県','三重県',
+  '滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県',
+  '鳥取県','島根県','岡山県','広島県','山口県',
+  '徳島県','香川県','愛媛県','高知県',
+  '福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県',
+];
+
+function extractPrefecture(address) {
+  if (!address) return null;
+  const s = String(address).trim();
+  if (!s) return null;
+  for (const pref of PREFECTURES) {
+    if (s.startsWith(pref) || s.includes(pref)) return pref;
+  }
+  const m = s.match(/^([^\s\d]+?[都道府県])/);
+  if (m && m[1].length <= 6) return m[1];
+  return null;
+}
+
+/**
+ * 入力ヘッダ → 内部キー の対応表。
+ *   '_meta_xxx' プレフィックス付きの内部キーは「DB列にはマップせず note に集約」 する印。
+ */
+const HEADER_ALIASES = {
+  // 基本列
   '会社名': 'company_name', '企業名': 'company_name', 'company_name': 'company_name',
   'FAX': 'fax_number', 'FAX番号': 'fax_number', 'fax': 'fax_number', 'fax_number': 'fax_number',
   '電話番号': 'phone_number', 'TEL': 'phone_number', 'phone': 'phone_number', 'phone_number': 'phone_number',
   '業種': 'industry', 'industry': 'industry',
+  '業種詳細': 'industry_detail',
   '都道府県': 'prefecture', 'prefecture': 'prefecture',
   '市区町村': 'city', 'city': 'city',
   '住所': 'address', 'address': 'address',
   '郵便番号': 'postal_code', 'postal_code': 'postal_code',
   'URL': 'url', 'HP': 'url', 'url': 'url',
   '従業員数': 'employee_count', 'employee_count': 'employee_count',
-  '代表者': 'representative', 'representative': 'representative',
-  '備考': 'note', 'メモ': 'note', 'note': 'note',
+  '代表者': 'representative', '代表者名': 'representative', 'representative': 'representative',
+  '備考': 'note', 'メモ': 'note', 'コメント': 'note', 'note': 'note',
   'NG理由': 'blacklisted_reason', 'ブラック理由': 'blacklisted_reason',
   'blacklisted_reason': 'blacklisted_reason',
+  // Urizo 形式の追加列 (note に集約)
+  'メール':                 '_meta_email',
+  'email':                  '_meta_email',
+  'E-mail':                 '_meta_email',
+  'データ元':               '_meta_source',
+  '設立日':                 '_meta_founded',
+  '売上高':                 '_meta_revenue',
+  '資本金':                 '_meta_capital',
+  '担当者名':               '_meta_contact',
+  'お問い合わせフォーム':   '_meta_inquiry_url',
+  '職種':                   '_meta_jobtype',
+  '法人番号':               '_meta_corporate_no',
+  '日付':                   '_meta_date',
+  '最終更新日':             '_meta_updated',
 };
 
 const VALID = new Set([
@@ -53,30 +110,116 @@ function digitsOnly(v) {
   return String(v).replace(/[^0-9]/g, '');
 }
 
-function rowToCustomer(row) {
-  const out = {};
-  for (const [k, v] of Object.entries(row)) {
-    const dbKey = DEFAULT_MAPPING[k] || DEFAULT_MAPPING[k?.trim()];
-    if (!dbKey || !VALID.has(dbKey)) continue;
-    if (v === undefined || v === null || v === '') continue;
-    if (dbKey === 'fax_number') {
-      out[dbKey] = normalizeFax(v);
-    } else if (dbKey === 'phone_number') {
-      out[dbKey] = normalizeFax(v);  // 同じ正規化 (半角数字+ハイフン除去)
-    } else if (dbKey === 'employee_count') {
-      const n = Number(String(v).replace(/[^0-9.-]/g, ''));
-      out[dbKey] = Number.isFinite(n) ? n : null;
-    } else {
-      out[dbKey] = String(v).trim();
+function normalizePostal(v) {
+  if (!v) return null;
+  // 〒 / 全角スペース / 半角スペース / ハイフン以外の記号 を除去
+  return String(v).replace(/[〒\s　]/g, '').trim() || null;
+}
+
+/**
+ * Urizo の 従業員数 列はタブ装飾 + "人" 付き ("企業全体\t\t\t\t\t\t\t68人")
+ * 数字のみ抽出して int に
+ */
+function normalizeEmployeeCount(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const s = String(v).replace(/[,，]/g, '');
+  const m = s.match(/(\d+)/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function rowToCustomer(rawRow) {
+  // 1. ヘッダを 内部キー に正規化 (未知の列は無視)
+  const norm = {};
+  const meta = [];  // Urizo の補助列を保存
+  for (const [rawK, rawV] of Object.entries(rawRow)) {
+    if (rawK == null) continue;
+    const key = String(rawK).trim();
+    const internal = HEADER_ALIASES[key];
+    if (!internal) continue;
+    if (rawV === undefined || rawV === null) continue;
+    const v = String(rawV).trim();
+    if (!v) continue;
+    if (internal.startsWith('_meta_')) {
+      meta.push(`${key}: ${v}`);
+      continue;
     }
+    norm[internal] = v;
   }
+
+  // 2. DB 列 に整形
+  const out = {};
+  if (norm.company_name) out.company_name = norm.company_name;
+  if (norm.fax_number)   out.fax_number   = normalizeFax(norm.fax_number);
+  if (norm.phone_number) out.phone_number = normalizeFax(norm.phone_number);
+  // 業種詳細 > 業種 の優先 (Urizoの業種詳細はカテゴリ抽出した文字列の傾向)
+  if (norm.industry_detail || norm.industry) {
+    out.industry = norm.industry_detail || norm.industry;
+  }
+  if (norm.prefecture) out.prefecture = norm.prefecture;
+  if (!out.prefecture && norm.address) {
+    const pref = extractPrefecture(norm.address);
+    if (pref) out.prefecture = pref;
+  }
+  if (norm.city) out.city = norm.city;
+  if (norm.address) out.address = norm.address;
+  if (norm.postal_code) out.postal_code = normalizePostal(norm.postal_code);
+  if (norm.url) out.url = norm.url;
+  if (norm.employee_count !== undefined) {
+    const n = normalizeEmployeeCount(norm.employee_count);
+    if (n !== null) out.employee_count = n;
+  }
+  if (norm.representative) out.representative = norm.representative;
+  if (norm.blacklisted_reason) out.blacklisted_reason = norm.blacklisted_reason;
+
+  // 3. note = (本文 メモ/備考) + (Urizo の補助列) を改行結合
+  const noteParts = [];
+  if (norm.note) noteParts.push(norm.note);
+  if (meta.length) noteParts.push(...meta);
+  if (noteParts.length) out.note = noteParts.join('\n');
+
   return out;
+}
+
+/**
+ * ファイルパスから rows[] を取得 (CSV / XLS / XLSX 自動判別)
+ *   元ファイル名から拡張子を推定 (multer の tmp 名には拡張子が無いため)
+ */
+async function parseFile(filePath, originalName) {
+  const ext = path.extname(originalName || filePath).toLowerCase();
+  if (ext === '.xls' || ext === '.xlsx' || ext === '.xlsm' || ext === '.xlsb') {
+    return parseExcel(filePath);
+  }
+  // それ以外 (.csv / .txt / 拡張子無し) は CSV として試行
+  return parseCsv(filePath);
+}
+
+function parseCsv(filePath) {
+  return new Promise((resolve, reject) => {
+    const rows = [];
+    fs.createReadStream(filePath)
+      .pipe(csv())
+      .on('data', (row) => rows.push(row))
+      .on('end', () => resolve(rows))
+      .on('error', reject);
+  });
+}
+
+function parseExcel(filePath) {
+  // BIFF8 .xls / OOXML .xlsx 両対応。 codepage=932 は Shift-JIS の保険
+  const wb = XLSX.readFile(filePath, { cellDates: true, codepage: 932 });
+  if (!wb.SheetNames.length) return [];
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  // raw:false → 数値/日付 もフォーマット済み文字列で取得 (列ごとに型がバラつく対策)
+  // defval:'' → 空セルも '' で揃えてキー集合を一定にする
+  return XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
 }
 
 /**
  * mode 別の取込処理
  *   1チャンク = 500件 で:
- *     - CSV 値から company_name / digits(phone) / digits(fax) を集める
+ *     - 入力値から company_name / digits(phone) / digits(fax) を集める
  *     - 既存顧客を 3 軸 OR で bulk SELECT
  *     - 各行を分類 (insert / update / skip / blacklist)
  *   ハイフン無視マッチに REGEXP_REPLACE を使用
@@ -222,6 +365,7 @@ async function processImport(rows, sourceFile, mode) {
  * 肉付けマージ: 既存に値があれば残し、空欄(NULL)だけ新値で埋める。
  *   new モードで「非NG顧客の電話/FAXと一致」したときに使う。
  *   会社名は NOT NULL なので新値で上書きしない (既存値を維持)。
+ *   note は既存があれば末尾に追記する (情報を失わないため)。
  */
 async function updateExisting(conn, id, r) {
   await conn.query(
@@ -236,13 +380,18 @@ async function updateExisting(conn, id, r) {
        url            = COALESCE(url,            ?),
        employee_count = COALESCE(employee_count, ?),
        representative = COALESCE(representative, ?),
-       note           = COALESCE(note,           ?)
+       note           = CASE
+                          WHEN ? IS NULL THEN note
+                          WHEN note IS NULL OR note = '' THEN ?
+                          ELSE CONCAT(note, '\n----\n', ?)
+                        END
      WHERE id = ?`,
     [
       r.fax_number || null, r.phone_number || null, r.industry || null,
       r.prefecture || null, r.city || null, r.address || null,
       r.postal_code || null, r.url || null, r.employee_count ?? null,
-      r.representative || null, r.note || null,
+      r.representative || null,
+      r.note || null, r.note || null, r.note || null,
       id,
     ]
   );
@@ -284,23 +433,15 @@ async function importCsv(filePath, originalName, options = {}) {
     throw err;
   }
 
-  const customers = [];
-  let totalRows = 0;
-  await new Promise((resolve, reject) => {
-    fs.createReadStream(filePath)
-      .pipe(csv())
-      .on('data', (row) => {
-        totalRows++;
-        const c = rowToCustomer(row);
-        // 全モード共通: 会社名 必須 (未マッチ時の 新規 insert で company_name が必須カラムのため)
-        if (c.company_name) customers.push(c);
-      })
-      .on('end', resolve)
-      .on('error', reject);
-  });
+  const rawRows = await parseFile(filePath, originalName);
+  const totalRows = rawRows.length;
+  const customers = rawRows
+    .map(rowToCustomer)
+    // 全モード共通: 会社名 必須 (未マッチ時の 新規 insert で company_name が必須カラムのため)
+    .filter((c) => c.company_name);
 
   const stats = await processImport(customers, originalName, mode);
   return { totalRows, validRows: customers.length, mode, ...stats };
 }
 
-module.exports = { importCsv, rowToCustomer, DEFAULT_MAPPING, MODES };
+module.exports = { importCsv, rowToCustomer, parseFile, HEADER_ALIASES, MODES };
