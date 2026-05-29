@@ -10,6 +10,22 @@ const RESULTS = [
   { v: 'other',         l: 'その他' },
 ];
 
+const RESULT_BADGE = {
+  project:          { label: '案件化',   cls: 'bg-emerald-100 text-emerald-800' },
+  ng:               { label: 'NG',       cls: 'bg-red-100 text-red-700' },
+  recall:           { label: 'リコール', cls: 'bg-sky-100 text-sky-700' },
+  material_sent:    { label: '資料送付', cls: 'bg-amber-100 text-amber-800' },
+  other:            { label: 'その他',   cls: 'bg-zinc-100 text-zinc-700' },
+  no_response:      { label: '受電なし', cls: 'bg-zinc-100 text-zinc-500' },
+  response_inquiry: { label: '問合せ',   cls: 'bg-amber-100 text-amber-800' },
+  response_order:   { label: '発注',     cls: 'bg-emerald-100 text-emerald-800' },
+  refusal:          { label: '拒否',     cls: 'bg-red-100 text-red-700' },
+  invalid_number:   { label: '番号無効', cls: 'bg-zinc-100 text-zinc-500' },
+};
+const CHANNEL_LABEL = {
+  fax: 'FAX', call: 'CALL', email: 'EMAIL', sns: 'SNS', meeting: '面談', other: 'その他',
+};
+
 // 全角数字 → 半角 + 全角ハイフン類 → 半角 + 数字/ハイフン/+ 以外を除去
 function normalizeDigit(s) {
   if (!s) return '';
@@ -33,6 +49,11 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
   const [searching, setSearching] = useState(false);
   const [candidates, setCandidates] = useState([]);
   const [customer, setCustomer] = useState(initial.customer || null);
+  // 選択した顧客の詳細 (基本情報 + アクション履歴)
+  const [customerDetail, setCustomerDetail] = useState(null);
+  const [timeline, setTimeline] = useState([]);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [timelineExpanded, setTimelineExpanded] = useState(false);
 
   // 直接入力モード用
   const [direct, setDirect] = useState({ company_name: '', fax_number: '', phone_number: '' });
@@ -56,8 +77,14 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
   // 顧客選択時:
   //   1) customers の last_sent_at / last_pc_number から 送信日 / 使用PC を補完
   //   2) その顧客の最新 incoming_call_report から 原稿(登録番号) を補完
+  //   3) 詳細 (基本情報) と アクション履歴 を取得して 上部パネルに表示
   useEffect(() => {
-    if (!customer) return;
+    if (!customer) {
+      setCustomerDetail(null);
+      setTimeline([]);
+      setTimelineExpanded(false);
+      return;
+    }
     setForm((f) => ({
       ...f,
       sendDate: customer.last_sent_at ? new Date(customer.last_sent_at).toISOString().slice(0, 10) : f.sendDate,
@@ -71,6 +98,18 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
         }
       })
       .catch(() => { /* ignore */ });
+    // 詳細 + タイムライン
+    setLoadingDetail(true);
+    setCustomerDetail(null);
+    setTimeline([]);
+    setTimelineExpanded(false);
+    Promise.all([
+      api.get(`/api/customers/${customer.id}`).catch(() => ({ data: { data: null } })),
+      api.get(`/api/customers/${customer.id}/timeline`, { params: { limit: 50 } }).catch(() => ({ data: { data: [] } })),
+    ]).then(([d, t]) => {
+      setCustomerDetail(d.data?.data || null);
+      setTimeline(t.data?.data || []);
+    }).finally(() => setLoadingDetail(false));
   }, [customer]);
 
   // 顧客検索 (q が 2文字以上で 300ms debounce)
@@ -155,15 +194,15 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
-        <form onSubmit={submit}>
-          <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200">
+      <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <form onSubmit={submit} className="flex flex-col flex-1 overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 flex-shrink-0">
             <h2 className="text-lg font-semibold text-zinc-900">受電報告 手動入力</h2>
             <button type="button" onClick={onClose} disabled={busy}
-                    className="text-zinc-400 hover:text-zinc-600 text-xl leading-none">✕</button>
+                    className="text-zinc-400 hover:text-zinc-600 text-xl leading-none">×</button>
           </div>
 
-          <div className="p-6 space-y-4">
+          <div className="p-6 space-y-4 overflow-auto flex-1">
             {/* 顧客 — モード切替 */}
             <div>
               <div className="text-xs font-medium text-zinc-700 mb-1.5">顧客 *</div>
@@ -184,17 +223,15 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
 
               {mode === 'search' && (
                 customer ? (
-                  <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded px-3 py-2">
-                    <div>
-                      <div className="font-medium">{customer.company_name}</div>
-                      <div className="text-xs text-zinc-600">
-                        {customer.fax_number ? `FAX: ${customer.fax_number}` : ''}
-                        {customer.phone_number ? ` / 電話: ${customer.phone_number}` : ''}
-                      </div>
-                    </div>
-                    <button type="button" onClick={() => setCustomer(null)}
-                            className="text-xs text-indigo-700 hover:underline">変更</button>
-                  </div>
+                  <SelectedCustomerPanel
+                    customer={customer}
+                    detail={customerDetail}
+                    timeline={timeline}
+                    timelineExpanded={timelineExpanded}
+                    onToggleTimeline={() => setTimelineExpanded((v) => !v)}
+                    loading={loadingDetail}
+                    onChange={() => setCustomer(null)}
+                  />
                 ) : (
                   <>
                     <input type="text" value={query}
@@ -308,7 +345,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
             </Field>
           </div>
 
-          <div className="px-6 py-3 border-t border-zinc-200 flex justify-end gap-2">
+          <div className="px-6 py-3 border-t border-zinc-200 flex justify-end gap-2 flex-shrink-0">
             <button type="button" onClick={onClose} disabled={busy}
                     className="px-4 py-1.5 text-sm bg-white border border-zinc-300 rounded hover:bg-zinc-50">
               キャンセル
@@ -338,5 +375,147 @@ function Field({ label, hint, children }) {
       {hint && <span className="block text-[11px] text-zinc-500 mb-1.5">{hint}</span>}
       {children}
     </label>
+  );
+}
+
+function fmtDate(v)     { if (!v) return '—'; try { return new Date(v).toLocaleDateString('ja-JP'); } catch (_) { return String(v).slice(0, 10); } }
+function fmtDateTime(v) { if (!v) return '—'; try { return new Date(v).toLocaleString('ja-JP', { hour12: false }); } catch (_) { return String(v); } }
+
+function SelectedCustomerPanel({ customer, detail, timeline, timelineExpanded, onToggleTimeline, loading, onChange }) {
+  // detail があれば優先 (より新鮮)、無ければ customer (検索結果) を使う
+  const d = detail || customer;
+  const isBL = !!d.is_blacklisted;
+  const sendCount = Number(d.send_count || 0);
+  const responseCount = Number(d.response_count || 0);
+  const callCount = (timeline || []).filter((e) => e.channel === 'call').length;
+  const faxEventCount = (timeline || []).filter((e) => e.channel === 'fax').length;
+
+  return (
+    <div className="bg-indigo-50/60 border border-indigo-200 rounded">
+      {/* ヘッダ: 会社名 + 変更ボタン */}
+      <div className="flex items-start justify-between px-3 py-2 border-b border-indigo-100">
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-zinc-900 truncate">{d.company_name}</div>
+          <div className="text-xs text-zinc-600 mt-0.5">
+            {d.fax_number && <>FAX: <span className="font-mono">{d.fax_number}</span>{' '}</>}
+            {d.phone_number && <>/ 電話: <span className="font-mono">{d.phone_number}</span></>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+          {isBL && (
+            <span className="px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-700 font-medium" title={d.blacklisted_reason || ''}>
+              ブラック ({d.blacklisted_reason || '—'})
+            </span>
+          )}
+          <button type="button" onClick={onChange}
+                  className="text-xs text-indigo-700 hover:underline">変更</button>
+        </div>
+      </div>
+
+      {/* 主要メタ + KPI */}
+      <div className="px-3 py-2 grid grid-cols-3 gap-x-3 gap-y-1 text-[11px]">
+        <Cell k="業種カテゴリ" v={d.industry_category} />
+        <Cell k="業種(詳細)"   v={d.industry} />
+        <Cell k="都道府県"     v={d.prefecture} />
+        <Cell k="市区町村"     v={d.city} />
+        <Cell k="代表者"       v={d.representative} />
+        <Cell k="従業員数"     v={d.employee_count} />
+        <Cell k="郵便番号"     v={d.postal_code} />
+        <Cell k="ソース"       v={d.source_file} />
+        <Cell k="callcenter ID" v={d.external_callcenter_id} />
+      </div>
+      {d.address && (
+        <div className="px-3 pb-2 text-[11px]">
+          <span className="text-zinc-500">住所:</span>{' '}
+          <span className="text-zinc-800">{d.address}</span>
+        </div>
+      )}
+      {d.url && (
+        <div className="px-3 pb-2 text-[11px]">
+          <span className="text-zinc-500">URL:</span>{' '}
+          <a href={d.url} target="_blank" rel="noreferrer" className="text-indigo-700 hover:underline break-all">{d.url}</a>
+        </div>
+      )}
+
+      {/* KPI バー */}
+      <div className="px-3 py-2 border-t border-indigo-100 grid grid-cols-4 gap-2 text-[11px]">
+        <Kpi k="累計送信回数" v={sendCount.toLocaleString()} />
+        <Kpi k="架電イベント" v={callCount} />
+        <Kpi k="反応回数" v={responseCount} highlight={responseCount > 0} />
+        <Kpi k="直近結果" v={d.last_result ? (RESULT_BADGE[d.last_result]?.label || d.last_result) : '—'} />
+      </div>
+
+      {/* 直近送信 / 直近 PC */}
+      <div className="px-3 pb-2 text-[11px] text-zinc-600 flex flex-wrap gap-x-4 gap-y-0.5">
+        <span>直近送信日: {fmtDate(d.last_sent_at)}</span>
+        <span>直近PC: <span className="font-mono">{d.last_pc_number || '—'}</span></span>
+      </div>
+
+      {/* タイムライン (折りたたみ) */}
+      <div className="border-t border-indigo-100">
+        <button type="button" onClick={onToggleTimeline}
+                className="w-full text-left px-3 py-1.5 text-xs text-zinc-700 hover:bg-indigo-100/60 flex items-center justify-between">
+          <span>
+            <span className="font-medium">過去アクション履歴</span>
+            {!loading && <span className="ml-1 text-zinc-500">({(timeline || []).length} 件)</span>}
+          </span>
+          <span className="text-zinc-400 text-[10px]">{timelineExpanded ? '▲ 隠す' : '▼ 表示'}</span>
+        </button>
+        {timelineExpanded && (
+          <div className="px-3 pb-2 max-h-60 overflow-auto">
+            {loading ? (
+              <div className="text-xs text-zinc-400 py-4 text-center">読み込み中…</div>
+            ) : (timeline || []).length === 0 ? (
+              <div className="text-xs text-zinc-400 py-4 text-center">アクション履歴なし</div>
+            ) : (
+              <ul className="space-y-1">
+                {timeline.map((ev) => {
+                  const evBadge = RESULT_BADGE[ev.event_type] || RESULT_BADGE[ev.result_label] || null;
+                  return (
+                    <li key={ev.id} className="bg-white border border-zinc-200 rounded px-2 py-1.5 text-[11px]">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="px-1.5 py-0.5 bg-zinc-100 text-zinc-700 rounded text-[10px] font-mono">{CHANNEL_LABEL[ev.channel] || ev.channel}</span>
+                        {evBadge ? (
+                          <span className={`px-1.5 py-0.5 text-[10px] rounded ${evBadge.cls}`}>{evBadge.label}</span>
+                        ) : (
+                          <span className="text-zinc-700 font-medium">{ev.event_type}</span>
+                        )}
+                        <span className="text-zinc-500 ml-auto">{fmtDateTime(ev.occurred_at)}</span>
+                      </div>
+                      <div className="text-zinc-600 mt-0.5 flex flex-wrap gap-x-3">
+                        {ev.pc_number && <span>PC: <span className="font-mono">{ev.pc_number}</span></span>}
+                        {ev.manuscript_slot != null && <span>原稿: {ev.manuscript_folder_date} / {ev.manuscript_slot}</span>}
+                        {ev.operator_name && <span>担当: {ev.operator_name}</span>}
+                        {ev.source_system && <span className="text-zinc-400">[{ev.source_system}]</span>}
+                      </div>
+                      {ev.memo && <div className="text-zinc-700 mt-0.5 truncate" title={ev.memo}>{ev.memo}</div>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Cell({ k, v }) {
+  return (
+    <div className="flex gap-1.5 min-w-0">
+      <span className="text-zinc-500 flex-shrink-0">{k}:</span>
+      <span className="text-zinc-800 truncate" title={v == null || v === '' ? '' : String(v)}>
+        {v == null || v === '' ? <span className="text-zinc-300">—</span> : String(v)}
+      </span>
+    </div>
+  );
+}
+function Kpi({ k, v, highlight }) {
+  return (
+    <div className="bg-white border border-zinc-200 rounded px-2 py-1">
+      <div className="text-[9px] text-zinc-500">{k}</div>
+      <div className={`text-sm font-semibold ${highlight ? 'text-emerald-700' : 'text-zinc-800'}`}>{v}</div>
+    </div>
   );
 }
