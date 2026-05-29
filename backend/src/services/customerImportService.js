@@ -99,9 +99,22 @@ const VALID = new Set([
   'employee_count', 'representative', 'note', 'blacklisted_reason',
 ]);
 
+/**
+ * FAX / 電話 を正規化。 数字 + プラスのみ残す。
+ * 「未入力プレースホルダ」は null 化 (これを残すと UNIQUE 制約に衝突):
+ *   - 全部 0 (例: 0000000000)
+ *   - 全部同じ数字 (例: 1111111111)
+ *   - 9 桁未満 (日本国内の電話/FAXは最短でも 9 桁)
+ */
 function normalizeFax(v) {
   if (!v) return null;
-  return String(v).replace(/[^0-9+]/g, '').trim() || null;
+  const s = String(v).replace(/[^0-9+]/g, '').trim();
+  if (!s) return null;
+  const digits = s.replace(/\+/g, '');
+  if (/^0+$/.test(digits)) return null;
+  if (/^(\d)\1+$/.test(digits)) return null;
+  if (digits.length < 9) return null;
+  return s;
 }
 
 /** マッチング用に数字のみ抽出 (ハイフン無視) */
