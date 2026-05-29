@@ -41,6 +41,28 @@ function verifyToken(token) {
 }
 
 /**
+ * users テーブル無し環境でも 落ちないように 起動マイグ前 / マイグ失敗時に
+ * インラインで CREATE TABLE IF NOT EXISTS を実行する (冪等)。
+ */
+async function ensureUsersTable(pool) {
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS users (
+       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+       username VARCHAR(50) NOT NULL,
+       password_hash VARCHAR(255) NOT NULL COMMENT 'bcrypt ハッシュ',
+       display_name VARCHAR(100) DEFAULT NULL,
+       role VARCHAR(20) NOT NULL DEFAULT 'sales' COMMENT 'admin / sales',
+       is_active TINYINT(1) NOT NULL DEFAULT 1,
+       last_login_at DATETIME DEFAULT NULL,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+       UNIQUE KEY uk_users_username (username),
+       INDEX idx_users_role (role)
+     ) ENGINE=InnoDB COMMENT='ユーザー (ログイン認証)'`
+  );
+}
+
+/**
  * ログイン: username + password で認証 → JWT トークンを返す
  */
 async function login(username, password) {
@@ -52,6 +74,9 @@ async function login(username, password) {
     err.status = 400; err.code = 'MISSING_CREDENTIALS'; throw err;
   }
   const pool = getPool();
+  // 起動時マイグ未適用環境向け 防御策: テーブル を保証 + admin が 0 人なら初期作成
+  await ensureUsersTable(pool);
+  try { await bootstrapInitialAdmin(); } catch (_e) { /* no-op */ }
   const [rows] = await pool.query(
     `SELECT id, username, password_hash, display_name, role, is_active
        FROM users WHERE username = ? LIMIT 1`,
@@ -91,6 +116,7 @@ async function login(username, password) {
 async function bootstrapInitialAdmin() {
   if (!isConfigured()) return { skipped: true };
   const pool = getPool();
+  await ensureUsersTable(pool);  // テーブル未作成環境向け 防御
   const [cnt] = await pool.query(`SELECT COUNT(*) AS c FROM users`);
   if (Number(cnt[0]?.c || 0) > 0) return { skipped: true, reason: 'users already exist' };
 
