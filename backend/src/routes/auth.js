@@ -15,6 +15,31 @@ router.post('/login', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/auth/guest-sales
+//   パスワード不要で 受電報告 専用の ゲスト sales トークンを発行。
+//   ログイン画面で 「受電報告」 ボタンを押した時に呼び出される。
+//   DB の users レコードは作らない (sub=0, username='guest_sales')。
+router.post('/guest-sales', (_req, res, next) => {
+  try {
+    const guestUser = {
+      id: 0,
+      username: 'guest_sales',
+      role: 'sales',
+      display_name: '受電報告 ゲスト',
+    };
+    const token = auth.signToken(guestUser);
+    return ok(res, {
+      token,
+      user: {
+        id: 0,
+        username: 'guest_sales',
+        display_name: '受電報告 ゲスト',
+        role: 'sales',
+      },
+    });
+  } catch (e) { next(e); }
+});
+
 // GET /api/auth/me  現在のログインユーザー
 router.get('/me', requireAuth, async (req, res) => {
   return ok(res, { user: req.user });

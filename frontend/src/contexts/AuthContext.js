@@ -40,6 +40,17 @@ export function AuthProvider({ children }) {
     return u;
   }, []);
 
+  // 受電報告 専用のゲスト sales としてログイン (パスワード不要)
+  const loginAsGuestSales = useCallback(async () => {
+    const { data } = await api.post('/api/auth/guest-sales');
+    const token = data.data?.token;
+    const u = data.data?.user;
+    if (!token || !u) throw new Error('ゲストログイン 応答が不正');
+    setAuthToken(token);
+    setUser(u);
+    return u;
+  }, []);
+
   const logout = useCallback(() => {
     setAuthToken(null);
     setUser(null);
@@ -51,6 +62,7 @@ export function AuthProvider({ children }) {
     loading,
     isAdmin: user?.role === 'admin',
     login,
+    loginAsGuestSales,
     logout,
     refresh,
   };
