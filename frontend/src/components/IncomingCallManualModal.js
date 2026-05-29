@@ -134,6 +134,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
   const submit = async (e) => {
     e.preventDefault();
     if (!form.respondedAt) { toast.error('受電日時 は必須'); return; }
+    if (!form.salesOwner || !form.salesOwner.trim()) { toast.error('担当営業 は必須'); return; }
     if (!form.result)      { toast.error('結果 は必須'); return; }
 
     let customerId = customer?.id;
@@ -326,11 +327,11 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                      className="rep-input font-mono" />
             </Field>
 
-            <Field label="担当営業"
+            <Field label="担当営業 *"
                    hint={mode === 'search' && customer
                      ? '同顧客の前回報告から自動補完 (変更可)'
-                     : '応対した営業担当者の名前 (任意)'}>
-              <input type="text" value={form.salesOwner}
+                     : '応対した営業担当者の名前'}>
+              <input type="text" required value={form.salesOwner}
                      onChange={(e) => setForm({ ...form, salesOwner: e.target.value })}
                      placeholder="例: 山田 / 佐藤 等"
                      className="rep-input" />
@@ -367,8 +368,10 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
               キャンセル
             </button>
             <button type="submit"
-                    disabled={busy || (mode === 'search' && !customer) ||
-                              (mode === 'direct' && !direct.company_name.trim() && !direct.fax_number && !direct.phone_number)}
+                    disabled={busy
+                              || !form.salesOwner || !form.salesOwner.trim()
+                              || (mode === 'search' && !customer)
+                              || (mode === 'direct' && !direct.company_name.trim() && !direct.fax_number && !direct.phone_number)}
                     className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
               {busy ? '保存中…' : '保存'}
             </button>
