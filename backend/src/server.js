@@ -36,6 +36,10 @@ const morgan = require('morgan');
 const { ping, isConfigured } = require('../config/db');
 const { runStartupMigrations } = require('./migrations/runtime');
 const { notFound, errorHandler, attachRequestId } = require('./middlewares/errorHandler');
+const { requireAuth } = require('./middlewares/auth');
+const authSvc = require('./services/authService');
+const authRouter = require('./routes/auth');
+const usersRouter = require('./routes/users');
 const cpaRouter = require('./routes/cpa');
 const customersRouter = require('./routes/customers');
 const batchesRouter = require('./routes/batches');
@@ -65,19 +69,25 @@ app.get('/api/health', async (_req, res) => {
   res.json({ status: 'ok', db, uptime: process.uptime(), env: process.env.NODE_ENV });
 });
 
-app.use('/api/cpa', cpaRouter);
-app.use('/api/customers', customersRouter);
-app.use('/api/batches', batchesRouter);
-app.use('/api/manuscripts', manuscriptsRouter);
-app.use('/api/incoming-calls', incomingCallsRouter);
-app.use('/api/fax-stats', faxStatsRouter);
-app.use('/api/settings', settingsRouter);
-app.use('/api/contact-events', contactEventsRouter);
-app.use('/api/outsourced-fax', outsourcedFaxRouter);
-app.use('/api/sales-projects', salesProjectsRouter);
-app.use('/api/interviews', interviewsRouter);
-app.use('/api/job-postings', jobPostingsRouter);
-app.use('/api/manuscript-contents', manuscriptContentsRouter);
+// 認証 不要 (ログイン と health のみ)
+app.use('/api/auth', authRouter);
+
+// 以下、全 API ルートに requireAuth を適用
+//   ※ requireAuth は DISABLE_AUTH=1 環境変数で バイパス可能 (開発用)
+app.use('/api/users', usersRouter);  // 内部で requireRole('admin')
+app.use('/api/cpa', requireAuth, cpaRouter);
+app.use('/api/customers', requireAuth, customersRouter);
+app.use('/api/batches', requireAuth, batchesRouter);
+app.use('/api/manuscripts', requireAuth, manuscriptsRouter);
+app.use('/api/incoming-calls', requireAuth, incomingCallsRouter);
+app.use('/api/fax-stats', requireAuth, faxStatsRouter);
+app.use('/api/settings', requireAuth, settingsRouter);
+app.use('/api/contact-events', requireAuth, contactEventsRouter);
+app.use('/api/outsourced-fax', requireAuth, outsourcedFaxRouter);
+app.use('/api/sales-projects', requireAuth, salesProjectsRouter);
+app.use('/api/interviews', requireAuth, interviewsRouter);
+app.use('/api/job-postings', requireAuth, jobPostingsRouter);
+app.use('/api/manuscript-contents', requireAuth, manuscriptContentsRouter);
 
 app.use(notFound);
 app.use(errorHandler);
@@ -101,5 +111,13 @@ app.listen(PORT, async () => {
     }
   } catch (e) {
     console.error('[migrations] 起動時マイグレーション失敗:', e.message);
+  }
+
+  // 初期 admin ユーザー ブートストラップ
+  try {
+    const r = await authSvc.bootstrapInitialAdmin();
+    if (r.created) console.log(`[auth] initial admin created: ${r.username}`);
+  } catch (e) {
+    console.error('[auth] 初期 admin 作成失敗:', e.message);
   }
 });

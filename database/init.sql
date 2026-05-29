@@ -131,6 +131,24 @@ ALTER TABLE interview_records
     COMMENT 'NQ列: 合格者数 (NULL=空欄 / 0=明示ゼロ)';
 
 -- --------------------------------------------
+-- ユーザー (ログイン認証 + ロール)
+--   role: 'admin' = 全機能 + ユーザー管理 / 'sales' = 受電報告のみ
+-- --------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(50) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL COMMENT 'bcrypt ハッシュ',
+  display_name VARCHAR(100) DEFAULT NULL,
+  role VARCHAR(20) NOT NULL DEFAULT 'sales' COMMENT 'admin / sales',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  last_login_at DATETIME DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_users_username (username),
+  INDEX idx_users_role (role)
+) ENGINE=InnoDB COMMENT='ユーザー (ログイン認証)';
+
+-- --------------------------------------------
 -- CPA 月別コスト (確定版)
 --   未入力月は 送信数 × cpa_cost_per_fax (端数切捨て) で 概算 を自動算出する
 -- --------------------------------------------

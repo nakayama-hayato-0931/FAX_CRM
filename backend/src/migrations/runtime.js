@@ -116,6 +116,34 @@ async function runStartupMigrations() {
     failed.push({ name: 'cpa_cost_per_fax setting', error: e.message });
   }
 
+  // ⑤ users テーブル (ログイン認証)
+  try {
+    const [tbls] = await pool.query(
+      `SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' LIMIT 1`
+    );
+    if (tbls.length === 0) {
+      await pool.query(
+        `CREATE TABLE users (
+           id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+           username VARCHAR(50) NOT NULL,
+           password_hash VARCHAR(255) NOT NULL COMMENT 'bcrypt ハッシュ',
+           display_name VARCHAR(100) DEFAULT NULL,
+           role VARCHAR(20) NOT NULL DEFAULT 'sales' COMMENT 'admin / sales',
+           is_active TINYINT(1) NOT NULL DEFAULT 1,
+           last_login_at DATETIME DEFAULT NULL,
+           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+           UNIQUE KEY uk_users_username (username),
+           INDEX idx_users_role (role)
+         ) ENGINE=InnoDB COMMENT='ユーザー (ログイン認証)'`
+      );
+      applied.push('users テーブル作成');
+    }
+  } catch (e) {
+    failed.push({ name: 'users CREATE', error: e.message });
+  }
+
   return { applied, failed };
 }
 

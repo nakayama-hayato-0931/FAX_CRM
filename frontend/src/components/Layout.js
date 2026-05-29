@@ -1,20 +1,25 @@
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import ChangePasswordModal from '@/components/ChangePasswordModal';
 
-const NAV = [
+const NAV_ALL = [
   { href: '/', label: 'ホーム' },
   { href: '/customers', label: '顧客マスタ' },
   { href: '/lists', label: 'リスト抽出' },
-  { href: '/scripts', label: '原稿管理' },         // 新: PDF登録 + メタデータ + 使用記録
-  { href: '/manuscripts', label: 'ドライブ格納' },  // 旧「原稿管理」: Drive フォルダスロット管理
+  { href: '/scripts', label: '原稿管理' },
+  { href: '/manuscripts', label: 'ドライブ格納' },
   { href: '/reports', label: '受電報告' },
   { href: '/fax-stats', label: 'FAX送信実績' },
   { href: '/cpa', label: 'CPA指標' },
   { href: '/settings', label: '設定' },
+  { href: '/admin/users', label: 'ユーザー管理', adminOnly: true },
 ];
 
-const FUTURE = [];
+// 営業ロールが見える項目だけに絞る
+const NAV_SALES_ALLOWED = new Set(['/reports']);
 
 function isActive(pathname, href) {
   if (href === '/') return pathname === '/';
@@ -23,6 +28,15 @@ function isActive(pathname, href) {
 
 export default function Layout({ children }) {
   const { pathname } = useRouter();
+  const { user, isAdmin, logout } = useAuth();
+  const [showPwModal, setShowPwModal] = useState(false);
+
+  const nav = NAV_ALL.filter((n) => {
+    if (n.adminOnly && !isAdmin) return false;
+    if (!isAdmin && !NAV_SALES_ALLOWED.has(n.href)) return false;
+    return true;
+  });
+
   return (
     <>
       <Head>
@@ -37,47 +51,44 @@ export default function Layout({ children }) {
           </div>
 
           <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-            <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider px-2 py-1">
-              実装済み
-            </div>
-            {NAV.map((n) => {
+            {nav.map((n) => {
               const active = isActive(pathname, n.href);
               return (
-                <Link
-                  key={n.href}
-                  href={n.href}
-                  className={[
-                    'block px-3 py-2 rounded-md text-sm transition',
-                    active
-                      ? 'bg-indigo-50 text-indigo-700 font-medium'
-                      : 'text-zinc-700 hover:bg-zinc-50',
-                  ].join(' ')}
-                >
+                <Link key={n.href} href={n.href}
+                      className={[
+                        'block px-3 py-2 rounded-md text-sm transition',
+                        active ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-zinc-700 hover:bg-zinc-50',
+                      ].join(' ')}>
                   {n.label}
+                  {n.adminOnly && (
+                    <span className="ml-1 text-[9px] text-amber-600 bg-amber-50 px-1 rounded align-middle">管理者</span>
+                  )}
                 </Link>
               );
             })}
-
-            {FUTURE.length > 0 && (
-              <>
-                <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider px-2 pt-4 pb-1">
-                  これから実装
-                </div>
-                {FUTURE.map((label) => (
-                  <div
-                    key={label}
-                    className="px-3 py-2 text-sm text-zinc-400 cursor-not-allowed select-none"
-                    title="未実装"
-                  >
-                    {label}
-                  </div>
-                ))}
-              </>
-            )}
           </nav>
 
-          <div className="px-5 py-3 border-t border-zinc-200 text-[11px] text-zinc-400">
-            v0.1.0
+          {/* ユーザー情報 + ログアウト */}
+          <div className="px-3 py-3 border-t border-zinc-200">
+            {user && (
+              <div className="text-xs text-zinc-600 mb-2 px-2">
+                <div className="font-medium text-zinc-800 truncate">
+                  {user.display_name || user.username}
+                </div>
+                <div className="text-[10px] text-zinc-500">
+                  {user.role === 'admin' ? '管理者' : '営業'} ({user.username})
+                </div>
+              </div>
+            )}
+            <button onClick={() => setShowPwModal(true)}
+                    className="w-full text-left text-xs text-zinc-600 hover:text-indigo-700 px-2 py-1 rounded">
+              パスワード変更
+            </button>
+            <button onClick={logout}
+                    className="w-full text-left text-xs text-zinc-600 hover:text-red-700 px-2 py-1 rounded">
+              ログアウト
+            </button>
+            <div className="px-2 pt-2 text-[10px] text-zinc-400">v0.1.0</div>
           </div>
         </aside>
 
@@ -85,6 +96,10 @@ export default function Layout({ children }) {
           <div className="px-8 py-6 max-w-[1500px] mx-auto">{children}</div>
         </main>
       </div>
+
+      {showPwModal && (
+        <ChangePasswordModal onClose={() => setShowPwModal(false)} />
+      )}
     </>
   );
 }
