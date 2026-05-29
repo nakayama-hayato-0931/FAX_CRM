@@ -79,6 +79,18 @@ router.patch('/:id(\\d+)/blacklist', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/customers/recategorize?mode=missing|all
+//   全顧客の industry_category を industry/note から再算出する admin 操作
+//   - mode=missing (default): NULL / 'その他' の行のみ対象
+//   - mode=all              : 全件強制で上書き
+router.post('/recategorize', async (req, res, next) => {
+  try {
+    const mode = req.query.mode === 'all' ? 'all' : 'missing';
+    const result = await customerService.recategorizeIndustries({ mode });
+    return ok(res, result);
+  } catch (e) { next(e); }
+});
+
 router.post('/import', upload.single('file'), async (req, res, next) => {
   let p;
   try {

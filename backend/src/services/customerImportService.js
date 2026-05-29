@@ -3,6 +3,7 @@ const path = require('path');
 const csv = require('csv-parser');
 const XLSX = require('xlsx');
 const { getPool, isConfigured } = require('../../config/db');
+const { normalizeIndustry } = require('../utils/industryCategory');
 
 /**
  * インポートの 3 モード:
@@ -94,7 +95,7 @@ const HEADER_ALIASES = {
 };
 
 const VALID = new Set([
-  'company_name', 'fax_number', 'phone_number', 'industry',
+  'company_name', 'fax_number', 'phone_number', 'industry', 'industry_category',
   'prefecture', 'city', 'address', 'postal_code', 'url',
   'employee_count', 'representative', 'note', 'blacklisted_reason',
 ]);
@@ -191,6 +192,20 @@ function rowToCustomer(rawRow) {
   if (norm.note) noteParts.push(norm.note);
   if (meta.length) noteParts.push(...meta);
   if (noteParts.length) out.note = noteParts.join('\n');
+
+  // 4. 業種カテゴリ を自動判定 (2 段階)
+  //    (a) まず 業種 / 業種詳細 だけで判定 (Urizo の 「業種」 は構造化された
+  //        カテゴリ名 「コンビニエンスストア, 各種商品小売業」 等で 信頼性が高い)
+  //    (b) 上記で 「その他」 になった時のみ コメント本文 に fallback
+  //
+  //    note に集約される 職種 (募集職種) は意図的に外す:
+  //      例) 食品工場が 介護スタッフ を募集 → 業種は 製造 のままにしたい
+  const primaryCorpus = [norm.industry, norm.industry_detail].filter(Boolean).join(' ');
+  let cat = normalizeIndustry(primaryCorpus);
+  if (cat === 'その他' && norm.note) {
+    cat = normalizeIndustry(`${primaryCorpus} ${norm.note}`);
+  }
+  out.industry_category = cat;
 
   return out;
 }
@@ -381,26 +396,34 @@ async function processImport(rows, sourceFile, mode) {
  *   note は既存があれば末尾に追記する (情報を失わないため)。
  */
 async function updateExisting(conn, id, r) {
+  // industry_category は 「未分類 / その他 だった行は新値で上書き」 (運用上の改善)、
+  // 既に明示カテゴリ (飲食/製造/...) が入っているものは尊重する
   await conn.query(
     `UPDATE customers SET
-       fax_number     = COALESCE(fax_number,     ?),
-       phone_number   = COALESCE(phone_number,   ?),
-       industry       = COALESCE(industry,       ?),
-       prefecture     = COALESCE(prefecture,     ?),
-       city           = COALESCE(city,           ?),
-       address        = COALESCE(address,        ?),
-       postal_code    = COALESCE(postal_code,    ?),
-       url            = COALESCE(url,            ?),
-       employee_count = COALESCE(employee_count, ?),
-       representative = COALESCE(representative, ?),
-       note           = CASE
-                          WHEN ? IS NULL THEN note
-                          WHEN note IS NULL OR note = '' THEN ?
-                          ELSE CONCAT(note, '\n----\n', ?)
-                        END
+       fax_number        = COALESCE(fax_number,     ?),
+       phone_number      = COALESCE(phone_number,   ?),
+       industry          = COALESCE(industry,       ?),
+       industry_category = CASE
+                             WHEN industry_category IS NULL OR industry_category = '' OR industry_category = 'その他'
+                               THEN COALESCE(?, industry_category)
+                             ELSE industry_category
+                           END,
+       prefecture        = COALESCE(prefecture,     ?),
+       city              = COALESCE(city,           ?),
+       address           = COALESCE(address,        ?),
+       postal_code       = COALESCE(postal_code,    ?),
+       url               = COALESCE(url,            ?),
+       employee_count    = COALESCE(employee_count, ?),
+       representative    = COALESCE(representative, ?),
+       note              = CASE
+                             WHEN ? IS NULL THEN note
+                             WHEN note IS NULL OR note = '' THEN ?
+                             ELSE CONCAT(note, '\n----\n', ?)
+                           END
      WHERE id = ?`,
     [
       r.fax_number || null, r.phone_number || null, r.industry || null,
+      r.industry_category || null,
       r.prefecture || null, r.city || null, r.address || null,
       r.postal_code || null, r.url || null, r.employee_count ?? null,
       r.representative || null,
@@ -416,13 +439,15 @@ async function insertSingle(conn, r, { sourceFile, blacklist, reason }) {
     : (r.blacklisted_reason || null);
   const [result] = await conn.query(
     `INSERT INTO customers
-       (company_name, fax_number, phone_number, industry, prefecture, city, address,
+       (company_name, fax_number, phone_number, industry, industry_category,
+        prefecture, city, address,
         postal_code, url, employee_count, representative, note,
         is_blacklisted, blacklisted_reason, source_file, imported_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
     [
       r.company_name, r.fax_number || null, r.phone_number || null,
-      r.industry || null, r.prefecture || null, r.city || null, r.address || null,
+      r.industry || null, r.industry_category || null,
+      r.prefecture || null, r.city || null, r.address || null,
       r.postal_code || null, r.url || null, r.employee_count ?? null,
       r.representative || null, r.note || null,
       blacklist ? 1 : 0,

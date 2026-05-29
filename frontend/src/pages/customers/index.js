@@ -40,8 +40,32 @@ export default function CustomersPage() {
   const [syncPushing, setSyncPushing] = useState(false);
   const [syncingBoth, setSyncingBoth] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
+  const [recategorizing, setRecategorizing] = useState(false);
 
   const reload = () => setReloadKey((k) => k + 1);
+
+  const recategorize = async (mode) => {
+    if (isDemo) { toast('デモ表示中は再分類できません', { icon: 'ℹ' }); return; }
+    const label = mode === 'all'
+      ? '全顧客の業種カテゴリ を industry/備考 から再算出して上書きします (既存の明示分類も上書き)。 進めますか？'
+      : '業種カテゴリ が 未分類 / その他 の顧客を再算出します。 既に明示分類済みの行は触りません。 進めますか？';
+    if (!window.confirm(label)) return;
+    setRecategorizing(true);
+    try {
+      const { data } = await api.post(`/api/customers/recategorize?mode=${mode}`, null, {
+        timeout: 30 * 60 * 1000,
+      });
+      const r = data.data || {};
+      const breakdown = Object.entries(r.byCategory || {})
+        .map(([k, v]) => `${k}:${v}`).join(' / ') || '変更なし';
+      toast.success(`業種カテゴリ 再分類完了: 走査${r.scanned ?? 0} / 更新${r.updated ?? 0}\n${breakdown}`, { duration: 10000 });
+      reload();
+    } catch (e) {
+      toast.error(e.userMessage || '再分類失敗');
+    } finally {
+      setRecategorizing(false);
+    }
+  };
 
   useEffect(() => {
     if (isDemo) return;
@@ -239,6 +263,29 @@ export default function CustomersPage() {
                 title="差分フィルタを無視して callcenter から全件 pull (時間かかります)"
               >
                 {syncPulling ? '全件同期中…' : '⟳ 全件再同期 (差分無視)'}
+              </button>
+            </div>
+          </details>
+          <details className="inline-block">
+            <summary className="cursor-pointer px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50 list-none select-none">
+              ▼ 業種カテゴリ
+            </summary>
+            <div className="absolute mt-1 bg-white border border-zinc-200 rounded-md shadow-lg p-2 flex flex-col gap-1 z-10">
+              <button
+                onClick={() => recategorize('missing')}
+                disabled={recategorizing}
+                className="px-3 py-1.5 text-xs bg-white border border-emerald-200 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap"
+                title="未分類 / その他 の行のみ再算出 (既存の明示分類は尊重)"
+              >
+                {recategorizing ? '実行中…' : '未分類のみ 再分類'}
+              </button>
+              <button
+                onClick={() => recategorize('all')}
+                disabled={recategorizing}
+                className="px-3 py-1.5 text-xs bg-white border border-amber-200 text-amber-700 rounded hover:bg-amber-50 disabled:opacity-50 whitespace-nowrap"
+                title="全顧客を industry/備考 から再算出して強制上書き"
+              >
+                {recategorizing ? '実行中…' : '全件 強制再分類'}
               </button>
             </div>
           </details>

@@ -1,4 +1,5 @@
 const { getPool } = require('../../config/db');
+const { normalizeIndustry } = require('../utils/industryCategory');
 
 const SEARCHABLE = ['company_name', 'fax_number', 'phone_number', 'address'];
 
@@ -208,6 +209,71 @@ async function setBlacklist(id, isBlacklisted, reason) {
   );
 }
 
+/**
+ * 全顧客の industry_category を industry + note から再算出して UPDATE する。
+ *
+ *   options.mode = 'missing'   : industry_category が NULL / '' / 'その他' の行だけ対象
+ *                                (デフォルト。 既に明示分類が入っている行は尊重)
+ *                = 'all'       : 全顧客 (industry が空でない行) を対象に再分類で上書き
+ *   options.batchSize          : 1チャンクあたりの SELECT 件数 (default 2000)
+ *
+ * 結果: { scanned, updated, byCategory: { 飲食: n, 製造: n, ... } }
+ */
+async function recategorizeIndustries(options = {}) {
+  const pool = getPool();
+  if (!pool) throw new Error('DB未設定');
+  const mode = options.mode === 'all' ? 'all' : 'missing';
+  const batchSize = Math.max(100, Math.min(Number(options.batchSize) || 2000, 5000));
+
+  let lastId = 0;
+  let scanned = 0;
+  let updated = 0;
+  const byCategory = {};
+
+  while (true) {
+    const whereParts = ['id > ?'];
+    const params = [lastId];
+    if (mode === 'missing') {
+      whereParts.push(`(industry_category IS NULL OR industry_category = '' OR industry_category = 'その他')`);
+    }
+    // industry / industry_detail / note いずれかに手がかりが必要
+    whereParts.push(`((industry IS NOT NULL AND industry <> '') OR (note IS NOT NULL AND note <> ''))`);
+    const [rows] = await pool.query(
+      `SELECT id, industry, industry_category, note
+         FROM customers
+        WHERE ${whereParts.join(' AND ')}
+        ORDER BY id ASC
+        LIMIT ?`,
+      [...params, batchSize]
+    );
+    if (!rows.length) break;
+    lastId = rows[rows.length - 1].id;
+    scanned += rows.length;
+
+    // ID ごとに新カテゴリを算出 → 同一カテゴリでまとめて IN(?) で UPDATE
+    const buckets = new Map();
+    for (const r of rows) {
+      const corpus = [r.industry || '', r.note || ''].filter(Boolean).join(' ');
+      const newCat = normalizeIndustry(corpus);
+      // 'その他' になっていて 既に 'その他' なら no-op
+      if ((r.industry_category || '') === newCat) continue;
+      if (!buckets.has(newCat)) buckets.set(newCat, []);
+      buckets.get(newCat).push(r.id);
+    }
+    for (const [cat, ids] of buckets) {
+      if (!ids.length) continue;
+      await pool.query(
+        `UPDATE customers SET industry_category = ? WHERE id IN (?)`,
+        [cat, ids]
+      );
+      updated += ids.length;
+      byCategory[cat] = (byCategory[cat] || 0) + ids.length;
+    }
+  }
+
+  return { mode, scanned, updated, byCategory };
+}
+
 module.exports = {
   listCustomers,
   getById,
@@ -215,4 +281,5 @@ module.exports = {
   getDistinctIndustries,
   getDistinctPrefectures,
   setBlacklist,
+  recategorizeIndustries,
 };
