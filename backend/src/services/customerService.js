@@ -12,6 +12,11 @@ const SORT_MAP = {
 };
 
 async function listCustomers(query = {}) {
+  // Phase 3b: USE_CALLCENTER_DB が ON なら repo 経由で callcenter DB から読む
+  const repo = require('./customerRepo');
+  if (repo.shouldReadFromCallcenter(1)) {
+    return repo.listCustomers(query);
+  }
   const pool = getPool();
   if (!pool) {
     return { items: [], pagination: { page: 1, pageSize: 50, total: 0, totalPages: 0 } };

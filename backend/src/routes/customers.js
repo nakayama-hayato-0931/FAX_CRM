@@ -181,6 +181,15 @@ router.post('/sync/shadow-backfill', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/customers/sync/read-status
+//   Phase 3b: 現在の読み込みモード (faxcrm / tier1 / ...) を返す
+router.get('/sync/read-status', async (_req, res, next) => {
+  try {
+    const repo = require('../services/customerRepo');
+    return ok(res, await repo.getReadStatus());
+  } catch (e) { next(e); }
+});
+
 // GET /api/customers/sync/shadow-status
 router.get('/sync/shadow-status', async (_req, res, next) => {
   try {
