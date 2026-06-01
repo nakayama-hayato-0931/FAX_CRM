@@ -190,6 +190,17 @@ router.get('/sync/shadow-status', async (_req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/customers/sync/drift-check?sample=200
+//   Phase 3a: 2DB のドリフト検出 (顧客マスタの整合性チェック)
+router.get('/sync/drift-check', async (req, res, next) => {
+  try {
+    const drift = require('../services/driftCheckService');
+    const sample = Math.min(Number(req.query.sample) || 100, 500);
+    const result = await drift.runDriftCheck({ sampleSize: sample });
+    return ok(res, result);
+  } catch (e) { next(e); }
+});
+
 // POST /api/customers/sync/diff-backfill
 //   差分のみ callcenter DB に書き込み (シャドー書きの取りこぼし回収)
 //   ?since=YYYY-MM-DD で since 以降の updated 行も含める

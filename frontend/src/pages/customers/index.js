@@ -152,6 +152,31 @@ export default function CustomersPage() {
     } finally { setSyncPushing(false); }
   };
 
+  // Phase 3a: ドリフトチェック
+  const driftCheck = async () => {
+    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    setSyncPushing(true);
+    const t = toast.loading('ドリフトチェック中...');
+    try {
+      const { data } = await api.get('/api/customers/sync/drift-check?sample=200');
+      toast.dismiss(t);
+      const r = data.data || {};
+      const statusEmoji = r.status === 'healthy' ? '✓' : r.status === 'minor_drift' ? '!' : '✗';
+      toast.success(
+        `${statusEmoji} ${r.status}\n` +
+        `fax-crm: 全${r.fax_crm?.total ?? '-'} / 紐${r.fax_crm?.linked ?? '-'} / 未紐${r.fax_crm?.unlinked ?? '-'}\n` +
+        `callcenter: 全${r.callcenter?.total ?? '-'} / 紐${r.callcenter?.linked ?? '-'} / ext${r.callcenter?.fax_ext_rows ?? '-'}\n` +
+        `サンプル整合: ${r.drift?.sample_consistent ?? '-'}/${r.drift?.sample_size ?? '-'} (${r.drift?.sample_consistency_rate ?? '-'}%)`,
+        { duration: 30000 }
+      );
+      // eslint-disable-next-line no-console
+      console.log('[drift-check]', r);
+    } catch (e) {
+      toast.dismiss(t);
+      toast.error(e.userMessage || 'ドリフトチェック失敗');
+    } finally { setSyncPushing(false); }
+  };
+
   // Phase 2: 差分バックフィル (external_callcenter_id IS NULL の取りこぼしのみ)
   const diffBackfill = async () => {
     if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
@@ -321,26 +346,26 @@ export default function CustomersPage() {
               <button
                 onClick={pullFromCallcenter}
                 disabled={syncPulling || syncingBoth || (syncStatus && !syncStatus.configured)}
-                className="px-3 py-1.5 text-xs bg-white border border-zinc-200 text-zinc-700 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap"
-                title="callcenter → fax-crm (取込のみ)"
+                className="px-3 py-1.5 text-xs bg-white border border-zinc-200 text-zinc-400 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap line-through"
+                title="(レガシー) HTTPベース取込。Phase 2 のシャドー書き込みで実質不要"
               >
-                {syncPulling ? '取込中…' : '← callcenter から取込のみ'}
+                {syncPulling ? '取込中…' : '← callcenter から取込のみ (旧)'}
               </button>
               <button
                 onClick={pushToCallcenter}
                 disabled={syncPushing || syncingBoth || (syncStatus && !syncStatus.configured)}
-                className="px-3 py-1.5 text-xs bg-white border border-zinc-200 text-zinc-700 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap"
-                title="fax-crm → callcenter (送信のみ、 confirm あり)"
+                className="px-3 py-1.5 text-xs bg-white border border-zinc-200 text-zinc-400 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap line-through"
+                title="(レガシー) HTTPベース送信。Phase 2 のシャドー書き込みで実質不要"
               >
-                {syncPushing ? '送信中…' : '→ callcenter へ送信のみ'}
+                {syncPushing ? '送信中…' : '→ callcenter へ送信のみ (旧)'}
               </button>
               <button
                 onClick={pushUnlinkedToCallcenter}
                 disabled={syncPushing || syncingBoth || (syncStatus && !syncStatus.configured)}
-                className="px-3 py-1.5 text-xs bg-white border border-emerald-200 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap"
-                title="external_callcenter_id が NULL の顧客 (callcenter 未連携) のみを全件作成"
+                className="px-3 py-1.5 text-xs bg-white border border-emerald-200 text-emerald-500 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap line-through"
+                title="(レガシー) HTTPベース未連携 push。Phase 2 の差分バックフィルを推奨"
               >
-                {syncPushing ? '送信中…' : '+ 未連携顧客のみ全件 push'}
+                {syncPushing ? '送信中…' : '+ 未連携顧客のみ全件 push (旧)'}
               </button>
               <hr className="border-zinc-200 my-1" />
               <button
@@ -366,6 +391,14 @@ export default function CustomersPage() {
                 title="未連携 (external_callcenter_id IS NULL) の取りこぼしのみ"
               >
                 {syncPushing ? '実行中…' : '⚡ Phase2 差分バックフィル'}
+              </button>
+              <button
+                onClick={driftCheck}
+                disabled={syncPushing || syncingBoth}
+                className="px-3 py-1.5 text-xs bg-white border border-sky-200 text-sky-700 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap"
+                title="2DB のドリフト (整合性) を比較"
+              >
+                {syncPushing ? '実行中…' : '⚡ Phase3 ドリフトチェック'}
               </button>
               <hr className="border-zinc-200 my-1" />
               <button
