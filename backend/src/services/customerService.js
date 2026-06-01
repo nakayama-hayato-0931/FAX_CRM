@@ -174,6 +174,11 @@ async function quickCreate(payload = {}) {
 }
 
 async function getById(id) {
+  // Phase 3b Tier 2: USE_CALLCENTER_DB=tier2 以上で callcenter から読む
+  const repo = require('./customerRepo');
+  if (repo.shouldReadFromCallcenter(2)) {
+    return repo.getById(id);
+  }
   const pool = getPool();
   if (!pool) return null;
   const [rows] = await pool.query(`SELECT * FROM customers WHERE id = ? LIMIT 1`, [id]);

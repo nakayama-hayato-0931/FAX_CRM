@@ -179,6 +179,95 @@ async function listFromCallcenter(query) {
 }
 
 // ============================================
+// getById (Tier 2)
+// ============================================
+async function getByIdFromFaxCrm(id) {
+  const pool = getFaxPool();
+  if (!pool) return null;
+  const [rows] = await pool.query(`SELECT * FROM customers WHERE id = ? LIMIT 1`, [id]);
+  return rows[0] || null;
+}
+
+/**
+ * callcenter.companies から 1顧客を取得。
+ *   id > 0: fax-crm.customers.id 想定 → external_faxcrm_id で検索
+ *   id < 0: callcenter-only (sentinel) → -id を companies.id として検索
+ *
+ * 戻り値は fax-crm.customers 互換形式 + 補足フィールド:
+ *   _callcenter_id, _is_callcenter_only
+ */
+async function getByIdFromCallcenter(id) {
+  const pool = ccDb.getPool();
+  if (!pool) return null;
+  const numId = Number(id);
+  if (!numId) return null;
+
+  let row;
+  if (numId > 0) {
+    // 通常 fax-crm.id
+    const [rows] = await pool.query(
+      `SELECT c.*, fce.send_count, fce.last_sent_at, fce.last_pc_number, fce.last_result, fce.response_count
+         FROM companies c
+         LEFT JOIN fax_customer_ext fce ON fce.company_id = c.id
+        WHERE c.external_faxcrm_id = ? LIMIT 1`,
+      [numId]
+    );
+    row = rows[0];
+  } else {
+    // callcenter-only (negative sentinel)
+    const ccId = -numId;
+    const [rows] = await pool.query(
+      `SELECT c.*, fce.send_count, fce.last_sent_at, fce.last_pc_number, fce.last_result, fce.response_count
+         FROM companies c
+         LEFT JOIN fax_customer_ext fce ON fce.company_id = c.id
+        WHERE c.id = ? LIMIT 1`,
+      [ccId]
+    );
+    row = rows[0];
+  }
+  if (!row) return null;
+
+  return {
+    // fax-crm 互換 id (負数 sentinel あり)
+    id: numId,
+    _callcenter_id: row.id,
+    _is_callcenter_only: !row.external_faxcrm_id,
+    company_name: row.company_name,
+    fax_number: row.fax_number,
+    phone_number: row.phone_number,
+    industry: row.industry,
+    industry_category: row.industry_category,
+    prefecture: row.prefecture,
+    city: row.city,
+    address: row.address,
+    postal_code: row.postal_code,
+    url: row.url,
+    employee_count: row.employee_count,
+    representative: row.representative,
+    note: row.note,
+    send_count: Number(row.send_count) || 0,
+    last_sent_at: row.last_sent_at,
+    last_pc_number: row.last_pc_number,
+    last_result: row.last_result,
+    response_count: Number(row.response_count) || 0,
+    is_blacklisted: row.is_blacklisted,
+    blacklisted_reason: row.blacklisted_reason,
+    source_file: row.source_file,
+    imported_at: row.imported_at,
+    external_callcenter_id: row.id,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+async function getById(id) {
+  if (shouldReadFromCallcenter(2)) {
+    return getByIdFromCallcenter(id);
+  }
+  return getByIdFromFaxCrm(id);
+}
+
+// ============================================
 // Public API
 // ============================================
 async function listCustomers(query) {
@@ -186,6 +275,17 @@ async function listCustomers(query) {
     return listFromCallcenter(query);
   }
   return listFromFaxCrm(query);
+}
+
+/**
+ * timeline の顧客ID解決:
+ *   正数 → そのまま fax-crm.customers.id として contact_events 検索
+ *   負数 → callcenter-only → contact_events は存在しない → 空配列
+ */
+function resolveTimelineCustomerId(id) {
+  const n = Number(id);
+  if (!n || n < 0) return null; // callcenter-only は履歴無し
+  return n;
 }
 
 async function getReadStatus() {
@@ -205,6 +305,8 @@ async function getReadStatus() {
 
 module.exports = {
   listCustomers,
+  getById,
+  resolveTimelineCustomerId,
   readMode,
   shouldReadFromCallcenter,
   getReadStatus,

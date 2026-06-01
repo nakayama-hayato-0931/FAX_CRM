@@ -95,6 +95,11 @@ async function listByQuery(query = {}) {
 async function getTimeline(customerId, { limit = 100, channels } = {}) {
   const pool = getPool();
   if (!pool) return [];
+  // Phase 3b Tier 2: callcenter-only sentinel (負数) は履歴を持たないので空返却
+  const repo = require('./customerRepo');
+  const resolved = repo.resolveTimelineCustomerId(customerId);
+  if (!resolved) return [];
+  customerId = resolved;
 
   const where = ['customer_id = ?'];
   const params = [customerId];
