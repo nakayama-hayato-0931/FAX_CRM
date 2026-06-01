@@ -29,7 +29,7 @@ export default function CustomersPage() {
   const [items, setItems] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 50, total: 0, totalPages: 0 });
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({ q: '', industry: '', prefecture: '', blacklisted: '' });
+  const [filters, setFilters] = useState({ q: '', industry: '', prefecture: '', blacklisted: '', has_fax: '' });
   const [industries, setIndustries] = useState([]);
   const [prefectures, setPrefectures] = useState([]);
   const [reloadKey, setReloadKey] = useState(0);
@@ -286,6 +286,7 @@ export default function CustomersPage() {
         if (filters.industry) params.industry = filters.industry;
         if (filters.prefecture) params.prefecture = filters.prefecture;
         if (filters.blacklisted !== '') params.blacklisted = filters.blacklisted;
+        if (filters.has_fax !== '') params.has_fax = filters.has_fax;
         const [list, ind, pref] = await Promise.all([
           api.get('/api/customers', { params }),
           api.get('/api/customers/facets/industries'),
@@ -306,7 +307,7 @@ export default function CustomersPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [isDemo, reloadKey, filters.industry, filters.prefecture, filters.blacklisted]);
+  }, [isDemo, reloadKey, filters.industry, filters.prefecture, filters.blacklisted, filters.has_fax]);
 
   return (
     <div>
@@ -474,13 +475,20 @@ export default function CustomersPage() {
             <option value="false">通常のみ</option>
             <option value="true">ブラックリストのみ</option>
           </select>
+          <select className="border border-zinc-300 rounded-md px-3 py-2 text-sm"
+                  value={filters.has_fax}
+                  onChange={(e) => setFilters({ ...filters, has_fax: e.target.value })}>
+            <option value="">FAX: すべて</option>
+            <option value="true">FAX番号あり</option>
+            <option value="false">FAX番号なし</option>
+          </select>
         </div>
         <div className="mt-3 flex gap-2">
           <button className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
                   onClick={reload}>検索</button>
           <button className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded-md"
                   onClick={() => {
-                    setFilters({ q: '', industry: '', prefecture: '', blacklisted: '' });
+                    setFilters({ q: '', industry: '', prefecture: '', blacklisted: '', has_fax: '' });
                     setTimeout(reload, 0);
                   }}>条件クリア</button>
         </div>

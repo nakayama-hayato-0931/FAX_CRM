@@ -73,6 +73,9 @@ async function listFromFaxCrm(query) {
   if (query.prefecture) { where.push('c.prefecture = ?'); params.push(query.prefecture); }
   if (query.blacklisted === 'true')  where.push('c.is_blacklisted = 1');
   if (query.blacklisted === 'false') where.push('c.is_blacklisted = 0');
+  // has_fax フィルタ
+  if (query.has_fax === 'true')  where.push(`(c.fax_number IS NOT NULL AND c.fax_number <> '')`);
+  if (query.has_fax === 'false') where.push(`(c.fax_number IS NULL OR c.fax_number = '')`);
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const sortCol = SORT_MAP[query.sortBy] || 'updated_at';
