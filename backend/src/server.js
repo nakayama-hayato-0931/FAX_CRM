@@ -36,7 +36,7 @@ const morgan = require('morgan');
 const { ping, isConfigured } = require('../config/db');
 const { runStartupMigrations } = require('./migrations/runtime');
 const { notFound, errorHandler, attachRequestId } = require('./middlewares/errorHandler');
-const { requireAuth } = require('./middlewares/auth');
+const { requireAuth, requireAuthOrWebhook } = require('./middlewares/auth');
 const authSvc = require('./services/authService');
 const authRouter = require('./routes/auth');
 const usersRouter = require('./routes/users');
@@ -76,13 +76,14 @@ app.use('/api/auth', authRouter);
 //   ※ requireAuth は DISABLE_AUTH=1 環境変数で バイパス可能 (開発用)
 app.use('/api/users', usersRouter);  // 内部で requireRole('admin')
 app.use('/api/cpa', requireAuth, cpaRouter);
-app.use('/api/customers', requireAuth, customersRouter);
+// callcenter からのシャドー書きや sync 経由でアクセスできるよう webhook secret も許可
+app.use('/api/customers', requireAuthOrWebhook, customersRouter);
 app.use('/api/batches', requireAuth, batchesRouter);
 app.use('/api/manuscripts', requireAuth, manuscriptsRouter);
 app.use('/api/incoming-calls', requireAuth, incomingCallsRouter);
 app.use('/api/fax-stats', requireAuth, faxStatsRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
-app.use('/api/contact-events', requireAuth, contactEventsRouter);
+app.use('/api/contact-events', requireAuthOrWebhook, contactEventsRouter);
 app.use('/api/outsourced-fax', requireAuth, outsourcedFaxRouter);
 app.use('/api/sales-projects', requireAuth, salesProjectsRouter);
 app.use('/api/interviews', requireAuth, interviewsRouter);
