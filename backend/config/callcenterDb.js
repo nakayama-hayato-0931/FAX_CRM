@@ -19,23 +19,51 @@ let pool = null;
 let triedBuild = false;
 
 function isConfigured() {
-  return !!process.env.CALLCENTER_DB_HOST && !!process.env.CALLCENTER_DB_USER;
+  return !!process.env.CALLCENTER_DB_URL
+      || (!!process.env.CALLCENTER_DB_HOST && !!process.env.CALLCENTER_DB_USER);
+}
+
+function parseUrl(u) {
+  // mysql://user:password@host:port/dbname
+  try {
+    const url = new URL(u);
+    return {
+      host: url.hostname,
+      port: Number(url.port || 3306),
+      user: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password),
+      database: url.pathname.replace(/^\//, ''),
+    };
+  } catch (_e) {
+    return null;
+  }
 }
 
 function buildPool() {
   if (!isConfigured()) return null;
-  return mysql.createPool({
-    host: process.env.CALLCENTER_DB_HOST,
-    port: Number(process.env.CALLCENTER_DB_PORT || 3306),
-    user: process.env.CALLCENTER_DB_USER,
-    password: process.env.CALLCENTER_DB_PASSWORD || '',
-    database: process.env.CALLCENTER_DB_NAME || 'railway',
+  const opts = {
     waitForConnections: true,
     connectionLimit: Number(process.env.CALLCENTER_DB_CONNECTION_LIMIT || 5),
     queueLimit: 0,
     charset: 'utf8mb4_general_ci',
     dateStrings: ['DATE'],
     connectTimeout: 10000,
+  };
+  if (process.env.CALLCENTER_DB_URL) {
+    const parsed = parseUrl(process.env.CALLCENTER_DB_URL);
+    if (!parsed) {
+      console.error('[callcenterDb] CALLCENTER_DB_URL の解析に失敗');
+      return null;
+    }
+    return mysql.createPool({ ...opts, ...parsed });
+  }
+  return mysql.createPool({
+    ...opts,
+    host: process.env.CALLCENTER_DB_HOST,
+    port: Number(process.env.CALLCENTER_DB_PORT || 3306),
+    user: process.env.CALLCENTER_DB_USER,
+    password: process.env.CALLCENTER_DB_PASSWORD || '',
+    database: process.env.CALLCENTER_DB_NAME || 'railway',
   });
 }
 
