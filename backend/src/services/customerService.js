@@ -100,7 +100,8 @@ async function listCustomers(query = {}) {
 function _normalizeDigit(s) {
   if (!s) return null;
   // 全角数字を半角に
-  let t = String(s).replace(/[0-9]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  // 全角数字 (U+FF10〜U+FF19) を半角に変換
+  let t = String(s).replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   // 全角ハイフン類を半角に
   t = t.replace(/[‐‑‒–—―−ー－]/g, '-');
   // 全角(+) を半角に
