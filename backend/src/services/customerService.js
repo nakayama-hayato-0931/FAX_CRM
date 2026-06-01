@@ -160,9 +160,11 @@ async function quickCreate(payload = {}) {
     ]
   );
   const [created] = await pool.query(
-    'SELECT id, company_name, fax_number, phone_number FROM customers WHERE id = ?',
+    'SELECT * FROM customers WHERE id = ?',
     [result.insertId]
   );
+  // Phase 2: callcenter DB にシャドー書き込み (fire-and-forget)
+  try { require('./callcenterDbWriter').shadowUpsert(created[0]); } catch (_e) {}
   return { ...created[0], reused: false, created: true };
 }
 
@@ -207,6 +209,11 @@ async function setBlacklist(id, isBlacklisted, reason) {
     `UPDATE customers SET is_blacklisted = ?, blacklisted_reason = ? WHERE id = ?`,
     [isBlacklisted ? 1 : 0, reason || null, id]
   );
+  // Phase 2: callcenter DB にシャドー反映
+  try {
+    const [rows] = await pool.query('SELECT * FROM customers WHERE id = ?', [id]);
+    if (rows[0]) require('./callcenterDbWriter').shadowUpsert(rows[0]);
+  } catch (_e) {}
 }
 
 /**

@@ -165,4 +165,29 @@ router.post('/sync/reset', async (_req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/customers/sync/shadow-backfill
+//   Phase 2: fax-crm 全顧客を callcenter DB (companies + fax_customer_ext) に直接書き込み。
+//   一度だけ実行して初期同期する想定。
+//   ?limit=N (0 = 上限なし)
+const ccWriter = require('../services/callcenterDbWriter');
+router.post('/sync/shadow-backfill', async (req, res, next) => {
+  try {
+    if (!ccWriter.isEnabled()) {
+      return fail(res, 400, 'NOT_CONFIGURED', 'CALLCENTER_DB_HOST 等が未設定');
+    }
+    const limit = req.query.limit !== undefined ? Number(req.query.limit) : 0;
+    const stats = await ccWriter.backfillAll({ limit });
+    return ok(res, stats);
+  } catch (e) { next(e); }
+});
+
+// GET /api/customers/sync/shadow-status
+router.get('/sync/shadow-status', async (_req, res, next) => {
+  try {
+    const ccDb = require('../../config/callcenterDb');
+    const status = await ccDb.ping();
+    return ok(res, { ...status, writer_enabled: ccWriter.isEnabled() });
+  } catch (e) { next(e); }
+});
+
 module.exports = router;
