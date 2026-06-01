@@ -152,6 +152,43 @@ export default function CustomersPage() {
     } finally { setSyncPushing(false); }
   };
 
+  // Phase 2: callcenter DB に直接シャドーバックフィル
+  const shadowBackfill = async (testOnly) => {
+    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    const limit = testOnly ? 10 : 0;
+    const label = testOnly ? '10件だけ試験書き込み' : '全件 callcenter DB に直接書き込み';
+    if (!window.confirm(`${label}を実行します。callcenter DB へ直接 INSERT/UPDATE します。\nよろしいですか？`)) return;
+    setSyncPushing(true);
+    const t = toast.loading(testOnly ? 'テスト書き込み中...' : '全件シャドーバックフィル中...');
+    try {
+      // まず status 確認
+      const sres = await api.get('/api/customers/sync/shadow-status');
+      const s = sres.data.data || {};
+      if (!s.configured) {
+        toast.dismiss(t);
+        toast.error('CALLCENTER_DB_URL が未設定です。fax-crm backend の環境変数を確認してください');
+        return;
+      }
+      if (!s.ok) {
+        toast.dismiss(t);
+        toast.error(`callcenter DB に接続できません: ${s.error || 'unknown'}`);
+        return;
+      }
+      // バックフィル実行
+      const { data } = await api.post(`/api/customers/sync/shadow-backfill?limit=${limit}`, null, { timeout: 24 * 60 * 60 * 1000 });
+      toast.dismiss(t);
+      const r = data.data || {};
+      toast.success(
+        `シャドーバックフィル 完了\n` +
+        `対象 ${r.total ?? 0} / 新規 ${r.created ?? 0} / 更新 ${r.updated ?? 0} / エラー ${r.errors ?? 0}`,
+        { duration: 15000 }
+      );
+    } catch (e) {
+      toast.dismiss(t);
+      toast.error(e.userMessage || 'シャドーバックフィル失敗');
+    } finally { setSyncPushing(false); }
+  };
+
   // 未連携のみ全件 push (external_callcenter_id IS NULL の顧客を全件 callcenter に作成)
   const pushUnlinkedToCallcenter = async () => {
     if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
@@ -282,6 +319,23 @@ export default function CustomersPage() {
                 title="external_callcenter_id が NULL の顧客 (callcenter 未連携) のみを全件作成"
               >
                 {syncPushing ? '送信中…' : '+ 未連携顧客のみ全件 push'}
+              </button>
+              <hr className="border-zinc-200 my-1" />
+              <button
+                onClick={() => shadowBackfill(true)}
+                disabled={syncPushing || syncingBoth}
+                className="px-3 py-1.5 text-xs bg-white border border-purple-200 text-purple-700 rounded hover:bg-purple-50 disabled:opacity-50 whitespace-nowrap"
+                title="Phase 2: 10件だけ callcenter DB に直接書き込んでみる"
+              >
+                {syncPushing ? '実行中…' : '⚡ Phase2 テスト書込 (10件)'}
+              </button>
+              <button
+                onClick={() => shadowBackfill(false)}
+                disabled={syncPushing || syncingBoth}
+                className="px-3 py-1.5 text-xs bg-white border border-purple-300 text-purple-800 rounded hover:bg-purple-50 disabled:opacity-50 whitespace-nowrap"
+                title="Phase 2: 全件 callcenter DB に直接書き込み (時間かかります)"
+              >
+                {syncPushing ? '実行中…' : '⚡ Phase2 全件バックフィル'}
               </button>
               <hr className="border-zinc-200 my-1" />
               <button
