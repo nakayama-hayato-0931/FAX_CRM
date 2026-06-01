@@ -444,7 +444,7 @@ export default function CustomersPage() {
 
       {/* Filters */}
       <div className="bg-white border border-zinc-200 rounded-lg p-4 mb-4">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <input
             className="border border-zinc-300 rounded-md px-3 py-2 text-sm md:col-span-2"
             placeholder="会社名・FAX番号で検索 (Enterで検索)"
