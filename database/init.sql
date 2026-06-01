@@ -476,6 +476,39 @@ CREATE TABLE IF NOT EXISTS interview_records (
   INDEX idx_interview_job (job_number)
 ) ENGINE=InnoDB COMMENT='面接記録(シート『2024_面接内訳』同期)';
 
+-- --------------------------------------------
+-- Phase 1: 統合顧客マスタ準備
+-- 詳細: callcenter-ai-system/docs/UNIFIED_CUSTOMER_SCHEMA.md
+-- --------------------------------------------
+-- customers に region (callcenter の広域) / comment を追加
+ALTER TABLE customers
+  ADD COLUMN IF NOT EXISTS region  VARCHAR(20) DEFAULT NULL
+    COMMENT 'callcenter の region (関東/中部/近畿/... の広域。prefecture とは別)',
+  ADD COLUMN IF NOT EXISTS comment TEXT DEFAULT NULL
+    COMMENT 'callcenter 由来の自由記述コメント (note とは別フィールド)';
+
+-- callcenter 固有カラム (customers との 1:1 拡張テーブル)
+CREATE TABLE IF NOT EXISTS callcenter_company_ext (
+  customer_id           BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+  priority_score        INT          NOT NULL DEFAULT 0,
+  exclusion_flag        TINYINT(1)   NOT NULL DEFAULT 0,
+  exclusion_reason      VARCHAR(255) DEFAULT NULL,
+  is_special            TINYINT(1)   NOT NULL DEFAULT 0,
+  is_sales_list         TINYINT(1)   NOT NULL DEFAULT 0,
+  data_source           VARCHAR(50)  DEFAULT NULL,
+  locked_by_user_id     INT UNSIGNED DEFAULT NULL,
+  locked_at             DATETIME     DEFAULT NULL,
+  imported_by_user_id   INT UNSIGNED DEFAULT NULL,
+  last_called_at        DATETIME     DEFAULT NULL,
+  created_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_ccc_ext_customer FOREIGN KEY (customer_id)
+    REFERENCES customers(id) ON DELETE CASCADE,
+  INDEX idx_ccc_ext_locked   (locked_by_user_id, locked_at),
+  INDEX idx_ccc_ext_excl     (exclusion_flag, is_special),
+  INDEX idx_ccc_ext_priority (priority_score DESC)
+) ENGINE=InnoDB COMMENT='callcenter 固有カラム (customers との 1:1 拡張)';
+
 -- 期間 × PC × セグメント の実績(CSVインポート対象)
 CREATE TABLE IF NOT EXISTS performance_records (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

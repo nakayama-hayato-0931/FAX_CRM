@@ -159,6 +159,83 @@ async function runStartupMigrations() {
     failed.push({ name: 'users CREATE', error: e.message });
   }
 
+  // ⑥ Phase 1: 統合顧客マスタ準備 (UNIFIED_CUSTOMER_SCHEMA.md)
+  //   - customers に region (callcenter の広域: 関東/中部/...) と comment を追加
+  //   - callcenter_company_ext テーブル新設 (callcenter 固有のカラム)
+  //   ※ 読み書きはまだ無し。スキーマだけ用意する段階。
+  try {
+    if (await colExists(pool, 'customers', 'id')
+        && !(await colExists(pool, 'customers', 'region'))) {
+      await pool.query(
+        `ALTER TABLE customers
+           ADD COLUMN region VARCHAR(20) DEFAULT NULL
+             COMMENT 'callcenter の region (関東/中部/近畿/... の広域。prefecture とは別)' AFTER prefecture`
+      );
+      applied.push('customers.region 追加 (Phase 1)');
+    }
+  } catch (e) {
+    failed.push({ name: 'customers.region', error: e.message });
+  }
+  try {
+    if (await colExists(pool, 'customers', 'id')
+        && !(await colExists(pool, 'customers', 'comment'))) {
+      await pool.query(
+        `ALTER TABLE customers
+           ADD COLUMN comment TEXT DEFAULT NULL
+             COMMENT 'callcenter 由来の自由記述コメント (note とは別フィールド)' AFTER note`
+      );
+      applied.push('customers.comment 追加 (Phase 1)');
+    }
+  } catch (e) {
+    failed.push({ name: 'customers.comment', error: e.message });
+  }
+
+  // callcenter_company_ext: callcenter 固有カラム (1:1)
+  try {
+    const [tbls] = await pool.query(
+      `SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'callcenter_company_ext' LIMIT 1`
+    );
+    if (tbls.length === 0) {
+      await pool.query(
+        `CREATE TABLE callcenter_company_ext (
+           customer_id           BIGINT UNSIGNED NOT NULL PRIMARY KEY
+             COMMENT 'customers.id への外部キー (1:1)',
+           priority_score        INT          NOT NULL DEFAULT 0
+             COMMENT 'callcenter ピックアップ用 優先スコア',
+           exclusion_flag        TINYINT(1)   NOT NULL DEFAULT 0
+             COMMENT 'NG リスト (架電除外)',
+           exclusion_reason      VARCHAR(255) DEFAULT NULL
+             COMMENT 'NG にした理由',
+           is_special            TINYINT(1)   NOT NULL DEFAULT 0
+             COMMENT '特別リスト (一括取込・高優先)',
+           is_sales_list         TINYINT(1)   NOT NULL DEFAULT 0
+             COMMENT '営業用リスト (オペレーター用とは別)',
+           data_source           VARCHAR(50)  DEFAULT NULL
+             COMMENT '取込元 (CSV/手動/etc)',
+           locked_by_user_id     INT UNSIGNED DEFAULT NULL
+             COMMENT 'callcenter 側で現在 lock している user.id',
+           locked_at             DATETIME     DEFAULT NULL
+             COMMENT 'lock 取得日時 (60分でタイムアウト)',
+           imported_by_user_id   INT UNSIGNED DEFAULT NULL
+             COMMENT 'インポートしたユーザー (自作リストの所有者判定用)',
+           last_called_at        DATETIME     DEFAULT NULL
+             COMMENT '最終架電日時',
+           created_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           updated_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+           CONSTRAINT fk_ccc_ext_customer FOREIGN KEY (customer_id)
+             REFERENCES customers(id) ON DELETE CASCADE,
+           INDEX idx_ccc_ext_locked (locked_by_user_id, locked_at),
+           INDEX idx_ccc_ext_excl   (exclusion_flag, is_special),
+           INDEX idx_ccc_ext_priority (priority_score DESC)
+         ) ENGINE=InnoDB COMMENT='callcenter 固有カラム (customers との 1:1 拡張)'`
+      );
+      applied.push('callcenter_company_ext テーブル作成 (Phase 1)');
+    }
+  } catch (e) {
+    failed.push({ name: 'callcenter_company_ext CREATE', error: e.message });
+  }
+
   return { applied, failed };
 }
 
