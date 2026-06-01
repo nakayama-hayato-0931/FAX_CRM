@@ -310,23 +310,40 @@ async function pushCustomerToCallcenter(customer) {
  * fax-crm → callcenter push (複数)。 cluster of customers を順次 push
  *   fail-soft: 個別失敗は記録して継続
  */
-async function pushAllToCallcenter({ limit = 1000 } = {}) {
+async function pushAllToCallcenter({ limit = 1000, unlinkedOnly = false, batchSize = 500 } = {}) {
   if (!cc.isConfigured()) {
     const err = new Error('callcenter API 未設定'); err.status = 400; throw err;
   }
   const pool = getPool();
-  const [rows] = await pool.query(
-    'SELECT id, company_name, fax_number, phone_number, industry, prefecture, address, external_callcenter_id FROM customers LIMIT ?',
-    [Math.min(Number(limit) || 1000, 10000)]
-  );
-  const stats = { total: rows.length, created: 0, updated: 0, errors: 0, skipped: 0 };
-  for (const c of rows) {
-    const r = await pushCustomerToCallcenter(c);
-    if (r.error) stats.errors++;
-    else if (r.skipped) stats.skipped++;
-    else if (r.pushed === 'created') stats.created++;
-    else if (r.pushed === 'updated') stats.updated++;
+  const stats = { total: 0, created: 0, updated: 0, errors: 0, skipped: 0, batches: 0 };
+  const where = unlinkedOnly ? 'WHERE external_callcenter_id IS NULL' : '';
+  // バッチ繰り返しで上限なし処理可能に。1バッチ batchSize 件ずつ。
+  const targetLimit = Number(limit) || 0; // 0 = no limit
+  let lastId = 0;
+  while (true) {
+    if (targetLimit > 0 && stats.total >= targetLimit) break;
+    const remain = targetLimit > 0 ? Math.min(batchSize, targetLimit - stats.total) : batchSize;
+    const [rows] = await pool.query(
+      `SELECT id, company_name, fax_number, phone_number, industry, prefecture, address, external_callcenter_id
+         FROM customers
+         ${where} ${where ? 'AND' : 'WHERE'} id > ?
+         ORDER BY id ASC
+         LIMIT ?`,
+      [lastId, remain]
+    );
+    if (rows.length === 0) break;
+    stats.batches++;
+    for (const c of rows) {
+      const r = await pushCustomerToCallcenter(c);
+      if (r.error) stats.errors++;
+      else if (r.skipped) stats.skipped++;
+      else if (r.pushed === 'created') stats.created++;
+      else if (r.pushed === 'updated') stats.updated++;
+    }
+    stats.total += rows.length;
+    lastId = rows[rows.length - 1].id;
   }
+  stats.unlinkedOnly = unlinkedOnly;
   return stats;
 }
 

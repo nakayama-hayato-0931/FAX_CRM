@@ -152,6 +152,26 @@ export default function CustomersPage() {
     } finally { setSyncPushing(false); }
   };
 
+  // 未連携のみ全件 push (external_callcenter_id IS NULL の顧客を全件 callcenter に作成)
+  const pushUnlinkedToCallcenter = async () => {
+    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (!syncStatus?.configured) { toast.error('callcenter 連携が未設定'); return; }
+    if (!window.confirm('callcenter に未連携の顧客のみを全件 callcenter に作成します。\n件数が多い場合は数十分〜数時間かかります。\n進めますか？')) return;
+    setSyncPushing(true);
+    const t = toast.loading('未連携顧客を全件 push 中...');
+    try {
+      // limit=0 = 上限なし
+      const { data } = await api.post('/api/customers/sync/push?limit=0&unlinked_only=1', null, { timeout: 24 * 60 * 60 * 1000 });
+      toast.dismiss(t);
+      const r = data.data || {};
+      toast.success(`未連携 push 完了: 対象${r.total ?? 0} / 新規${r.created ?? 0} / 更新${r.updated ?? 0} / スキップ${r.skipped ?? 0} / エラー${r.errors ?? 0} (${r.batches}バッチ)`, { duration: 15000 });
+      reload();
+    } catch (e) {
+      toast.dismiss(t);
+      toast.error(e.userMessage || '未連携 push 失敗');
+    } finally { setSyncPushing(false); }
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -254,6 +274,14 @@ export default function CustomersPage() {
                 title="fax-crm → callcenter (送信のみ、 confirm あり)"
               >
                 {syncPushing ? '送信中…' : '→ callcenter へ送信のみ'}
+              </button>
+              <button
+                onClick={pushUnlinkedToCallcenter}
+                disabled={syncPushing || syncingBoth || (syncStatus && !syncStatus.configured)}
+                className="px-3 py-1.5 text-xs bg-white border border-emerald-200 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap"
+                title="external_callcenter_id が NULL の顧客 (callcenter 未連携) のみを全件作成"
+              >
+                {syncPushing ? '送信中…' : '+ 未連携顧客のみ全件 push'}
               </button>
               <hr className="border-zinc-200 my-1" />
               <button

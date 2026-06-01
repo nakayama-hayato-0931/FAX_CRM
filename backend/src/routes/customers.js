@@ -134,10 +134,14 @@ router.post('/sync/pull', async (req, res, next) => {
 });
 
 // POST /api/customers/sync/push — fax-crm → callcenter 一括 push
+//   ?limit=N        ... N=0 で上限なし、それ以外で件数上限
+//   ?unlinked_only=1 ... external_callcenter_id が NULL の顧客のみ対象
+//                       (callcenter に未連携の取りこぼし救済)
 router.post('/sync/push', async (req, res, next) => {
   try {
-    const limit = Number(req.query.limit) || 1000;
-    const stats = await customerSync.pushAllToCallcenter({ limit });
+    const limit = req.query.limit !== undefined ? Number(req.query.limit) : 1000;
+    const unlinkedOnly = req.query.unlinked_only === '1';
+    const stats = await customerSync.pushAllToCallcenter({ limit, unlinkedOnly });
     return created(res, stats);
   } catch (e) { next(e); }
 });
