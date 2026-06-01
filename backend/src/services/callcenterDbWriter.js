@@ -336,10 +336,58 @@ async function backfillAll({ limit = 0, batchSize = 500 } = {}) {
   return { ok: true, ...stats };
 }
 
+/**
+ * 差分バックフィル: 「callcenter にまだ届いてない」 fax-crm 顧客のみ対象。
+ * fax-crm.customers.external_callcenter_id IS NULL or callcenter 側に該当行が無いもの
+ * を一括 upsert。シャドー二重書きの取りこぼし回収用。
+ *
+ * @param {object} opts { limit, batchSize, includeRecent }
+ *   includeRecent: true なら direct updated_at>since の行も含める (取りこぼし防止)
+ *   since: ISO8601, includeRecent と組み合わせて使う
+ */
+async function diffBackfill({ limit = 0, batchSize = 500, since = null } = {}) {
+  if (!isEnabled()) return { ok: false, reason: 'CALLCENTER_DB 未設定' };
+  const faxPool = getFaxPool();
+  if (!faxPool) return { ok: false, reason: 'fax-crm DB 未設定' };
+
+  const stats = { total: 0, processed: 0, errors: 0, batches: 0 };
+  const startedAt = Date.now();
+
+  // WHERE 条件: external_callcenter_id IS NULL もしくは updated_at が since より新しい
+  const conds = ['external_callcenter_id IS NULL'];
+  const params = [];
+  if (since) {
+    conds.push('OR updated_at >= ?');
+    params.push(since);
+  }
+  const whereSql = `(${conds.join(' ')})`;
+
+  let lastId = 0;
+  while (true) {
+    if (limit > 0 && stats.total >= limit) break;
+    const remain = limit > 0 ? Math.min(batchSize, limit - stats.total) : batchSize;
+    const [rows] = await faxPool.query(
+      `SELECT * FROM customers WHERE id > ? AND ${whereSql} ORDER BY id ASC LIMIT ?`,
+      [lastId, ...params, remain]
+    );
+    if (rows.length === 0) break;
+    stats.batches++;
+    const r = await bulkUpsertCallcenter(rows);
+    if (!r.ok) stats.errors += rows.length;
+    else stats.processed += r.valid || 0;
+    stats.total += rows.length;
+    lastId = rows[rows.length - 1].id;
+  }
+  stats.elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+  stats.since = since;
+  return { ok: true, ...stats };
+}
+
 module.exports = {
   isEnabled,
   upsertToCallcenter,
   bulkUpsertCallcenter,
   shadowUpsert,
   backfillAll,
+  diffBackfill,
 };

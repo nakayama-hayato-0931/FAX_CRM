@@ -190,4 +190,19 @@ router.get('/sync/shadow-status', async (_req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/customers/sync/diff-backfill
+//   差分のみ callcenter DB に書き込み (シャドー書きの取りこぼし回収)
+//   ?since=YYYY-MM-DD で since 以降の updated 行も含める
+router.post('/sync/diff-backfill', async (req, res, next) => {
+  try {
+    if (!ccWriter.isEnabled()) {
+      return fail(res, 400, 'NOT_CONFIGURED', 'CALLCENTER_DB が未設定');
+    }
+    const limit = req.query.limit !== undefined ? Number(req.query.limit) : 0;
+    const since = req.query.since || null;
+    const stats = await ccWriter.diffBackfill({ limit, since });
+    return ok(res, stats);
+  } catch (e) { next(e); }
+});
+
 module.exports = router;

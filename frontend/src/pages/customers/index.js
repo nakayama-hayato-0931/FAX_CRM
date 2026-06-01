@@ -152,6 +152,27 @@ export default function CustomersPage() {
     } finally { setSyncPushing(false); }
   };
 
+  // Phase 2: 差分バックフィル (external_callcenter_id IS NULL の取りこぼしのみ)
+  const diffBackfill = async () => {
+    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (!window.confirm('callcenter に未連携の顧客のみを差分バックフィルします。\n（シャドー書きの取りこぼし回収）\nよろしいですか？')) return;
+    setSyncPushing(true);
+    const t = toast.loading('差分バックフィル中...');
+    try {
+      const { data } = await api.post('/api/customers/sync/diff-backfill', null, { timeout: 60 * 60 * 1000 });
+      toast.dismiss(t);
+      const r = data.data || {};
+      toast.success(
+        `差分バックフィル 完了\n対象 ${r.total ?? 0} / 書込 ${r.processed ?? 0} / エラー ${r.errors ?? 0}` +
+        (r.elapsedSec ? ` (${r.elapsedSec}s)` : ''),
+        { duration: 15000 }
+      );
+    } catch (e) {
+      toast.dismiss(t);
+      toast.error(e.userMessage || '差分バックフィル失敗');
+    } finally { setSyncPushing(false); }
+  };
+
   // Phase 2: callcenter DB に直接シャドーバックフィル
   const shadowBackfill = async (testOnly) => {
     if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
@@ -337,6 +358,14 @@ export default function CustomersPage() {
                 title="Phase 2: 全件 callcenter DB に直接書き込み (時間かかります)"
               >
                 {syncPushing ? '実行中…' : '⚡ Phase2 全件バックフィル'}
+              </button>
+              <button
+                onClick={diffBackfill}
+                disabled={syncPushing || syncingBoth}
+                className="px-3 py-1.5 text-xs bg-white border border-teal-200 text-teal-700 rounded hover:bg-teal-50 disabled:opacity-50 whitespace-nowrap"
+                title="未連携 (external_callcenter_id IS NULL) の取りこぼしのみ"
+              >
+                {syncPushing ? '実行中…' : '⚡ Phase2 差分バックフィル'}
               </button>
               <hr className="border-zinc-200 my-1" />
               <button
