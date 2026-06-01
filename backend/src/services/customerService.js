@@ -150,6 +150,52 @@ async function quickCreate(payload = {}) {
     if (r[0]) return { ...r[0], reused: 'company_name' };
   }
 
+  // Tier 3: fax-crm に無くても callcenter に同じ顧客がいる可能性をチェック
+  const repo = require('./customerRepo');
+  if (repo.shouldReadFromCallcenter(3) && (fax || phone)) {
+    try {
+      const cc = await repo.findExistingInCallcenter({ fax_number: fax, phone_number: phone });
+      if (cc) {
+        // callcenter にすでに居る場合
+        if (cc.external_faxcrm_id) {
+          // 既に fax-crm 行と紐付いてる → その fax-crm 行を返す
+          const [r] = await pool.query(
+            'SELECT id, company_name, fax_number, phone_number FROM customers WHERE id = ? LIMIT 1',
+            [cc.external_faxcrm_id]
+          );
+          if (r[0]) return { ...r[0], reused: 'callcenter:existing' };
+        }
+        // 紐付け無し → 新規 fax-crm 行を作って external_callcenter_id を紐付け
+        const [result] = await pool.query(
+          `INSERT INTO customers (company_name, fax_number, phone_number, industry, prefecture, address, external_callcenter_id, source_file, imported_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [
+            company || '(名称未登録)', fax || null, phone || null,
+            payload.industry || null, payload.prefecture || null, payload.address || null,
+            cc.ccId, payload.source_file || 'tier3-link',
+          ]
+        );
+        // callcenter 側にも external_faxcrm_id 書き戻し
+        try {
+          const ccDb = require('../../config/callcenterDb');
+          const ccPool = ccDb.getPool();
+          if (ccPool) {
+            await ccPool.query(
+              'UPDATE companies SET external_faxcrm_id = ? WHERE id = ? AND external_faxcrm_id IS NULL',
+              [result.insertId, cc.ccId]
+            );
+          }
+        } catch (_e) {}
+        const [created] = await pool.query('SELECT * FROM customers WHERE id = ?', [result.insertId]);
+        try { require('./callcenterDbWriter').shadowUpsert(created[0]); } catch (_e) {}
+        return { ...created[0], reused: 'callcenter:linked', created: true };
+      }
+    } catch (e) {
+      // dedup 失敗 → 通常の INSERT に進む (no-op)
+      console.warn('[customerService] tier3 callcenter dedup failed:', e.message);
+    }
+  }
+
   // 2. 新規 INSERT
   const [result] = await pool.query(
     `INSERT INTO customers (

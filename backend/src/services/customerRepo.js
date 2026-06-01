@@ -291,6 +291,38 @@ function resolveTimelineCustomerId(id) {
   return n;
 }
 
+/**
+ * Tier 3: callcenter.companies で既存顧客を検索
+ *   phone / fax を正規化して LIKE 検索。見つかれば
+ *   { ccId, external_faxcrm_id } を返す。
+ */
+async function findExistingInCallcenter({ fax_number, phone_number }) {
+  if (!shouldReadFromCallcenter(3)) return null;
+  const pool = ccDb.getPool();
+  if (!pool) return null;
+  const faxDigits = (fax_number || '').replace(/[^0-9]/g, '');
+  const phoneDigits = (phone_number || '').replace(/[^0-9]/g, '');
+  if (faxDigits.length < 6 && phoneDigits.length < 6) return null;
+  // fax → phone の優先順位で検索
+  if (faxDigits.length >= 6) {
+    const [r] = await pool.query(
+      `SELECT id, external_faxcrm_id FROM companies
+        WHERE REGEXP_REPLACE(COALESCE(fax_number, ''), '[^0-9]', '') = ? LIMIT 1`,
+      [faxDigits]
+    );
+    if (r[0]) return { ccId: r[0].id, external_faxcrm_id: r[0].external_faxcrm_id, matchedBy: 'fax' };
+  }
+  if (phoneDigits.length >= 6) {
+    const [r] = await pool.query(
+      `SELECT id, external_faxcrm_id FROM companies
+        WHERE REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') = ? LIMIT 1`,
+      [phoneDigits]
+    );
+    if (r[0]) return { ccId: r[0].id, external_faxcrm_id: r[0].external_faxcrm_id, matchedBy: 'phone' };
+  }
+  return null;
+}
+
 async function getReadStatus() {
   const mode = readMode();
   const ccConfigured = ccDb.isConfigured();
@@ -310,6 +342,7 @@ module.exports = {
   listCustomers,
   getById,
   resolveTimelineCustomerId,
+  findExistingInCallcenter,
   readMode,
   shouldReadFromCallcenter,
   getReadStatus,
