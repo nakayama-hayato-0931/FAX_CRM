@@ -180,7 +180,8 @@ export default function CustomersPage() {
       const r = data.data || {};
       toast.success(
         `シャドーバックフィル 完了\n` +
-        `対象 ${r.total ?? 0} / 新規 ${r.created ?? 0} / 更新 ${r.updated ?? 0} / エラー ${r.errors ?? 0}`,
+        `対象 ${r.total ?? 0} / 書込 ${r.processed ?? 0} / 電話無しスキップ ${r.skipped_no_phone ?? 0} / エラー ${r.errors ?? 0}` +
+        (r.elapsedSec ? ` (${r.elapsedSec}s)` : ''),
         { duration: 15000 }
       );
     } catch (e) {
