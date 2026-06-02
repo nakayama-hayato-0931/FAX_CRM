@@ -75,7 +75,7 @@ export default function ReportsIndex() {
             再読み込み
           </button>
           <button onClick={() => {
-                    if (isDemo) { toast('デモ表示中は入力できません', { icon: 'ℹ' }); return; }
+                    if (isDemo) { toast('デモ表示中は入力できません'); return; }
                     setShowManual(true);
                   }}
                   className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">

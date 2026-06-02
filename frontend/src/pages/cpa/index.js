@@ -102,7 +102,7 @@ export default function CpaPage() {
   const reload = () => setReloadKey((k) => k + 1);
 
   const syncProjects = async () => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     setSyncingProjects(true);
     try {
       const { data } = await api.post('/api/sales-projects/sync');
@@ -117,7 +117,7 @@ export default function CpaPage() {
   };
 
   const syncJobs = async () => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     setSyncingJobs(true);
     try {
       const { data } = await api.post('/api/job-postings/sync');
@@ -130,7 +130,7 @@ export default function CpaPage() {
   };
 
   const syncInterviews = async () => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     setSyncingInterviews(true);
     try {
       const { data } = await api.post('/api/interviews/sync');
@@ -353,7 +353,7 @@ export default function CpaPage() {
                           rejectsCount: Number(value),
                         });
                       } else if (c.clickable === 'cost') {
-                        if (isDemo) { toast('デモ表示中はコスト編集できません', { icon: 'ℹ' }); return; }
+                        if (isDemo) { toast('デモ表示中はコスト編集できません'); return; }
                         setCostInputMonth({
                           month: row.month,
                           monthLabel: formatMonth(row.month),

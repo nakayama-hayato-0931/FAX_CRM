@@ -41,7 +41,7 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
   }
 
   async function uploadFile(kind, file) {
-    if (isDemo) { toast('デモ表示中はアップロードできません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中はアップロードできません'); return; }
     if (!file) return;
     setUploading(kind);
     try {
@@ -64,7 +64,7 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
 
   // 原稿管理 から選択した原稿をスロットに紐づけ (Drive上でコピー)
   async function attachContent(content) {
-    if (isDemo) { toast('デモ表示中は登録できません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は登録できません'); return; }
     if (!content?.id) return;
     setUploading('manuscript');
     try {
@@ -95,7 +95,7 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
   const save = async (e) => {
     e.preventDefault();
     if (isDemo) {
-      toast('デモ表示中は保存できません', { icon: 'ℹ' });
+      toast('デモ表示中は保存できません');
       onSaved({ ...slot, ...form });
       return;
     }

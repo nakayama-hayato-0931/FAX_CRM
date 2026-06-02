@@ -234,7 +234,7 @@ export default function FaxStatsPage() {
   }, [daily]);
 
   const sync = async (mode = 'recent') => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     setSyncing(true);
     try {
       const params = mode === 'recent' ? { recent: 1, days: 7 } : {};

@@ -70,7 +70,7 @@ export default function OutsourcedFaxSection({ isDemo, onChanged }) {
   };
 
   const save = async () => {
-    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); setShowForm(false); return; }
+    if (isDemo) { toast('デモ表示中は保存されません'); setShowForm(false); return; }
     if (!editing.report_month) { toast.error('対象月は必須'); return; }
     try {
       await api.post('/api/outsourced-fax', {
@@ -91,7 +91,7 @@ export default function OutsourcedFaxSection({ isDemo, onChanged }) {
   };
 
   const remove = async (row) => {
-    if (isDemo) { toast('デモ表示中は削除されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は削除されません'); return; }
     if (!confirm(`${formatMonth(row.report_month)} の委託レコードを削除しますか?`)) return;
     try {
       await api.delete(`/api/outsourced-fax/${row.report_month.slice(0, 7)}`);

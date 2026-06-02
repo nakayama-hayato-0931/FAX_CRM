@@ -42,13 +42,13 @@ export default function ListsPage() {
   }, [isDemo, reloadKey]);
 
   const downloadExcel = (batchId) => {
-    if (isDemo) { toast('デモ表示中は実Excelダウンロードできません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は実Excelダウンロードできません'); return; }
     const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4001';
     window.open(`${base}/api/batches/${batchId}/excel`, '_blank');
   };
 
   const uploadToDrive = async (batchId) => {
-    if (isDemo) { toast('デモ表示中はDrive保存できません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中はDrive保存できません'); return; }
     try {
       const { data } = await api.post(`/api/batches/${batchId}/upload-to-drive`);
       toast.success('Driveに保存しました');
@@ -62,7 +62,7 @@ export default function ListsPage() {
   };
 
   const deleteBatch = async (b) => {
-    if (isDemo) { toast('デモ表示中は削除できません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は削除できません'); return; }
     const notes = [];
     if (b.actual_count > 0) {
       notes.push(`${b.actual_count.toLocaleString()} 件の抽出明細も同時に削除されます。`);

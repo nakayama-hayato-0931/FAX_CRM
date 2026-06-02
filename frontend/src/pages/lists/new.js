@@ -115,7 +115,7 @@ export default function NewBatchPage() {
     if (!form.name || !form.targetCount) { toast.error('リスト名と件数は必須'); return; }
     if (!form.pcNumbers.length) { toast.error('PC番号を1つ以上選択してください'); return; }
     if (isDemo) {
-      toast('デモ表示中は抽出を実行できません', { icon: 'ℹ' });
+      toast('デモ表示中は抽出を実行できません');
       setResult({
         date: form.date,
         results: form.pcNumbers.map((pc) => ({

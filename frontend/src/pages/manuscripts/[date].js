@@ -81,7 +81,7 @@ export default function ManuscriptDatePage() {
   };
 
   const deleteDate = async () => {
-    if (isDemo) { toast('デモ表示中は削除できません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は削除できません'); return; }
     if (!confirm(
       `${date} の23スロットを全削除します。\n` +
       `Drive 上の "${date}" フォルダ (中の 1〜23 と全ファイル) も同時に削除されます。\n` +
@@ -117,7 +117,7 @@ export default function ManuscriptDatePage() {
   };
 
   const ensureDrive = async () => {
-    if (isDemo) { toast('デモ表示中はDrive作成できません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中はDrive作成できません'); return; }
     if (!confirm(
       `Drive上に ${date}/1〜23 のフォルダを作成します。\n` +
       `既に別フォルダに紐づいているスロットは「Drive 23フォルダ作成」と同じ場所に再リンクされ、` +
@@ -167,7 +167,7 @@ export default function ManuscriptDatePage() {
           </button>
           {allFoldersReady ? (
             <button onClick={() => {
-                      if (isDemo) { toast('デモ表示中は格納できません', { icon: 'ℹ' }); return; }
+                      if (isDemo) { toast('デモ表示中は格納できません'); return; }
                       setShowBulkUpload(true);
                     }}
                     className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">

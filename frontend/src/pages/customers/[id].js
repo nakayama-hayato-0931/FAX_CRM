@@ -25,12 +25,12 @@ const DEMO_TIMELINE = [
 ];
 
 const CHANNEL_META = {
-  fax:     { icon: '📠', label: 'FAX',     color: 'bg-indigo-100 text-indigo-700 border-indigo-300' },
-  call:    { icon: '📞', label: 'コール',  color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
-  email:   { icon: '✉️', label: 'メール',  color: 'bg-sky-100 text-sky-700 border-sky-300' },
-  sns:     { icon: '💬', label: 'SNS',     color: 'bg-pink-100 text-pink-700 border-pink-300' },
-  meeting: { icon: '👥', label: '面談',    color: 'bg-amber-100 text-amber-700 border-amber-300' },
-  other:   { icon: '•',  label: 'その他', color: 'bg-zinc-100 text-zinc-700 border-zinc-300' },
+  fax:     { label: 'FAX',     color: 'bg-indigo-100 text-indigo-700 border-indigo-300' },
+  call:    { label: 'コール',  color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  email:   { label: 'メール',  color: 'bg-sky-100 text-sky-700 border-sky-300' },
+  sns:     { label: 'SNS',     color: 'bg-pink-100 text-pink-700 border-pink-300' },
+  meeting: { label: '面談',    color: 'bg-amber-100 text-amber-700 border-amber-300' },
+  other:   { label: 'その他', color: 'bg-zinc-100 text-zinc-700 border-zinc-300' },
 };
 
 const EVENT_TYPE_LABEL = {
@@ -205,7 +205,7 @@ function Timeline({ events }) {
                 </span>
                 <div className="flex items-start gap-2 flex-wrap">
                   <span className={`px-2 py-0.5 text-xs rounded border ${meta.color} font-medium`}>
-                    {meta.icon} {meta.label}
+                    {meta.label}
                   </span>
                   <span className="text-sm font-medium text-zinc-900">{evLabel}</span>
                   <span className={`px-1.5 py-0.5 text-[10px] rounded ${sourceBadge}`}>

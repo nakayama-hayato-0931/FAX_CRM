@@ -45,7 +45,7 @@ export default function CustomersPage() {
   const reload = () => setReloadKey((k) => k + 1);
 
   const recategorize = async (mode) => {
-    if (isDemo) { toast('デモ表示中は再分類できません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は再分類できません'); return; }
     const label = mode === 'all'
       ? '全顧客の業種カテゴリ を industry/備考 から再算出して上書きします (既存の明示分類も上書き)。 進めますか？'
       : '業種カテゴリ が 未分類 / その他 の顧客を再算出します。 既に明示分類済みの行は触りません。 進めますか？';
@@ -75,7 +75,7 @@ export default function CustomersPage() {
   }, [isDemo]);
 
   const pullFromCallcenter = async () => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     if (!syncStatus?.configured) {
       toast.error('callcenter 連携が未設定 (環境変数 CALLCENTER_API_BASE_URL / CALLCENTER_API_TOKEN を設定してください)');
       return;
@@ -93,7 +93,7 @@ export default function CustomersPage() {
   };
 
   const pullFullFromCallcenter = async () => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     if (!syncStatus?.configured) { toast.error('callcenter 連携が未設定'); return; }
     if (!window.confirm('差分フィルタを無視して callcenter から全件 pull します。 200万件規模だと数十分かかる可能性があります。 進めますか？')) return;
     setSyncPulling(true);
@@ -108,7 +108,7 @@ export default function CustomersPage() {
   };
 
   const syncBoth = async () => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     if (!syncStatus?.configured) {
       toast.error('callcenter 連携が未設定 (環境変数 CALLCENTER_API_BASE_URL / CALLCENTER_API_TOKEN を設定してください)');
       return;
@@ -135,7 +135,7 @@ export default function CustomersPage() {
   };
 
   const pushToCallcenter = async () => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     if (!syncStatus?.configured) {
       toast.error('callcenter 連携が未設定');
       return;
@@ -154,7 +154,7 @@ export default function CustomersPage() {
 
   // Phase 3a: ドリフトチェック
   const driftCheck = async () => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     setSyncPushing(true);
     const t = toast.loading('ドリフトチェック中...');
     try {
@@ -179,7 +179,7 @@ export default function CustomersPage() {
 
   // Phase 2: 差分バックフィル (external_callcenter_id IS NULL の取りこぼしのみ)
   const diffBackfill = async () => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     if (!window.confirm('callcenter に未連携の顧客のみを差分バックフィルします。\n（シャドー書きの取りこぼし回収）\nよろしいですか？')) return;
     setSyncPushing(true);
     const t = toast.loading('差分バックフィル中...');
@@ -200,7 +200,7 @@ export default function CustomersPage() {
 
   // Phase 2: callcenter DB に直接シャドーバックフィル
   const shadowBackfill = async (testOnly) => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     const limit = testOnly ? 10 : 0;
     const label = testOnly ? '10件だけ試験書き込み' : '全件 callcenter DB に直接書き込み';
     if (!window.confirm(`${label}を実行します。callcenter DB へ直接 INSERT/UPDATE します。\nよろしいですか？`)) return;
@@ -238,7 +238,7 @@ export default function CustomersPage() {
 
   // 未連携のみ全件 push (external_callcenter_id IS NULL の顧客を全件 callcenter に作成)
   const pushUnlinkedToCallcenter = async () => {
-    if (isDemo) { toast('デモ表示中は同期されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は同期されません'); return; }
     if (!syncStatus?.configured) { toast.error('callcenter 連携が未設定'); return; }
     if (!window.confirm('callcenter に未連携の顧客のみを全件 callcenter に作成します。\n件数が多い場合は数十分〜数時間かかります。\n進めますか？')) return;
     setSyncPushing(true);
@@ -375,7 +375,7 @@ export default function CustomersPage() {
                 className="px-3 py-1.5 text-xs bg-white border border-purple-200 text-purple-700 rounded hover:bg-purple-50 disabled:opacity-50 whitespace-nowrap"
                 title="Phase 2: 10件だけ callcenter DB に直接書き込んでみる"
               >
-                {syncPushing ? '実行中…' : '⚡ Phase2 テスト書込 (10件)'}
+                {syncPushing ? '実行中…' : 'Phase2 テスト書込 (10件)'}
               </button>
               <button
                 onClick={() => shadowBackfill(false)}
@@ -383,7 +383,7 @@ export default function CustomersPage() {
                 className="px-3 py-1.5 text-xs bg-white border border-purple-300 text-purple-800 rounded hover:bg-purple-50 disabled:opacity-50 whitespace-nowrap"
                 title="Phase 2: 全件 callcenter DB に直接書き込み (時間かかります)"
               >
-                {syncPushing ? '実行中…' : '⚡ Phase2 全件バックフィル'}
+                {syncPushing ? '実行中…' : 'Phase2 全件バックフィル'}
               </button>
               <button
                 onClick={diffBackfill}
@@ -391,7 +391,7 @@ export default function CustomersPage() {
                 className="px-3 py-1.5 text-xs bg-white border border-teal-200 text-teal-700 rounded hover:bg-teal-50 disabled:opacity-50 whitespace-nowrap"
                 title="未連携 (external_callcenter_id IS NULL) の取りこぼしのみ"
               >
-                {syncPushing ? '実行中…' : '⚡ Phase2 差分バックフィル'}
+                {syncPushing ? '実行中…' : 'Phase2 差分バックフィル'}
               </button>
               <button
                 onClick={driftCheck}
@@ -399,7 +399,7 @@ export default function CustomersPage() {
                 className="px-3 py-1.5 text-xs bg-white border border-sky-200 text-sky-700 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap"
                 title="2DB のドリフト (整合性) を比較"
               >
-                {syncPushing ? '実行中…' : '⚡ Phase3 ドリフトチェック'}
+                {syncPushing ? '実行中…' : 'Phase3 ドリフトチェック'}
               </button>
               <hr className="border-zinc-200 my-1" />
               <button

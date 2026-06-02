@@ -132,7 +132,7 @@ export default function BatchInputPage() {
 
   const save = async () => {
     if (!sendDate || !pcNumber) { toast.error('送信日とPC番号は必須です'); return; }
-    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は保存されません'); return; }
     setSaving(true);
     try {
       const payload = {

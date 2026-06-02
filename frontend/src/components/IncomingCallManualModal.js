@@ -188,7 +188,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
     const normalized = normalizeDigit(raw);
     if (normalized !== raw && /[^\x00-\x7F]/.test(raw)) {
       // 全角文字が含まれていた場合は警告 (静かに) → 1回だけ
-      toast('全角は半角に自動変換しました', { icon: 'ℹ', duration: 1500 });
+      toast('全角は半角に自動変換しました', { duration: 1500 });
     }
     setDirect((d) => ({ ...d, [key]: normalized }));
   };

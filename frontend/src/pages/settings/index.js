@@ -147,7 +147,7 @@ export default function SettingsPage() {
   }, [isDemo, reloadKey]);
 
   const save = async () => {
-    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は保存されません'); return; }
     setSaving(true);
     try {
       await api.put('/api/settings', form);
@@ -161,7 +161,7 @@ export default function SettingsPage() {
   };
 
   const saveSheets = async () => {
-    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は保存されません'); return; }
     setSavingSheets(true);
     try {
       await api.put('/api/fax-stats/config', sheetsForm);
@@ -194,7 +194,7 @@ export default function SettingsPage() {
   };
 
   const saveProjects = async () => {
-    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は保存されません'); return; }
     setSavingProjects(true);
     try {
       await api.put('/api/sales-projects/config', projectsForm);
@@ -227,7 +227,7 @@ export default function SettingsPage() {
   };
 
   const saveJobs = async () => {
-    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は保存されません'); return; }
     setSavingJobs(true);
     try {
       await api.put('/api/job-postings/config', jobsForm);
@@ -255,7 +255,7 @@ export default function SettingsPage() {
   };
 
   const saveInterviews = async () => {
-    if (isDemo) { toast('デモ表示中は保存されません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は保存されません'); return; }
     setSavingInterviews(true);
     try {
       await api.put('/api/interviews/config', interviewsForm);
@@ -288,7 +288,7 @@ export default function SettingsPage() {
   };
 
   const migrateLocalPdfsToDrive = async () => {
-    if (isDemo) { toast('デモ表示中は移行できません', { icon: 'ℹ' }); return; }
+    if (isDemo) { toast('デモ表示中は移行できません'); return; }
     if (!form.drive_root_folder_id && !form.manuscript_pdf_drive_folder_id) {
       toast.error('先に Drive ルートフォルダ ID か 原稿PDF Drive フォルダ ID を設定してください');
       return;

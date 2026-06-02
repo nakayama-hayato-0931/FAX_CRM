@@ -47,7 +47,7 @@ export default function ManuscriptsIndex() {
       toast.error('日付を選択してください'); return;
     }
     if (isDemo) {
-      toast('デモ表示中は実DBには書き込みません', { icon: 'ℹ' });
+      toast('デモ表示中は実DBには書き込みません');
       router.push(`/manuscripts/${newDate}?demo=1`);
       return;
     }
