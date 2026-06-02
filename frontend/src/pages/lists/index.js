@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
+import BatchResultModal from '@/components/BatchResultModal';
 
 const DEMO_BATCHES = [
   { id: 7, name: '関東-製造業-PC03', filter_industry: '製造業', filter_prefecture: '東京都', target_count: 200, actual_count: 200, pc_number: 'PC03', status: 'ready', drive_file_url: null, created_at: '2026-05-12T09:00:00Z' },
@@ -23,6 +24,7 @@ export default function ListsPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [resultBatchId, setResultBatchId] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,9 +168,9 @@ export default function ListsPage() {
                       <div className="flex gap-1 justify-end flex-wrap">
                         <button
                           className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
-                          onClick={() => downloadExcel(b.id)}
+                          onClick={() => setResultBatchId(b.id)}
                         >
-                          Excel ↓
+                          結果
                         </button>
                         {b.drive_file_url ? (
                           <a href={b.drive_file_url} target="_blank" rel="noreferrer"
@@ -198,6 +200,10 @@ export default function ListsPage() {
           </table>
         </div>
       </div>
+
+      {resultBatchId && (
+        <BatchResultModal batchId={resultBatchId} onClose={() => setResultBatchId(null)} />
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
+import BatchResultModal from '@/components/BatchResultModal';
 
 const DEMO_INDUSTRIES = [
   { industry: '飲食', cnt: 21917 },
@@ -53,6 +54,7 @@ export default function NewBatchPage() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const [missingPcs, setMissingPcs] = useState(null); // 未作成のスロットがあれば配列
+  const [resultBatchId, setResultBatchId] = useState(null); // 結果モーダル表示中の batchId
 
   useEffect(() => {
     let cancelled = false;
@@ -211,11 +213,11 @@ export default function NewBatchPage() {
                     </a>
                   )}
                   {r.batch?.batchId && (
-                    <a href={`${process.env.NEXT_PUBLIC_API_BASE_URL || ''}/api/batches/${r.batch.batchId}/excel`}
-                       target="_blank" rel="noreferrer"
-                       className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700">
-                      Excel ↓
-                    </a>
+                    <button type="button"
+                            onClick={() => setResultBatchId(r.batch.batchId)}
+                            className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700">
+                      結果
+                    </button>
                   )}
                 </div>
               </div>
@@ -231,6 +233,10 @@ export default function NewBatchPage() {
             リスト一覧に戻る
           </Link>
         </div>
+
+        {resultBatchId && (
+          <BatchResultModal batchId={resultBatchId} onClose={() => setResultBatchId(null)} />
+        )}
       </div>
     );
   }
