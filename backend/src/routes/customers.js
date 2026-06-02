@@ -71,7 +71,8 @@ router.get('/:id(\\d+)', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.patch('/:id(\\d+)/blacklist', async (req, res, next) => {
+// callcenter-only 顧客 (sentinel id = -callcenter.id) も扱えるよう 負号許容
+router.patch('/:id(-?\\d+)/blacklist', async (req, res, next) => {
   try {
     const { isBlacklisted, reason } = req.body || {};
     await customerService.setBlacklist(req.params.id, !!isBlacklisted, reason);

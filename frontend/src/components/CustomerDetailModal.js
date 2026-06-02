@@ -33,11 +33,47 @@ const SOURCE_BADGE = {
  *     channelFilter   ... 'call' で通話のみ表示 (架電回数クリック時に使う)
  *     onClose         ... モーダル閉じる
  */
-export default function CustomerDetailModal({ customerId, initialTab = 'overview', channelFilter = null, onClose }) {
+export default function CustomerDetailModal({ customerId, initialTab = 'overview', channelFilter = null, onClose, onUpdated }) {
   const [customer, setCustomer] = useState(null);
   const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [blacklistBusy, setBlacklistBusy] = useState(false);
+
+  const toggleBlacklist = async () => {
+    if (!customer || blacklistBusy) return;
+    const adding = !customer.is_blacklisted;
+    let reason = customer.blacklisted_reason || '';
+    if (adding) {
+      const r = window.prompt(
+        `この顧客を NG リスト に追加します。\n会社名: ${customer.company_name}\n\n理由 (任意):`,
+        'NG'
+      );
+      if (r === null) return;  // キャンセル
+      reason = r.trim() || 'NG';
+    } else {
+      if (!window.confirm(`NG リストから解除します。\n会社名: ${customer.company_name}\n\nよろしいですか?`)) return;
+      reason = '';
+    }
+    setBlacklistBusy(true);
+    try {
+      await api.patch(`/api/customers/${customer.id}/blacklist`, {
+        isBlacklisted: adding,
+        reason: adding ? reason : null,
+      });
+      setCustomer({
+        ...customer,
+        is_blacklisted: adding ? 1 : 0,
+        blacklisted_reason: adding ? reason : null,
+      });
+      toast.success(adding ? 'NG リストに追加しました' : 'NG リストから解除しました');
+      if (onUpdated) onUpdated();
+    } catch (e) {
+      toast.error(e.userMessage || 'NG 状態の更新に失敗');
+    } finally {
+      setBlacklistBusy(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -136,7 +172,11 @@ export default function CustomerDetailModal({ customerId, initialTab = 'overview
                     <Row k="代表者"   v={customer.representative} />
                     <Row k="従業員数" v={customer.employee_count} />
                     <Row k="ソース"   v={customer.source_file} />
-                    <Row k="ブラックリスト" v={customer.is_blacklisted ? 'はい' : 'いいえ'} />
+                    <Row k="ブラックリスト" v={customer.is_blacklisted
+                      ? (customer.blacklisted_reason
+                          ? `はい (${customer.blacklisted_reason})`
+                          : 'はい')
+                      : 'いいえ'} />
                     <Row k="callcenter ID" v={customer.external_callcenter_id} />
                     <Row k="備考" v={customer.note} />
                   </dl>
@@ -149,7 +189,28 @@ export default function CustomerDetailModal({ customerId, initialTab = 'overview
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-3 border-t border-zinc-200 flex justify-end flex-shrink-0">
+            <div className="px-6 py-3 border-t border-zinc-200 flex justify-between items-center flex-shrink-0">
+              <div>
+                {customer.is_blacklisted ? (
+                  <button
+                    onClick={toggleBlacklist}
+                    disabled={blacklistBusy}
+                    className="px-3 py-1.5 text-sm bg-white border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50"
+                    title="NG リスト (ブラックリスト) から解除"
+                  >
+                    {blacklistBusy ? '処理中…' : 'NG 解除'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={toggleBlacklist}
+                    disabled={blacklistBusy}
+                    className="px-3 py-1.5 text-sm bg-white border border-red-300 text-red-700 rounded hover:bg-red-50 disabled:opacity-50"
+                    title="NG リスト (ブラックリスト) に追加"
+                  >
+                    {blacklistBusy ? '処理中…' : 'NG リストに追加'}
+                  </button>
+                )}
+              </div>
               <button onClick={onClose} className="px-4 py-1.5 text-sm bg-white border border-zinc-300 rounded hover:bg-zinc-50">
                 閉じる
               </button>

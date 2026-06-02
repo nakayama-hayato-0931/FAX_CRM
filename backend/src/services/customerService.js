@@ -262,15 +262,36 @@ async function getDistinctPrefectures() {
 }
 
 async function setBlacklist(id, isBlacklisted, reason) {
+  const numId = Number(id);
+  if (!numId) throw new Error('id 不正');
+  const flag = isBlacklisted ? 1 : 0;
+  const reasonVal = isBlacklisted ? (reason || 'NG') : null;
+
+  // (A) callcenter-only 顧客 (一覧 id = -callcenter.id の sentinel)
+  //     fax-crm に row が無いので callcenter.companies を直接更新する
+  if (numId < 0) {
+    const ccDb = require('../../config/callcenterDb');
+    if (!ccDb.isConfigured()) {
+      throw new Error('CALLCENTER_DB が未設定のため callcenter-only 顧客の NG 更新ができません');
+    }
+    const ccPool = ccDb.getPool();
+    await ccPool.query(
+      `UPDATE companies SET is_blacklisted = ?, blacklisted_reason = ? WHERE id = ?`,
+      [flag, reasonVal, -numId]
+    );
+    return;
+  }
+
+  // (B) fax-crm に row がある通常顧客
   const pool = getPool();
   if (!pool) throw new Error('DB未設定');
   await pool.query(
     `UPDATE customers SET is_blacklisted = ?, blacklisted_reason = ? WHERE id = ?`,
-    [isBlacklisted ? 1 : 0, reason || null, id]
+    [flag, reasonVal, numId]
   );
-  // Phase 2: callcenter DB にシャドー反映
+  // Phase 2: callcenter DB にもシャドー反映 (fire-and-forget)
   try {
-    const [rows] = await pool.query('SELECT * FROM customers WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT * FROM customers WHERE id = ?', [numId]);
     if (rows[0]) require('./callcenterDbWriter').shadowUpsert(rows[0]);
   } catch (_e) {}
 }

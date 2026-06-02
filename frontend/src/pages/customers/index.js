@@ -592,6 +592,7 @@ export default function CustomersPage() {
           initialTab={detail.initialTab}
           channelFilter={detail.channelFilter}
           onClose={() => setDetail(null)}
+          onUpdated={reload}
         />
       )}
     </div>
