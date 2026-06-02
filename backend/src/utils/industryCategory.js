@@ -17,7 +17,7 @@
  * ケースを想定し、 substring マッチ (RegExp.test) で判定する。
  */
 
-const INDUSTRY_CATEGORIES = ['飲食', '製造', '小売', '宿泊', '建設', '農業', '介護', '運送', 'その他'];
+const INDUSTRY_CATEGORIES = ['飲食', '製造', '小売', '宿泊', '建設', '清掃', '農業', '介護', '運送', 'その他'];
 
 // 各カテゴリのキーワード正規表現
 // 表記ゆれ・部分一致 (例: 「飲食」 だけでも catch) を網羅
@@ -42,6 +42,8 @@ const RX = {
   // 製造 — 「○○製造業」 系 + 加工 / 工場 / 工業 / 製作 / 印刷 / 縫製 等
   // 「製造販売」 「印刷業」 「金属加工」 「機械部品」 などを広く拾う
   manufacturing: /製造|加工|縫製|印刷|製作|工場|工業|製紙|製本|製麺|製粉|製鉄|製鋼|製薬|食品加工|鋳造|鍛造|部品|機械工業|プレス|金属加工|木材加工|繊維|衣服製|食品工場|窯業|陶磁器|印刷業|出版業/,
+  // 清掃 / ビルメンテナンス / 環境衛生
+  cleaning: /清掃|クリーニング|ハウスクリーニング|ビルクリーニング|ビルメンテ|ビル管理|ビル管理業|環境衛生|消毒|害虫駆除/,
 };
 
 /**
@@ -60,6 +62,7 @@ function normalizeIndustry(raw) {
   if (RX.care.test(s))         return '介護';
   if (RX.lodging.test(s))      return '宿泊';
   if (RX.food.test(s))         return '飲食';
+  if (RX.cleaning.test(s))     return '清掃';
   if (RX.construction.test(s)) return '建設';
   if (RX.transport.test(s))    return '運送';
   if (RX.agri.test(s))         return '農業';

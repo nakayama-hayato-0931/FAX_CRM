@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS customers (
   fax_number VARCHAR(32) DEFAULT NULL COMMENT 'FAX番号 (FAX-CRM運用上の主キー的役割)。 callcenter由来の行はNULL',
   phone_number VARCHAR(32) DEFAULT NULL COMMENT '電話番号 (callcenter架電用)',
   industry VARCHAR(100) DEFAULT NULL COMMENT '業種 (詳細)',
-  industry_category VARCHAR(20) DEFAULT NULL COMMENT '業種カテゴリ: 飲食/製造/小売/宿泊/建設/農業/介護/運送/その他',
+  industry_category VARCHAR(20) DEFAULT NULL COMMENT '業種カテゴリ: 飲食/製造/小売/宿泊/建設/清掃/農業/介護/運送/その他',
   prefecture VARCHAR(20) DEFAULT NULL,
   city VARCHAR(100) DEFAULT NULL,
   address TEXT DEFAULT NULL,
