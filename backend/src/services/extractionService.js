@@ -330,11 +330,9 @@ async function getBatchWithCustomers(id) {
 
 /**
  * Excel ファイルを生成して Buffer で返す。
- * 構成:
- *   行1   : タイトル (バッチ名)
- *   行2〜5 : メタ情報 (抽出条件 / 件数 / PC / 作成日)
- *   行6   : ヘッダー (オートフィルタ + 固定)
- *   行7〜  : データ (ゼブラ + ブラックリスト赤背景)
+ * 構成 (1行目=ヘッダで開始、 No. 列なし):
+ *   行1   : ヘッダー (オートフィルタ + 固定)
+ *   行2〜  : データ (ゼブラ + ブラックリスト赤背景)
  */
 async function generateExcelBuffer(id) {
   const data = await getBatchWithCustomers(id);
@@ -342,7 +340,6 @@ async function generateExcelBuffer(id) {
   const { batch, customers } = data;
 
   const COLUMN_DEFS = [
-    { header: 'No.',       key: 'row_index',    width:  6, align: 'center' },
     { header: '会社名',     key: 'company_name', width: 36, align: 'left'   },
     { header: 'FAX番号',    key: 'fax_number',   width: 16, align: 'left',   font: 'mono' },
     { header: '電話番号',   key: 'phone_number', width: 16, align: 'left',   font: 'mono' },
@@ -355,7 +352,7 @@ async function generateExcelBuffer(id) {
     { header: '備考',       key: 'note',         width: 24, align: 'left'   },
   ];
   const COL_COUNT = COLUMN_DEFS.length;
-  const HEADER_ROW = 6;
+  const HEADER_ROW = 1;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = 'FAX-CRM';
@@ -375,39 +372,11 @@ async function generateExcelBuffer(id) {
     },
   });
 
-  // 列幅とキー(列定義) — タイトル領域と共存させるため明示的に
+  // 列幅とキー(列定義)
   COLUMN_DEFS.forEach((def, i) => {
     const col = ws.getColumn(i + 1);
     col.width = def.width;
     col.key = def.key;
-  });
-
-  // ===== タイトル領域 =====
-  const titleColEnd = String.fromCharCode(64 + COL_COUNT);  // A→K等
-  ws.mergeCells(`A1:${titleColEnd}1`);
-  const titleCell = ws.getCell('A1');
-  titleCell.value = `FAX送信リスト  ${batch.name || ''}`;
-  titleCell.font = { name: 'Yu Gothic', bold: true, size: 16, color: { argb: 'FF1E1B4B' } };
-  titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
-  ws.getRow(1).height = 28;
-
-  const metaRows = [
-    ['抽出条件',  `業種: ${batch.filter_industry || '-'} / 都道府県: ${batch.filter_prefecture || '-'}`],
-    ['件数',      `${batch.actual_count || customers.length} 件 (目標: ${batch.target_count || '-'})`],
-    ['担当PC',    batch.pc_number || '-'],
-    ['作成日',    formatDateLong(batch.created_at)],
-  ];
-  metaRows.forEach((row, idx) => {
-    const r = idx + 2;
-    ws.mergeCells(`B${r}:${titleColEnd}${r}`);
-    const k = ws.getCell(`A${r}`);
-    const v = ws.getCell(`B${r}`);
-    k.value = row[0];
-    v.value = row[1];
-    k.font = { name: 'Yu Gothic', bold: true, color: { argb: 'FF6B7280' }, size: 10 };
-    v.font = { name: 'Yu Gothic', color: { argb: 'FF1F2937' }, size: 10 };
-    k.alignment = v.alignment = { vertical: 'middle', horizontal: 'left' };
-    ws.getRow(r).height = 16;
   });
 
   // ===== ヘッダー行 =====
