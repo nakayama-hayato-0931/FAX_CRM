@@ -199,6 +199,22 @@ router.post('/extract-and-upload', async (req, res, next) => {
       }
       driveInfo = { fileId: uploaded.id, webViewLink: uploaded.webViewLink, slotId: slot.id };
 
+      // 2-4b. スロットタイトル を 業種 / 都道府県 で自動設定 (空欄のときだけ)
+      //       「未設定」 のまま放置を防止。 手動設定済みのタイトルは尊重して上書きしない
+      try {
+        const titleParts = [body.industry, body.prefecture].filter(Boolean);
+        if (titleParts.length && pool) {
+          const autoTitle = titleParts.join(' / ');
+          await pool.query(
+            `UPDATE manuscripts SET title = ?
+              WHERE id = ? AND (title IS NULL OR title = '')`,
+            [autoTitle, slot.id]
+          );
+        }
+      } catch (titleErr) {
+        console.warn(`[extract-and-upload] PC${pcNum} スロットタイトル設定失敗: ${titleErr.message}`);
+      }
+
       // 2-5. 原稿 PDF を 同じスロットに attach (manuscriptContentId が指定されてる時)
       //      attachContentToSlot は失敗時 throw するが、 原稿のみ失敗しても
       //      Excel/Drive 出力は成功扱いにしたいので try/catch で吸収
