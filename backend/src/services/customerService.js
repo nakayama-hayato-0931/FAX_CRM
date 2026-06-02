@@ -50,8 +50,13 @@ async function listCustomers(query = {}) {
   if (query.prefecture) { where.push('c.prefecture = ?'); params.push(query.prefecture); }
   if (query.blacklisted === 'true')  where.push('c.is_blacklisted = 1');
   if (query.blacklisted === 'false') where.push('c.is_blacklisted = 0');
-  if (query.has_fax === 'true')  where.push(`(c.fax_number IS NOT NULL AND c.fax_number <> '')`);
-  if (query.has_fax === 'false') where.push(`(c.fax_number IS NULL OR c.fax_number = '')`);
+  // has_fax: 数字を含む実 FAX 番号がある顧客に限る (placeholder 等の非数字も除外)
+  if (query.has_fax === 'true') {
+    where.push(`(c.fax_number IS NOT NULL AND c.fax_number <> '' AND REGEXP_REPLACE(c.fax_number, '[^0-9]', '') <> '')`);
+  }
+  if (query.has_fax === 'false') {
+    where.push(`(c.fax_number IS NULL OR c.fax_number = '' OR REGEXP_REPLACE(c.fax_number, '[^0-9]', '') = '')`);
+  }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const sortCol = SORT_MAP[query.sortBy] || 'updated_at';
