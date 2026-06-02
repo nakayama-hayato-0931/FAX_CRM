@@ -43,6 +43,8 @@ export default function NewBatchPage() {
     targetCount: 100,
     pcNumbers: [],            // [1, 3, 5...]
     recentDays: 30,
+    recentCallDays: 0,        // N 日以内架電 除外 (0 = 除外しない)
+    excludeProjects: true,    // 既存案件 (sales_projects/job_postings と社名一致) を除外
   });
 
   const [previewCount, setPreviewCount] = useState(null);
@@ -102,6 +104,8 @@ export default function NewBatchPage() {
           industry: form.industry || undefined,
           prefecture: form.prefecture || undefined,
           recentDays: form.recentDays || undefined,
+          recentCallDays: form.recentCallDays || undefined,
+          excludeProjects: form.excludeProjects ? 'true' : undefined,
         },
       });
       setPreviewCount(data.data.matchCount);
@@ -159,6 +163,8 @@ export default function NewBatchPage() {
         industry: form.industry || null,
         prefecture: form.prefecture || null,
         recentDays: Number(form.recentDays) || null,
+        recentCallDays: Number(form.recentCallDays) || 0,
+        excludeProjects: !!form.excludeProjects,
         targetCount: Number(form.targetCount),
         pcNumbers: form.pcNumbers,
       };
@@ -282,10 +288,27 @@ export default function NewBatchPage() {
                    onChange={(e) => setForm({ ...form, targetCount: e.target.value })}
                    required />
           </Field>
-          <Field label="N日以内送信を除外">
+          <Field label="N日以内送信を除外" hint="last_sent_at が直近 N 日以内の顧客を除外">
             <input type="number" className="input" min="0" max="365"
                    value={form.recentDays}
                    onChange={(e) => { setForm({ ...form, recentDays: e.target.value }); setPreviewCount(null); }} />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="N日以内架電を除外" hint="contact_events (channel=call) が直近 N 日以内の顧客を除外。 0 = 除外しない">
+            <input type="number" className="input" min="0" max="365"
+                   value={form.recentCallDays}
+                   onChange={(e) => { setForm({ ...form, recentCallDays: e.target.value }); setPreviewCount(null); }} />
+          </Field>
+          <Field label="既存案件を除外" hint="案件マスタ (sales_projects / job_postings) と社名一致する顧客を除外">
+            <label className="flex items-center gap-2 mt-1 cursor-pointer select-none">
+              <input type="checkbox"
+                     checked={form.excludeProjects}
+                     onChange={(e) => { setForm({ ...form, excludeProjects: e.target.checked }); setPreviewCount(null); }}
+                     className="w-4 h-4 text-indigo-600 rounded" />
+              <span className="text-sm text-zinc-700">既に案件化済みの会社名を除外</span>
+            </label>
           </Field>
         </div>
 

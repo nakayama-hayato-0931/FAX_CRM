@@ -2,7 +2,7 @@ const ExcelJS = require('exceljs');
 const { getPool, isConfigured } = require('../../config/db');
 const drive = require('./driveService');
 
-function buildWhere({ industry, prefecture, recentDays }) {
+function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects }) {
   // 抽出条件:
   //   - ブラックリスト除外
   //   - FAX 番号必須 (callcenter由来等のFAX無し顧客は対象外)
@@ -25,6 +25,28 @@ function buildWhere({ industry, prefecture, recentDays }) {
     where.push('(last_sent_at IS NULL OR last_sent_at < (NOW() - INTERVAL ? DAY))');
     params.push(Number(recentDays));
   }
+  // N 日以内に架電 (call channel イベント) があった顧客を除外
+  //   contact_events.channel = 'call' (callcenter / 受電報告 由来) の
+  //   occurred_at が直近 N 日以内 なら除外
+  if (recentCallDays && Number(recentCallDays) > 0) {
+    where.push(`id NOT IN (
+      SELECT DISTINCT customer_id FROM contact_events
+       WHERE channel = 'call'
+         AND occurred_at >= (NOW() - INTERVAL ? DAY)
+    )`);
+    params.push(Number(recentCallDays));
+  }
+  // 既存案件 (sales_projects + job_postings) と company_name 一致の顧客を除外
+  //   いずれのテーブルも customer_id を持たないため text 完全一致で照合
+  if (excludeProjects) {
+    where.push(`company_name NOT IN (
+      SELECT company_name FROM sales_projects
+       WHERE company_name IS NOT NULL AND company_name <> ''
+      UNION
+      SELECT company_name FROM job_postings
+       WHERE company_name IS NOT NULL AND company_name <> ''
+    )`);
+  }
   return { whereSql: 'WHERE ' + where.join(' AND '), params };
 }
 
@@ -38,10 +60,15 @@ const PRIORITY_ORDER = `
 /**
  * 抽出条件に合致する顧客の総数(プレビュー用)
  */
-async function previewCount(filters) {
+async function previewCount(filters = {}) {
   const pool = getPool();
   if (!pool) return { matchCount: 0 };
-  const { whereSql, params } = buildWhere(filters);
+  // boolean は文字列で来る (query string) ので正規化
+  const normalized = {
+    ...filters,
+    excludeProjects: filters.excludeProjects === true || filters.excludeProjects === 'true' || filters.excludeProjects === '1',
+  };
+  const { whereSql, params } = buildWhere(normalized);
   const [rows] = await pool.query(
     `SELECT COUNT(*) AS cnt FROM customers ${whereSql}`,
     params
@@ -58,7 +85,7 @@ async function previewCount(filters) {
  *   4. customers の send_count++, last_sent_at, last_pc_number を更新
  *   5. batch.actual_count を更新
  */
-async function createBatch({ name, industry, prefecture, recentDays, targetCount, pcNumber }) {
+async function createBatch({ name, industry, prefecture, recentDays, recentCallDays, excludeProjects, targetCount, pcNumber }) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です。.env の DB_HOST 等を設定してください');
     err.status = 500; err.code = 'DB_NOT_CONFIGURED';
@@ -85,7 +112,7 @@ async function createBatch({ name, industry, prefecture, recentDays, targetCount
     const batchId = batchInsert.insertId;
 
     // 2. 該当顧客を選定 (FOR UPDATE で同時実行時の二重取得を防止)
-    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays });
+    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects });
     const [customers] = await conn.query(
       `SELECT id FROM customers ${whereSql} ${PRIORITY_ORDER} LIMIT ? FOR UPDATE`,
       [...params, Number(targetCount)]
@@ -143,7 +170,7 @@ async function createBatch({ name, industry, prefecture, recentDays, targetCount
  *   返り値: [{ pcNumber, batchId, actualCount, status }, ...] (pcNumbers と同順)
  */
 async function createBatchesPerPc({
-  baseName, date, industry, prefecture, recentDays, targetCount, pcNumbers,
+  baseName, date, industry, prefecture, recentDays, recentCallDays, excludeProjects, targetCount, pcNumbers,
 }) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です'); err.status = 500; err.code = 'DB_NOT_CONFIGURED';
@@ -165,7 +192,7 @@ async function createBatchesPerPc({
 
     // 1. 全 PC 分の顧客を 一括取得
     const totalWant = Number(targetCount) * pcNumbers.length;
-    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays });
+    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects });
     const [customers] = await conn.query(
       `SELECT id FROM customers ${whereSql} ${PRIORITY_ORDER} LIMIT ? FOR UPDATE`,
       [...params, totalWant]
