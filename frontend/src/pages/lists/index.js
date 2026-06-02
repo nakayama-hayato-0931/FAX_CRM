@@ -140,8 +140,16 @@ export default function ListsPage() {
               {!loading && items.map((b) => {
                 const s = STATUS_LABEL[b.status] || { label: b.status, cls: 'bg-zinc-100 text-zinc-700' };
                 return (
-                  <tr key={b.id} className="border-t border-zinc-100 hover:bg-zinc-50/60">
-                    <td className="px-4 py-2.5 font-medium text-zinc-900">{b.name}</td>
+                  <tr key={b.id} className={[
+                    'border-t border-zinc-100 hover:bg-zinc-50/60',
+                    b.is_test ? 'bg-amber-50/40' : '',
+                  ].join(' ')}>
+                    <td className="px-4 py-2.5 font-medium text-zinc-900">
+                      {b.is_test ? (
+                        <span className="mr-2 px-1.5 py-0.5 text-[10px] rounded bg-amber-200 text-amber-900 font-bold align-middle">TEST</span>
+                      ) : null}
+                      {b.name}
+                    </td>
                     <td className="px-4 py-2.5 text-zinc-700">{b.filter_industry || '—'}</td>
                     <td className="px-4 py-2.5 text-zinc-700">{b.filter_prefecture || '—'}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums">

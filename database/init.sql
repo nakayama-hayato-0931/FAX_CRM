@@ -225,6 +225,7 @@ CREATE TABLE IF NOT EXISTS extraction_batches (
   drive_file_id VARCHAR(100) DEFAULT NULL,
   drive_file_url VARCHAR(500) DEFAULT NULL,
   status ENUM('draft','ready','sent','failed') NOT NULL DEFAULT 'ready',
+  is_test TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'テストモード抽出: 顧客マスタの送信履歴を更新しない',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_batches_status (status),

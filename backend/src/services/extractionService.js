@@ -2,6 +2,31 @@ const ExcelJS = require('exceljs');
 const { getPool, isConfigured } = require('../../config/db');
 const drive = require('./driveService');
 
+// Railway デプロイ race 対策: is_test 列が無ければ ALTER で追加 (1度成功すれば no-op)
+let _isTestColumnEnsured = false;
+async function ensureIsTestColumn(pool) {
+  if (_isTestColumnEnsured) return;
+  try {
+    const [rows] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'extraction_batches'
+          AND COLUMN_NAME = 'is_test'`
+    );
+    if (rows.length === 0) {
+      await pool.query(
+        `ALTER TABLE extraction_batches
+           ADD COLUMN is_test TINYINT(1) NOT NULL DEFAULT 0
+             COMMENT 'テストモード抽出: 顧客マスタの送信履歴を更新しない'`
+      );
+      console.log('[extractionService] extraction_batches.is_test 列 自動追加 完了');
+    }
+    _isTestColumnEnsured = true;
+  } catch (e) {
+    console.error('[extractionService] is_test 列 ensure 失敗:', e.message);
+  }
+}
+
 function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects }) {
   // 抽出条件:
   //   - ブラックリスト除外
@@ -85,7 +110,7 @@ async function previewCount(filters = {}) {
  *   4. customers の send_count++, last_sent_at, last_pc_number を更新
  *   5. batch.actual_count を更新
  */
-async function createBatch({ name, industry, prefecture, recentDays, recentCallDays, excludeProjects, targetCount, pcNumber }) {
+async function createBatch({ name, industry, prefecture, recentDays, recentCallDays, excludeProjects, targetCount, pcNumber, testMode }) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です。.env の DB_HOST 等を設定してください');
     err.status = 500; err.code = 'DB_NOT_CONFIGURED';
@@ -98,6 +123,8 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
   }
 
   const pool = getPool();
+  await ensureIsTestColumn(pool);
+  const isTest = !!testMode;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -105,9 +132,9 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
     // 1. batch 行を作成
     const [batchInsert] = await conn.query(
       `INSERT INTO extraction_batches
-         (name, filter_industry, filter_prefecture, filter_recent_days, target_count, pc_number, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'ready')`,
-      [name, industry || null, prefecture || null, recentDays || null, targetCount, pcNumber || null]
+         (name, filter_industry, filter_prefecture, filter_recent_days, target_count, pc_number, status, is_test)
+       VALUES (?, ?, ?, ?, ?, ?, 'ready', ?)`,
+      [name, industry || null, prefecture || null, recentDays || null, targetCount, pcNumber || null, isTest ? 1 : 0]
     );
     const batchId = batchInsert.insertId;
 
@@ -124,10 +151,10 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
         [batchId]
       );
       await conn.commit();
-      return { batchId, actualCount: 0, status: 'failed' };
+      return { batchId, actualCount: 0, status: 'failed', isTest };
     }
 
-    // 3. extraction_records にバルクINSERT
+    // 3. extraction_records にバルクINSERT (テストモードでもリスト/Excel 出力のため記録)
     const recordRows = customers.map((c, i) => [batchId, c.id, i + 1]);
     await conn.query(
       `INSERT INTO extraction_records (batch_id, customer_id, row_index) VALUES ?`,
@@ -135,15 +162,18 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
     );
 
     // 4. customers の集計更新 (送信回数 + 最終送信日時 + 最終PC)
-    const ids = customers.map((c) => c.id);
-    await conn.query(
-      `UPDATE customers
-          SET send_count = send_count + 1,
-              last_sent_at = NOW(),
-              last_pc_number = ?
-        WHERE id IN (?)`,
-      [pcNumber || null, ids]
-    );
+    //    テストモードではスキップ — 顧客マスタに履歴を残さない
+    if (!isTest) {
+      const ids = customers.map((c) => c.id);
+      await conn.query(
+        `UPDATE customers
+            SET send_count = send_count + 1,
+                last_sent_at = NOW(),
+                last_pc_number = ?
+          WHERE id IN (?)`,
+        [pcNumber || null, ids]
+      );
+    }
 
     // 5. batch.actual_count を更新
     await conn.query(
@@ -152,7 +182,7 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
     );
 
     await conn.commit();
-    return { batchId, actualCount: customers.length, status: 'ready' };
+    return { batchId, actualCount: customers.length, status: 'ready', isTest };
   } catch (e) {
     await conn.rollback();
     throw e;
@@ -170,7 +200,7 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
  *   返り値: [{ pcNumber, batchId, actualCount, status }, ...] (pcNumbers と同順)
  */
 async function createBatchesPerPc({
-  baseName, date, industry, prefecture, recentDays, recentCallDays, excludeProjects, targetCount, pcNumbers,
+  baseName, date, industry, prefecture, recentDays, recentCallDays, excludeProjects, targetCount, pcNumbers, testMode,
 }) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です'); err.status = 500; err.code = 'DB_NOT_CONFIGURED';
@@ -186,6 +216,8 @@ async function createBatchesPerPc({
   }
 
   const pool = getPool();
+  await ensureIsTestColumn(pool);
+  const isTest = !!testMode;
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -207,13 +239,14 @@ async function createBatchesPerPc({
       const slice = allIds.slice(offset, offset + Number(targetCount));
       offset += Number(targetCount);
 
-      const name = `${baseName || 'リスト'}_${date}_PC${String(pcNum).padStart(2, '0')}`;
+      const testSuffix = isTest ? '_TEST' : '';
+      const name = `${baseName || 'リスト'}${testSuffix}_${date}_PC${String(pcNum).padStart(2, '0')}`;
       const [batchInsert] = await conn.query(
         `INSERT INTO extraction_batches
-           (name, filter_industry, filter_prefecture, filter_recent_days, target_count, pc_number, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'ready')`,
+           (name, filter_industry, filter_prefecture, filter_recent_days, target_count, pc_number, status, is_test)
+         VALUES (?, ?, ?, ?, ?, ?, 'ready', ?)`,
         [name, industry || null, prefecture || null, recentDays || null,
-         Number(targetCount), `NO.${pcNum}`]
+         Number(targetCount), `NO.${pcNum}`, isTest ? 1 : 0]
       );
       const batchId = batchInsert.insertId;
 
@@ -223,14 +256,17 @@ async function createBatchesPerPc({
           `INSERT INTO extraction_records (batch_id, customer_id, row_index) VALUES ?`,
           [recordRows]
         );
-        await conn.query(
-          `UPDATE customers
-              SET send_count = send_count + 1,
-                  last_sent_at = NOW(),
-                  last_pc_number = ?
-            WHERE id IN (?)`,
-          [`NO.${pcNum}`, slice]
-        );
+        // テストモードでは customers の集計更新をスキップ (顧客マスタに履歴を残さない)
+        if (!isTest) {
+          await conn.query(
+            `UPDATE customers
+                SET send_count = send_count + 1,
+                    last_sent_at = NOW(),
+                    last_pc_number = ?
+              WHERE id IN (?)`,
+            [`NO.${pcNum}`, slice]
+          );
+        }
       }
 
       const status = slice.length > 0 ? 'ready' : 'failed';
@@ -239,7 +275,7 @@ async function createBatchesPerPc({
         [slice.length, status, batchId]
       );
 
-      results.push({ pcNumber: pcNum, batchId, actualCount: slice.length, status });
+      results.push({ pcNumber: pcNum, batchId, actualCount: slice.length, status, isTest });
     }
 
     await conn.commit();
@@ -255,11 +291,12 @@ async function createBatchesPerPc({
 async function listBatches({ page = 1, pageSize = 50 } = {}) {
   const pool = getPool();
   if (!pool) return { items: [], pagination: { page: 1, pageSize: 50, total: 0, totalPages: 0 } };
+  await ensureIsTestColumn(pool);
   const limit = Math.min(Number(pageSize) || 50, 200);
   const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
   const [rows] = await pool.query(
     `SELECT id, name, filter_industry, filter_prefecture, target_count, actual_count,
-            pc_number, status, drive_file_url, created_at
+            pc_number, status, is_test, drive_file_url, created_at
        FROM extraction_batches
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?`,

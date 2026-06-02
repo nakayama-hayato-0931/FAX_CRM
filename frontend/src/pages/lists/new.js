@@ -45,6 +45,7 @@ export default function NewBatchPage() {
     recentDays: 30,
     recentCallDays: 0,        // N 日以内架電 除外 (0 = 除外しない)
     excludeProjects: true,    // 既存案件 (sales_projects/job_postings と社名一致) を除外
+    testMode: false,          // テストモード: 顧客マスタの送信履歴を更新しない
   });
 
   const [previewCount, setPreviewCount] = useState(null);
@@ -165,6 +166,7 @@ export default function NewBatchPage() {
         recentDays: Number(form.recentDays) || null,
         recentCallDays: Number(form.recentCallDays) || 0,
         excludeProjects: !!form.excludeProjects,
+        testMode: !!form.testMode,
         targetCount: Number(form.targetCount),
         pcNumbers: form.pcNumbers,
       };
@@ -312,6 +314,27 @@ export default function NewBatchPage() {
           </Field>
         </div>
 
+        {/* テストモード */}
+        <div className={[
+          'border rounded-md p-3 transition',
+          form.testMode ? 'border-amber-400 bg-amber-50' : 'border-zinc-200 bg-zinc-50',
+        ].join(' ')}>
+          <label className="flex items-start gap-2 cursor-pointer select-none">
+            <input type="checkbox"
+                   checked={form.testMode}
+                   onChange={(e) => setForm({ ...form, testMode: e.target.checked })}
+                   className="w-4 h-4 text-amber-600 rounded mt-0.5" />
+            <div>
+              <div className="text-sm font-medium text-zinc-800">
+                テストモード <span className="text-xs text-zinc-500">(顧客マスタに履歴を残さない)</span>
+              </div>
+              <div className="text-[11px] text-zinc-600 mt-0.5 leading-relaxed">
+                送信回数 / 最終送信日時 / 最終PC を更新しません。 リスト/Excel/Drive は通常通り作成されるので動作確認に使えます。 バッチ名末尾に <code>_TEST</code> が付きます。
+              </div>
+            </div>
+          </label>
+        </div>
+
         {/* PC番号 チェックボックス */}
         <Field
           label={`PC番号 * (${form.pcNumbers.length} / 23 選択中)`}
@@ -375,8 +398,13 @@ export default function NewBatchPage() {
           <Link href={`/lists${isDemo ? '?demo=1' : ''}`}
                 className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md">キャンセル</Link>
           <button type="submit" disabled={submitting || !form.pcNumbers.length}
-                  className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
-            {submitting ? '抽出中…' : `抽出 → Drive 格納 (${form.pcNumbers.length}台)`}
+                  className={[
+                    'px-4 py-2 text-sm text-white rounded-md disabled:opacity-50',
+                    form.testMode ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700',
+                  ].join(' ')}>
+            {submitting
+              ? (form.testMode ? 'テスト抽出中…' : '抽出中…')
+              : `${form.testMode ? 'テスト抽出' : '抽出'} → Drive 格納 (${form.pcNumbers.length}台)`}
           </button>
         </div>
       </form>

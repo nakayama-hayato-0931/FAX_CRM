@@ -131,6 +131,21 @@ async function runStartupMigrations() {
     failed.push({ name: 'incoming_call_reports.sales_owner', error: e.message });
   }
 
+  // ⑤b extraction_batches.is_test 列 (テストモード抽出)
+  try {
+    if (await colExists(pool, 'extraction_batches', 'id')
+        && !(await colExists(pool, 'extraction_batches', 'is_test'))) {
+      await pool.query(
+        `ALTER TABLE extraction_batches
+           ADD COLUMN is_test TINYINT(1) NOT NULL DEFAULT 0
+             COMMENT 'テストモード抽出: 顧客マスタの送信履歴を更新しない'`
+      );
+      applied.push('extraction_batches.is_test 追加');
+    }
+  } catch (e) {
+    failed.push({ name: 'extraction_batches.is_test', error: e.message });
+  }
+
   // ⑤ users テーブル (ログイン認証)
   try {
     const [tbls] = await pool.query(
