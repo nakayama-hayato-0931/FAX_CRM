@@ -4,6 +4,7 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
 import BatchResultModal from '@/components/BatchResultModal';
+import ManuscriptContentPicker from '@/components/ManuscriptContentPicker';
 
 const DEMO_INDUSTRIES = [
   { industry: '飲食', cnt: 21917 },
@@ -37,7 +38,9 @@ export default function NewBatchPage() {
   const todayYMD = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   const [form, setForm] = useState({
-    name: `リスト_${todayYMD.replace(/-/g, '')}`,
+    // バッチ名は createBatchesPerPc 側で `${name}_${date}_PC{nn}` に展開されるため、
+    // デフォルト名には日付を入れない (二重に日付が並ぶのを防ぐ)
+    name: 'リスト',
     date: todayYMD,
     industry: '',
     prefecture: '',
@@ -47,7 +50,9 @@ export default function NewBatchPage() {
     recentCallDays: 0,        // N 日以内架電 除外 (0 = 除外しない)
     excludeProjects: true,    // 既存案件 (sales_projects/job_postings と社名一致) を除外
     testMode: false,          // テストモード: 顧客マスタの送信履歴を更新しない
+    manuscript: null,         // { id, title, registration_no, ... } 選択中の原稿 (null=添付しない)
   });
+  const [showManuscriptPicker, setShowManuscriptPicker] = useState(false);
 
   const [previewCount, setPreviewCount] = useState(null);
   const [previewing, setPreviewing] = useState(false);
@@ -171,6 +176,7 @@ export default function NewBatchPage() {
         testMode: !!form.testMode,
         targetCount: Number(form.targetCount),
         pcNumbers: form.pcNumbers,
+        manuscriptContentId: form.manuscript?.id || null,
       };
       const { data } = await api.post('/api/batches/extract-and-upload', payload, {
         timeout: 10 * 60 * 1000,
@@ -201,6 +207,19 @@ export default function NewBatchPage() {
                   {r.batch && (
                     <div className="text-xs text-zinc-600 mt-0.5">
                       バッチID: {r.batch.batchId} / 抽出 {r.batch.actualCount} 件
+                    </div>
+                  )}
+                  {r.drive?.manuscript && (
+                    <div className="text-[11px] mt-1">
+                      {r.drive.manuscript.attached && (
+                        <span className="text-emerald-700">原稿格納OK{r.drive.manuscript.title ? ` (${r.drive.manuscript.title})` : ''}</span>
+                      )}
+                      {r.drive.manuscript.alreadyAttached && (
+                        <span className="text-zinc-500">原稿は既にこのスロットに紐付け済み</span>
+                      )}
+                      {r.drive.manuscript.error && (
+                        <span className="text-amber-700">原稿格納失敗: {r.drive.manuscript.error}</span>
+                      )}
                     </div>
                   )}
                   {r.error && <div className="text-xs text-red-700 mt-1">{r.error}</div>}
@@ -320,6 +339,41 @@ export default function NewBatchPage() {
           </Field>
         </div>
 
+        {/* 原稿 同時格納 */}
+        <Field label="原稿を同時にスロットへ格納 (任意)"
+               hint="選択すると、 リスト Excel と同じ日付/PC のスロットフォルダに 原稿 PDF も自動コピーされます (既に紐付け済みならスキップ)">
+          {form.manuscript ? (
+            <div className="flex items-center justify-between gap-2 border border-indigo-200 bg-indigo-50 rounded-md px-3 py-2">
+              <div className="text-sm min-w-0 flex-1">
+                <div className="font-medium text-indigo-900 truncate">
+                  {form.manuscript.title || `原稿 #${form.manuscript.id}`}
+                </div>
+                <div className="text-[11px] text-indigo-700/70 flex gap-2 flex-wrap mt-0.5">
+                  {form.manuscript.registration_no && <span>登録番号: {form.manuscript.registration_no}</span>}
+                  {form.manuscript.nationality && <span>国籍: {form.manuscript.nationality}</span>}
+                  {form.manuscript.gender && <span>性別: {form.manuscript.gender}</span>}
+                  {form.manuscript.industry_category && <span>業種: {form.manuscript.industry_category}</span>}
+                </div>
+              </div>
+              <div className="flex gap-1 flex-shrink-0">
+                <button type="button" onClick={() => setShowManuscriptPicker(true)}
+                        className="px-2 py-1 text-xs bg-white border border-indigo-300 text-indigo-700 rounded hover:bg-indigo-100">
+                  変更
+                </button>
+                <button type="button" onClick={() => setForm({ ...form, manuscript: null })}
+                        className="px-2 py-1 text-xs bg-white border border-zinc-300 text-zinc-600 rounded hover:bg-zinc-50">
+                  解除
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setShowManuscriptPicker(true)}
+                    className="w-full text-sm py-2.5 border border-dashed border-zinc-300 rounded-md text-zinc-600 hover:bg-zinc-50">
+              + 原稿管理から選択
+            </button>
+          )}
+        </Field>
+
         {/* テストモード */}
         <div className={[
           'border rounded-md p-3 transition',
@@ -414,6 +468,16 @@ export default function NewBatchPage() {
           </button>
         </div>
       </form>
+
+      {showManuscriptPicker && (
+        <ManuscriptContentPicker
+          onClose={() => setShowManuscriptPicker(false)}
+          onSelect={(content) => {
+            setForm({ ...form, manuscript: content });
+            setShowManuscriptPicker(false);
+          }}
+        />
+      )}
 
       <style jsx>{`
         :global(.input) { width: 100%; border: 1px solid #d4d4d8; border-radius: 6px; padding: 8px 12px; font-size: 14px; background: white; }

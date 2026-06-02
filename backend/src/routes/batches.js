@@ -109,9 +109,11 @@ router.post('/ensure-slots', async (req, res, next) => {
 });
 
 // POST /api/batches/extract-and-upload — リスト抽出 + 各 PC スロットに自動 Drive upload
-//   body: { listName, date, industry, prefecture, recentDays, targetCount, pcNumbers: [1,3] }
+//   body: { listName, date, industry, prefecture, recentDays, targetCount, pcNumbers: [1,3],
+//           manuscriptContentId?: 12 }
 //   挙動: targetCount × pcNumbers.length 件 を 1 トランザクションで一括取得 → 連続スライスして
 //         PC ごとに重複なく振り分け。 各 PC で Excel生成 → 該当スロットの Drive フォルダにアップロード。
+//         manuscriptContentId が指定されていれば、 同じスロットに原稿 PDF も自動 attach する
 router.post('/extract-and-upload', async (req, res, next) => {
   const ms = require('../services/manuscriptService');
   const body = req.body || {};
@@ -119,6 +121,7 @@ router.post('/extract-and-upload', async (req, res, next) => {
     return fail(res, 400, 'INVALID_INPUT', 'date と pcNumbers (配列) が必要');
   }
   if (!body.targetCount) return fail(res, 400, 'INVALID_INPUT', 'targetCount が必要');
+  const manuscriptContentId = body.manuscriptContentId ? Number(body.manuscriptContentId) : null;
 
   // 1. 全 PC 分の バッチ作成 (重複ゼロ保証)
   let perPcBatches;
@@ -195,6 +198,30 @@ router.post('/extract-and-upload', async (req, res, next) => {
         );
       }
       driveInfo = { fileId: uploaded.id, webViewLink: uploaded.webViewLink, slotId: slot.id };
+
+      // 2-5. 原稿 PDF を 同じスロットに attach (manuscriptContentId が指定されてる時)
+      //      attachContentToSlot は失敗時 throw するが、 原稿のみ失敗しても
+      //      Excel/Drive 出力は成功扱いにしたいので try/catch で吸収
+      if (manuscriptContentId) {
+        try {
+          const attached = await ms.attachContentToSlot(slot.id, manuscriptContentId);
+          driveInfo.manuscript = {
+            attached: true,
+            drive_file_id: attached.drive_file_id,
+            drive_url: attached.drive_url,
+            title: attached.content_title,
+            registration_no: attached.content_registration_no,
+          };
+        } catch (mErr) {
+          // 409 (既に紐付け済み) は warning 扱いで OK 扱い
+          if (mErr.status === 409) {
+            driveInfo.manuscript = { attached: false, alreadyAttached: true };
+          } else {
+            driveInfo.manuscript = { attached: false, error: mErr.message };
+            console.warn(`[extract-and-upload] PC${pcNum} 原稿 attach 失敗: ${mErr.message}`);
+          }
+        }
+      }
     } catch (e) {
       error = e.userMessage || e.sqlMessage || e.message;
     } finally {
