@@ -308,18 +308,23 @@ export default function NewBatchPage() {
               ))}
             </select>
           </Field>
-          <Field label={`都道府県 (${form.prefectures.length === 0 ? 'すべて' : `${form.prefectures.length} 県選択中`})`}
-                 hint="地域名をクリックで一括選択 / 県名チェックで個別選択。 0 = フィルタなし">
+          <div className="block">
+            <div className="flex items-center justify-between mb-1">
+              <span className="block text-xs font-medium text-zinc-700">
+                都道府県 ({form.prefectures.length === 0 ? 'すべて' : `${form.prefectures.length} 県選択中`})
+              </span>
+              {/* 全クリア は常にスロット確保 (選択0件時は invisible で見えないだけ → レイアウトずれ無し) */}
+              <button type="button"
+                      onClick={() => { setForm({ ...form, prefectures: [] }); setPreviewCount(null); }}
+                      disabled={form.prefectures.length === 0}
+                      className="text-[11px] text-zinc-500 hover:underline disabled:invisible">
+                全クリア
+              </button>
+            </div>
+            <span className="block text-[11px] text-zinc-500 mb-1.5">
+              地域名をクリックで一括選択 / 県名チェックで個別選択。 0 = フィルタなし
+            </span>
             <div className="border border-zinc-300 rounded-md bg-white max-h-56 overflow-auto p-2 space-y-1.5">
-              {form.prefectures.length > 0 && (
-                <div className="flex justify-end pb-1 border-b border-zinc-100">
-                  <button type="button"
-                          onClick={() => { setForm({ ...form, prefectures: [] }); setPreviewCount(null); }}
-                          className="text-[11px] text-zinc-500 hover:underline">
-                    全クリア
-                  </button>
-                </div>
-              )}
               {REGION_GROUPS.map((g) => {
                 const allSelected = g.prefs.every((p) => form.prefectures.includes(p));
                 const someSelected = g.prefs.some((p) => form.prefectures.includes(p));
@@ -377,7 +382,7 @@ export default function NewBatchPage() {
                 );
               })}
             </div>
-          </Field>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
