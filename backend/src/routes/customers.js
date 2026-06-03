@@ -50,6 +50,19 @@ router.get('/lookup', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/customers/lookup-by-phone?phone=+81801234567
+//   電話番号正規化 (+81/ハイフン吸収) して顧客を返す。
+//   受電報告 手動入力 や zp_* 連携で使用
+router.get('/lookup-by-phone', async (req, res, next) => {
+  try {
+    const phone = (req.query.phone || '').toString();
+    const limit = Math.min(Number(req.query.limit) || 5, 50);
+    if (!phone) return ok(res, []);
+    const rows = await customerService.findByPhoneNormalized(phone, { limit });
+    return ok(res, rows);
+  } catch (e) { next(e); }
+});
+
 // GET /api/customers/:id/timeline
 router.get('/:id(\\d+)/timeline', async (req, res, next) => {
   try {

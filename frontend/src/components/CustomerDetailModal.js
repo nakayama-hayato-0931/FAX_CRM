@@ -22,6 +22,7 @@ const EVENT_TYPE_LABEL = {
 const SOURCE_BADGE = {
   'fax-crm':       'bg-indigo-50 text-indigo-700',
   'callcenter-ai': 'bg-emerald-50 text-emerald-700',
+  'zoom-phone':    'bg-sky-50 text-sky-700',
   'manual':        'bg-zinc-50 text-zinc-700',
 };
 

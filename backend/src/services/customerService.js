@@ -1,6 +1,7 @@
 const { getPool } = require('../../config/db');
 const { normalizeIndustry } = require('../utils/industryCategory');
 const { extractPrefecture, isRegionOnly, REGION_ONLY_NAMES } = require('../utils/prefectures');
+const { normalizePhone, digitsOnly } = require('../utils/phone');
 
 const SEARCHABLE = ['company_name', 'fax_number', 'phone_number', 'address'];
 
@@ -30,16 +31,16 @@ async function listCustomers(query = {}) {
     const raw = String(query.q);
     const like = `%${raw}%`;
     // 文字列カラムは通常の LIKE
-    // 電話 / FAX カラムは「ハイフン無視」 にするため、 数字のみで部分一致もチェック
-    const digitsOnly = raw.replace(/[^0-9]/g, '');
+    // 電話 / FAX カラムは「ハイフン無視」 + 「国際表記 +81 → 0 変換」 で部分一致
+    //   ※ digitsOnly() は +81/0081/全角 を吸収して国内形式の桁列に揃える
+    const normPhoneDigits = digitsOnly(raw);
     const orParts = SEARCHABLE.map((col) => `c.${col} LIKE ?`);
     SEARCHABLE.forEach(() => params.push(like));
-    if (digitsOnly.length >= 3) {
-      // fax_number / phone_number の 「-」 や空白を取り除いた状態で部分一致
+    if (normPhoneDigits.length >= 3) {
       orParts.push(`REGEXP_REPLACE(c.fax_number, '[^0-9]', '') LIKE ?`);
-      params.push(`%${digitsOnly}%`);
+      params.push(`%${normPhoneDigits}%`);
       orParts.push(`REGEXP_REPLACE(c.phone_number, '[^0-9]', '') LIKE ?`);
-      params.push(`%${digitsOnly}%`);
+      params.push(`%${normPhoneDigits}%`);
     }
     where.push(`(${orParts.join(' OR ')})`);
   }
@@ -500,6 +501,39 @@ async function normalizePrefectures(options = {}) {
   return result;
 }
 
+/**
+ * 電話番号 / FAX 番号 で 顧客を検索。
+ *   - 入力を normalizePhone で 国内桁列 にしてから REGEXP_REPLACE で
+ *     customers.phone_number / fax_number と digits-only マッチ
+ *   - 後方一致 (10 桁市外局番下位8桁) 等も含む拡張ヒットを返す
+ *
+ *   limit を 1 にすれば 1 件だけ取得 (auto-suggest 用)
+ *   limit > 1 で candidate 一覧 (複数一致時のユーザ選択用)
+ */
+async function findByPhoneNormalized(rawPhone, { limit = 10 } = {}) {
+  const normalized = normalizePhone(rawPhone);
+  if (!normalized) return [];
+  const pool = getPool();
+  if (!pool) return [];
+
+  // 完全一致 (digits-only) + 後方一致 (下 9 桁) の OR
+  //   下 9 桁マッチは callcenter 由来の番号が一部桁落ちしているケースの保険
+  const tail9 = normalized.slice(-9);
+  const [rows] = await pool.query(
+    `SELECT id, company_name, fax_number, phone_number,
+            industry, industry_category, prefecture, city, address,
+            is_blacklisted, last_result, send_count, response_count
+       FROM customers
+      WHERE REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') = ?
+         OR REGEXP_REPLACE(COALESCE(fax_number, ''), '[^0-9]', '') = ?
+         OR REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') LIKE ?
+         OR REGEXP_REPLACE(COALESCE(fax_number, ''), '[^0-9]', '') LIKE ?
+      LIMIT ?`,
+    [normalized, normalized, `%${tail9}`, `%${tail9}`, Number(limit)]
+  );
+  return rows;
+}
+
 module.exports = {
   listCustomers,
   getById,
@@ -509,4 +543,5 @@ module.exports = {
   setBlacklist,
   recategorizeIndustries,
   normalizePrefectures,
+  findByPhoneNormalized,
 };

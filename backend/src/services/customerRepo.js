@@ -18,6 +18,7 @@
  */
 const { getPool: getFaxPool } = require('../../config/db');
 const ccDb = require('../../config/callcenterDb');
+const { digitsOnly: phoneDigits } = require('../utils/phone');
 
 function readMode() {
   const v = String(process.env.USE_CALLCENTER_DB || '').toLowerCase();
@@ -58,14 +59,14 @@ async function listFromFaxCrm(query) {
   if (query.q) {
     const raw = String(query.q);
     const like = `%${raw}%`;
-    const digitsOnly = raw.replace(/[^0-9]/g, '');
+    const normPhoneDigits = phoneDigits(raw);  // +81/全角 を吸収して 国内形式の digits-only
     const orParts = SEARCHABLE.map((col) => `c.${col} LIKE ?`);
     SEARCHABLE.forEach(() => params.push(like));
-    if (digitsOnly.length >= 3) {
+    if (normPhoneDigits.length >= 3) {
       orParts.push(`REGEXP_REPLACE(c.fax_number, '[^0-9]', '') LIKE ?`);
-      params.push(`%${digitsOnly}%`);
+      params.push(`%${normPhoneDigits}%`);
       orParts.push(`REGEXP_REPLACE(c.phone_number, '[^0-9]', '') LIKE ?`);
-      params.push(`%${digitsOnly}%`);
+      params.push(`%${normPhoneDigits}%`);
     }
     where.push(`(${orParts.join(' OR ')})`);
   }
@@ -126,13 +127,13 @@ async function listFromCallcenter(query) {
   if (query.q) {
     const raw = String(query.q);
     const like = `%${raw}%`;
-    const digitsOnly = raw.replace(/[^0-9]/g, '');
+    const normPhoneDigits = phoneDigits(raw);  // +81/全角 を吸収して 国内形式の digits-only
     const orParts = ['c.company_name LIKE ?', 'c.fax_number LIKE ?', 'c.phone_number LIKE ?', 'c.address LIKE ?'];
     params.push(like, like, like, like);
-    if (digitsOnly.length >= 3) {
+    if (normPhoneDigits.length >= 3) {
       orParts.push(`REGEXP_REPLACE(c.fax_number, '[^0-9]', '') LIKE ?`);
       orParts.push(`REGEXP_REPLACE(c.phone_number, '[^0-9]', '') LIKE ?`);
-      params.push(`%${digitsOnly}%`, `%${digitsOnly}%`);
+      params.push(`%${normPhoneDigits}%`, `%${normPhoneDigits}%`);
     }
     where.push(`(${orParts.join(' OR ')})`);
   }

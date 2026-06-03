@@ -103,9 +103,11 @@ async function getTimeline(customerId, { limit = 100, channels } = {}) {
 
   const where = ['customer_id = ?'];
   const params = [customerId];
+  let channelList = null;
   if (channels) {
     const list = String(channels).split(',').map((s) => s.trim()).filter(Boolean);
     if (list.length) {
+      channelList = list;
       where.push(`channel IN (${list.map(() => '?').join(',')})`);
       params.push(...list);
     }
@@ -122,7 +124,125 @@ async function getTimeline(customerId, { limit = 100, channels } = {}) {
       LIMIT ?`,
     [...params, lim]
   );
+
+  // zp_* (Zoom Phone) を マージ:
+  //   call チャネル が要求 (or 全チャネル要求) なら 顧客の電話番号と照合して
+  //   受電 / 不在着信 を取り込む。 zp_* テーブルが無い環境では skip。
+  if (!channelList || channelList.includes('call')) {
+    try {
+      const zpRows = await fetchZpEventsForCustomer(pool, customerId, lim);
+      if (zpRows.length) {
+        const merged = [...rows, ...zpRows]
+          .sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at))
+          .slice(0, lim);
+        return merged;
+      }
+    } catch (e) {
+      // zp_* テーブル未デプロイ環境を想定して 失敗時は contact_events のみ返却
+      console.warn('[getTimeline] zp_* マージ skip:', e.message);
+    }
+  }
   return rows;
+}
+
+/**
+ * 顧客の電話/FAX を正規化して zp_recordings (受電) + zp_missed_calls (不在)
+ * を contact_event 互換オブジェクトに変換して返す。
+ */
+async function fetchZpEventsForCustomer(pool, customerId, limit) {
+  const { digitsOnly } = require('../utils/phone');
+  const [custRows] = await pool.query(
+    'SELECT phone_number, fax_number FROM customers WHERE id = ? LIMIT 1',
+    [customerId]
+  );
+  if (!custRows.length) return [];
+  const phones = new Set();
+  if (custRows[0].phone_number) {
+    const d = digitsOnly(custRows[0].phone_number);
+    if (d) phones.add(d);
+  }
+  if (custRows[0].fax_number) {
+    const d = digitsOnly(custRows[0].fax_number);
+    if (d) phones.add(d);
+  }
+  const phoneList = [...phones].filter((p) => p.length >= 9);
+  if (!phoneList.length) return [];
+
+  // zp_* テーブルの caller_number は +81 国際表記 → REGEXP_REPLACE + REPLACE で
+  // 国内 digits-only に変換して IN 検索
+  const matchSql = `REGEXP_REPLACE(REPLACE(caller_number, '+81', '0'), '[^0-9]', '')`;
+  const events = [];
+
+  // 受電 (zp_recordings)
+  try {
+    const [recs] = await pool.query(
+      `SELECT id, caller_number, callee_name, date_time
+         FROM zp_recordings
+        WHERE ${matchSql} IN (?)
+          AND direction = '着信'
+        ORDER BY date_time DESC
+        LIMIT ?`,
+      [phoneList, limit]
+    );
+    for (const r of recs) {
+      events.push({
+        id: `zp_rec_${r.id}`,
+        customer_id: customerId,
+        channel: 'call',
+        event_type: 'response_inquiry',
+        occurred_at: r.date_time,
+        source_system: 'zoom-phone',
+        source_event_id: null,
+        operator_name: r.callee_name || null,
+        pc_number: null,
+        manuscript_id: null,
+        manuscript_folder_date: null,
+        manuscript_slot: null,
+        result_label: '受電',
+        memo: `Zoom Phone 受電 (${r.caller_number || ''})`,
+        raw_payload: null,
+        created_at: r.date_time,
+      });
+    }
+  } catch (e) {
+    console.warn('[zp merge] zp_recordings skip:', e.message);
+  }
+
+  // 不在 (zp_missed_calls)
+  try {
+    const [misses] = await pool.query(
+      `SELECT id, caller_number, callee_number, date_time
+         FROM zp_missed_calls
+        WHERE ${matchSql} IN (?)
+        ORDER BY date_time DESC
+        LIMIT ?`,
+      [phoneList, limit]
+    );
+    for (const m of misses) {
+      events.push({
+        id: `zp_miss_${m.id}`,
+        customer_id: customerId,
+        channel: 'call',
+        event_type: 'no_answer',
+        occurred_at: m.date_time,
+        source_system: 'zoom-phone',
+        source_event_id: null,
+        operator_name: null,
+        pc_number: null,
+        manuscript_id: null,
+        manuscript_folder_date: null,
+        manuscript_slot: null,
+        result_label: '不在',
+        memo: `Zoom Phone 不在着信 → ${m.callee_number || ''}`,
+        raw_payload: null,
+        created_at: m.date_time,
+      });
+    }
+  } catch (e) {
+    console.warn('[zp merge] zp_missed_calls skip:', e.message);
+  }
+
+  return events;
 }
 
 /**
