@@ -368,22 +368,10 @@ async function recategorizeIndustries(options = {}) {
 }
 
 /**
- * customers.prefecture が 「東北/関東/中部/近畿/中国/四国/九州」 等の
- * 地域名 (= 都道府県ではない) になっている行を address から再抽出して更新。
- *
- * options.mode = 'region' (default) : 地域名 だけを対象
- *                'missing'          : NULL / 空文字 だけを対象
- *                'all'              : 両方 (address があれば常に再抽出)
- * options.batchSize: 1チャンク件数 (default 2000)
- *
- * 結果: { scanned, updated, byPrefecture: { '北海道': n, ... } }
+ * 単一テーブル (customers / companies) の prefecture を address から
+ * 再抽出して UPDATE する内部ヘルパ
  */
-async function normalizePrefectures(options = {}) {
-  const pool = getPool();
-  if (!pool) throw new Error('DB未設定');
-  const mode = ['region', 'missing', 'all'].includes(options.mode) ? options.mode : 'region';
-  const batchSize = Math.max(100, Math.min(Number(options.batchSize) || 2000, 5000));
-
+async function normalizePrefectureTable(pool, table, mode, batchSize) {
   const regionList = Array.from(REGION_ONLY_NAMES);
   const whereByMode = () => {
     if (mode === 'region')  return `prefecture IN (?)`;
@@ -400,7 +388,7 @@ async function normalizePrefectures(options = {}) {
   while (true) {
     const [rows] = await pool.query(
       `SELECT id, prefecture, address
-         FROM customers
+         FROM ${table}
         WHERE id > ?
           AND ${whereByMode()}
           AND address IS NOT NULL AND address <> ''
@@ -412,7 +400,6 @@ async function normalizePrefectures(options = {}) {
     lastId = rows[rows.length - 1].id;
     scanned += rows.length;
 
-    // 抽出結果ごとに ID をまとめて IN(?) UPDATE で投入
     const buckets = new Map();
     for (const r of rows) {
       const extracted = extractPrefecture(r.address);
@@ -424,7 +411,7 @@ async function normalizePrefectures(options = {}) {
     for (const [pref, ids] of buckets) {
       if (!ids.length) continue;
       await pool.query(
-        `UPDATE customers SET prefecture = ? WHERE id IN (?)`,
+        `UPDATE ${table} SET prefecture = ? WHERE id IN (?)`,
         [pref, ids]
       );
       updated += ids.length;
@@ -432,7 +419,55 @@ async function normalizePrefectures(options = {}) {
     }
   }
 
-  return { mode, scanned, updated, byPrefecture: byPref };
+  return { scanned, updated, byPrefecture: byPref };
+}
+
+/**
+ * customers.prefecture (fax-crm) と companies.prefecture (callcenter)
+ * の 「東北/関東/中部/近畿/中国/四国/九州」 等の地域名を
+ * address から再抽出して 県名 に正規化する。
+ *
+ * USE_CALLCENTER_DB=tier1+ モードでは 一覧/詳細は callcenter.companies から
+ * 読むので fax-crm 側だけ正規化しても 「近畿」 のまま表示される問題があるため
+ * callcenter DB が接続できる時は 両方を処理する。
+ *
+ * options.mode = 'region' (default) : 地域名 だけを対象
+ *                'missing'          : NULL / 空文字 だけを対象
+ *                'all'              : 両方 (address があれば常に再抽出)
+ *
+ * 結果: { mode, faxcrm: {scanned, updated, byPrefecture},
+ *         callcenter: {scanned, updated, byPrefecture, skipped?} }
+ */
+async function normalizePrefectures(options = {}) {
+  const mode = ['region', 'missing', 'all'].includes(options.mode) ? options.mode : 'region';
+  const batchSize = Math.max(100, Math.min(Number(options.batchSize) || 2000, 5000));
+
+  const result = { mode };
+
+  // (A) fax-crm.customers
+  const pool = getPool();
+  if (!pool) throw new Error('DB未設定');
+  result.faxcrm = await normalizePrefectureTable(pool, 'customers', mode, batchSize);
+
+  // (B) callcenter.companies (接続できる時のみ)
+  try {
+    const ccDb = require('../../config/callcenterDb');
+    if (ccDb.isConfigured()) {
+      const ccPool = ccDb.getPool();
+      if (ccPool) {
+        result.callcenter = await normalizePrefectureTable(ccPool, 'companies', mode, batchSize);
+      } else {
+        result.callcenter = { skipped: 'callcenter DB pool 取得不可' };
+      }
+    } else {
+      result.callcenter = { skipped: 'callcenter DB 未設定' };
+    }
+  } catch (e) {
+    console.warn('[normalizePrefectures] callcenter 処理失敗:', e.message);
+    result.callcenter = { skipped: `エラー: ${e.message}` };
+  }
+
+  return result;
 }
 
 module.exports = {

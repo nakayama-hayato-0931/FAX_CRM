@@ -57,10 +57,20 @@ export default function CustomersPage() {
         timeout: 30 * 60 * 1000,
       });
       const r = data.data || {};
-      const breakdown = Object.entries(r.byPrefecture || {})
-        .sort((a, b) => b[1] - a[1]).slice(0, 8)
-        .map(([k, v]) => `${k}:${v}`).join(' / ') || '変更なし';
-      toast.success(`都道府県 正規化完了: 走査${r.scanned ?? 0} / 更新${r.updated ?? 0}\n${breakdown}`, { duration: 10000 });
+      const lines = [];
+      const fmt = (label, x) => {
+        if (!x) return null;
+        if (x.skipped) return `${label}: スキップ (${x.skipped})`;
+        const top = Object.entries(x.byPrefecture || {})
+          .sort((a, b) => b[1] - a[1]).slice(0, 5)
+          .map(([k, v]) => `${k}:${v}`).join('/') || '変更なし';
+        return `${label}: 走査${x.scanned ?? 0} / 更新${x.updated ?? 0} (${top})`;
+      };
+      const fxLine = fmt('fax-crm', r.faxcrm);
+      const ccLine = fmt('callcenter', r.callcenter);
+      if (fxLine) lines.push(fxLine);
+      if (ccLine) lines.push(ccLine);
+      toast.success(`都道府県 正規化完了\n${lines.join('\n')}`, { duration: 12000 });
       reload();
     } catch (e) {
       toast.error(e.userMessage || '正規化失敗');
