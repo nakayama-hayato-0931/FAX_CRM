@@ -1,5 +1,6 @@
 const { getPool } = require('../../config/db');
 const { normalizeIndustry } = require('../utils/industryCategory');
+const { extractPrefecture, isRegionOnly, REGION_ONLY_NAMES } = require('../utils/prefectures');
 
 const SEARCHABLE = ['company_name', 'fax_number', 'phone_number', 'address'];
 
@@ -366,6 +367,74 @@ async function recategorizeIndustries(options = {}) {
   return { mode, scanned, updated, byCategory };
 }
 
+/**
+ * customers.prefecture が 「東北/関東/中部/近畿/中国/四国/九州」 等の
+ * 地域名 (= 都道府県ではない) になっている行を address から再抽出して更新。
+ *
+ * options.mode = 'region' (default) : 地域名 だけを対象
+ *                'missing'          : NULL / 空文字 だけを対象
+ *                'all'              : 両方 (address があれば常に再抽出)
+ * options.batchSize: 1チャンク件数 (default 2000)
+ *
+ * 結果: { scanned, updated, byPrefecture: { '北海道': n, ... } }
+ */
+async function normalizePrefectures(options = {}) {
+  const pool = getPool();
+  if (!pool) throw new Error('DB未設定');
+  const mode = ['region', 'missing', 'all'].includes(options.mode) ? options.mode : 'region';
+  const batchSize = Math.max(100, Math.min(Number(options.batchSize) || 2000, 5000));
+
+  const regionList = Array.from(REGION_ONLY_NAMES);
+  const whereByMode = () => {
+    if (mode === 'region')  return `prefecture IN (?)`;
+    if (mode === 'missing') return `(prefecture IS NULL OR prefecture = '')`;
+    return `1=1`;
+  };
+  const paramsByMode = () => (mode === 'region' ? [regionList] : []);
+
+  let lastId = 0;
+  let scanned = 0;
+  let updated = 0;
+  const byPref = {};
+
+  while (true) {
+    const [rows] = await pool.query(
+      `SELECT id, prefecture, address
+         FROM customers
+        WHERE id > ?
+          AND ${whereByMode()}
+          AND address IS NOT NULL AND address <> ''
+        ORDER BY id ASC
+        LIMIT ?`,
+      [lastId, ...paramsByMode(), batchSize]
+    );
+    if (!rows.length) break;
+    lastId = rows[rows.length - 1].id;
+    scanned += rows.length;
+
+    // 抽出結果ごとに ID をまとめて IN(?) UPDATE で投入
+    const buckets = new Map();
+    for (const r of rows) {
+      const extracted = extractPrefecture(r.address);
+      if (!extracted) continue;
+      if (extracted === r.prefecture) continue;
+      if (!buckets.has(extracted)) buckets.set(extracted, []);
+      buckets.get(extracted).push(r.id);
+    }
+    for (const [pref, ids] of buckets) {
+      if (!ids.length) continue;
+      await pool.query(
+        `UPDATE customers SET prefecture = ? WHERE id IN (?)`,
+        [pref, ids]
+      );
+      updated += ids.length;
+      byPref[pref] = (byPref[pref] || 0) + ids.length;
+    }
+  }
+
+  return { mode, scanned, updated, byPrefecture: byPref };
+}
+
 module.exports = {
   listCustomers,
   getById,
@@ -374,4 +443,5 @@ module.exports = {
   getDistinctPrefectures,
   setBlacklist,
   recategorizeIndustries,
+  normalizePrefectures,
 };

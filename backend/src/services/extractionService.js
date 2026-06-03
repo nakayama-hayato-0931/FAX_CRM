@@ -45,7 +45,19 @@ function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeP
     where.push('(industry_category = ? OR industry = ?)');
     params.push(industry, industry);
   }
-  if (prefecture) { where.push('prefecture = ?'); params.push(prefecture); }
+  // prefecture: 単一文字列 / 配列 / カンマ区切り文字列 のいずれも受け付ける
+  if (prefecture) {
+    const list = Array.isArray(prefecture)
+      ? prefecture
+      : String(prefecture).split(',').map((s) => s.trim()).filter(Boolean);
+    if (list.length === 1) {
+      where.push('prefecture = ?');
+      params.push(list[0]);
+    } else if (list.length > 1) {
+      where.push('prefecture IN (?)');
+      params.push(list);
+    }
+  }
   if (recentDays && Number(recentDays) > 0) {
     where.push('(last_sent_at IS NULL OR last_sent_at < (NOW() - INTERVAL ? DAY))');
     params.push(Number(recentDays));

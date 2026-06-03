@@ -92,6 +92,20 @@ router.post('/recategorize', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/customers/normalize-prefecture?mode=region|missing|all
+//   customers.prefecture が 地域名 (東北/関東/中部/...) の行を address から
+//   再抽出してバックフィルする admin 操作
+//   - mode=region  (default): 地域名 だけ対象
+//   - mode=missing          : NULL / 空 だけ対象
+//   - mode=all              : 両方
+router.post('/normalize-prefecture', async (req, res, next) => {
+  try {
+    const mode = ['region', 'missing', 'all'].includes(req.query.mode) ? req.query.mode : 'region';
+    const result = await customerService.normalizePrefectures({ mode });
+    return ok(res, result);
+  } catch (e) { next(e); }
+});
+
 router.post('/import', upload.single('file'), async (req, res, next) => {
   let p;
   try {

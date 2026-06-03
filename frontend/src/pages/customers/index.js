@@ -41,6 +41,33 @@ export default function CustomersPage() {
   const [syncingBoth, setSyncingBoth] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
   const [recategorizing, setRecategorizing] = useState(false);
+  const [normalizingPref, setNormalizingPref] = useState(false);
+
+  const normalizePref = async (mode) => {
+    if (isDemo) { toast('デモ表示中は実行できません', { icon: 'ℹ' }); return; }
+    const label = {
+      region:  '都道府県 が 地域名 (東北/関東/...) の行を address から県名に再抽出します。 進めますか？',
+      missing: '都道府県 が 未設定 の行を address から県名抽出します。 進めますか？',
+      all:     '全顧客 を address から県名 再抽出します (現値も上書き)。 進めますか？',
+    }[mode];
+    if (!window.confirm(label)) return;
+    setNormalizingPref(true);
+    try {
+      const { data } = await api.post(`/api/customers/normalize-prefecture?mode=${mode}`, null, {
+        timeout: 30 * 60 * 1000,
+      });
+      const r = data.data || {};
+      const breakdown = Object.entries(r.byPrefecture || {})
+        .sort((a, b) => b[1] - a[1]).slice(0, 8)
+        .map(([k, v]) => `${k}:${v}`).join(' / ') || '変更なし';
+      toast.success(`都道府県 正規化完了: 走査${r.scanned ?? 0} / 更新${r.updated ?? 0}\n${breakdown}`, { duration: 10000 });
+      reload();
+    } catch (e) {
+      toast.error(e.userMessage || '正規化失敗');
+    } finally {
+      setNormalizingPref(false);
+    }
+  };
 
   const reload = () => setReloadKey((k) => k + 1);
 
@@ -432,6 +459,37 @@ export default function CustomersPage() {
                 title="全顧客を industry/備考 から再算出して強制上書き"
               >
                 {recategorizing ? '実行中…' : '全件 強制再分類'}
+              </button>
+            </div>
+          </details>
+          <details className="inline-block">
+            <summary className="cursor-pointer px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50 list-none select-none">
+              ▼ 都道府県
+            </summary>
+            <div className="absolute mt-1 bg-white border border-zinc-200 rounded-md shadow-lg p-2 flex flex-col gap-1 z-10">
+              <button
+                onClick={() => normalizePref('region')}
+                disabled={normalizingPref}
+                className="px-3 py-1.5 text-xs bg-white border border-emerald-200 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap"
+                title="地域名 (東北/関東/中部/...) の行を address から県名に再抽出"
+              >
+                {normalizingPref ? '実行中…' : '地域名 → 県名 に正規化'}
+              </button>
+              <button
+                onClick={() => normalizePref('missing')}
+                disabled={normalizingPref}
+                className="px-3 py-1.5 text-xs bg-white border border-amber-200 text-amber-700 rounded hover:bg-amber-50 disabled:opacity-50 whitespace-nowrap"
+                title="prefecture が NULL / 空 の行を address から県名抽出"
+              >
+                {normalizingPref ? '実行中…' : '未設定のみ バックフィル'}
+              </button>
+              <button
+                onClick={() => normalizePref('all')}
+                disabled={normalizingPref}
+                className="px-3 py-1.5 text-xs bg-white border border-amber-200 text-amber-700 rounded hover:bg-amber-50 disabled:opacity-50 whitespace-nowrap"
+                title="全顧客を address から県名再抽出 (現値も上書き)"
+              >
+                {normalizingPref ? '実行中…' : '全件 強制再抽出'}
               </button>
             </div>
           </details>

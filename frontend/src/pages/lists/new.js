@@ -27,6 +27,18 @@ const DEMO_PREFECTURES = [
 
 const ALL_PCS = Array.from({ length: 23 }, (_, i) => i + 1);
 
+// 8地域 → 構成都道府県 (リスト抽出 都道府県セレクタ用)
+const REGION_GROUPS = [
+  { region: '北海道', prefs: ['北海道'] },
+  { region: '東北',   prefs: ['青森県','岩手県','宮城県','秋田県','山形県','福島県'] },
+  { region: '関東',   prefs: ['茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県'] },
+  { region: '中部',   prefs: ['新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県'] },
+  { region: '近畿',   prefs: ['三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県'] },
+  { region: '中国',   prefs: ['鳥取県','島根県','岡山県','広島県','山口県'] },
+  { region: '四国',   prefs: ['徳島県','香川県','愛媛県','高知県'] },
+  { region: '九州',   prefs: ['福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'] },
+];
+
 export default function NewBatchPage() {
   const router = useRouter();
   const isDemo = router.query.demo === '1';
@@ -43,7 +55,7 @@ export default function NewBatchPage() {
     name: 'リスト',
     date: todayYMD,
     industry: '',
-    prefecture: '',
+    prefectures: [],          // [] = すべて / ['東京都', '神奈川県'] のように複数選択
     targetCount: 100,
     pcNumbers: [],            // [1, 3, 5...]
     recentDays: 30,
@@ -110,7 +122,7 @@ export default function NewBatchPage() {
       const { data } = await api.get('/api/batches/preview', {
         params: {
           industry: form.industry || undefined,
-          prefecture: form.prefecture || undefined,
+          prefecture: form.prefectures?.length ? form.prefectures.join(',') : undefined,
           recentDays: form.recentDays || undefined,
           recentCallDays: form.recentCallDays || undefined,
           excludeProjects: form.excludeProjects ? 'true' : undefined,
@@ -169,7 +181,7 @@ export default function NewBatchPage() {
         listName: form.name,
         date: form.date,
         industry: form.industry || null,
-        prefecture: form.prefecture || null,
+        prefecture: form.prefectures?.length ? form.prefectures.join(',') : null,
         recentDays: Number(form.recentDays) || null,
         recentCallDays: Number(form.recentCallDays) || 0,
         excludeProjects: !!form.excludeProjects,
@@ -296,15 +308,75 @@ export default function NewBatchPage() {
               ))}
             </select>
           </Field>
-          <Field label="都道府県">
-            <select className="input"
-                    value={form.prefecture}
-                    onChange={(e) => { setForm({ ...form, prefecture: e.target.value }); setPreviewCount(null); }}>
-              <option value="">(すべて)</option>
-              {prefectures.map((p) => (
-                <option key={p.prefecture} value={p.prefecture}>{p.prefecture} ({(p.cnt || 0).toLocaleString()})</option>
-              ))}
-            </select>
+          <Field label={`都道府県 (${form.prefectures.length === 0 ? 'すべて' : `${form.prefectures.length} 県選択中`})`}
+                 hint="地域名をクリックで一括選択 / 県名チェックで個別選択。 0 = フィルタなし">
+            <div className="border border-zinc-300 rounded-md bg-white max-h-56 overflow-auto p-2 space-y-1.5">
+              {form.prefectures.length > 0 && (
+                <div className="flex justify-end pb-1 border-b border-zinc-100">
+                  <button type="button"
+                          onClick={() => { setForm({ ...form, prefectures: [] }); setPreviewCount(null); }}
+                          className="text-[11px] text-zinc-500 hover:underline">
+                    全クリア
+                  </button>
+                </div>
+              )}
+              {REGION_GROUPS.map((g) => {
+                const allSelected = g.prefs.every((p) => form.prefectures.includes(p));
+                const someSelected = g.prefs.some((p) => form.prefectures.includes(p));
+                return (
+                  <div key={g.region} className="flex items-start gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const set = new Set(form.prefectures);
+                        if (allSelected) {
+                          for (const p of g.prefs) set.delete(p);
+                        } else {
+                          for (const p of g.prefs) set.add(p);
+                        }
+                        setForm({ ...form, prefectures: [...set] });
+                        setPreviewCount(null);
+                      }}
+                      className={[
+                        'flex-shrink-0 text-[10px] w-12 py-0.5 rounded font-medium transition',
+                        allSelected
+                          ? 'bg-indigo-600 text-white'
+                          : someSelected
+                            ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                            : 'bg-white text-zinc-500 border border-zinc-300 hover:bg-zinc-50',
+                      ].join(' ')}
+                      title={`${g.region} を一括選択/解除`}
+                    >
+                      {g.region}
+                    </button>
+                    <div className="flex flex-wrap gap-0.5">
+                      {g.prefs.map((p) => {
+                        const checked = form.prefectures.includes(p);
+                        return (
+                          <label key={p}
+                                 className={[
+                                   'cursor-pointer text-[11px] px-1.5 py-0.5 rounded border transition select-none',
+                                   checked
+                                     ? 'bg-indigo-600 text-white border-indigo-600'
+                                     : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
+                                 ].join(' ')}>
+                            <input type="checkbox" checked={checked}
+                                   onChange={() => {
+                                     const set = new Set(form.prefectures);
+                                     if (checked) set.delete(p); else set.add(p);
+                                     setForm({ ...form, prefectures: [...set] });
+                                     setPreviewCount(null);
+                                   }}
+                                   className="sr-only" />
+                            {p}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </Field>
         </div>
 
