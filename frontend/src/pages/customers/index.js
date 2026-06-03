@@ -365,47 +365,26 @@ export default function CustomersPage() {
           <button onClick={reload} className="px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50">
             再読み込み
           </button>
-          <button
-            onClick={syncBoth}
-            disabled={syncingBoth || syncPulling || syncPushing || (syncStatus && !syncStatus.configured)}
-            className="px-3 py-2 text-sm bg-sky-600 text-white rounded-md hover:bg-sky-700 disabled:opacity-50"
-            title={syncStatus?.configured
-              ? 'callcenter と双方向同期 (pull → push 順次、 ワンクリック)'
-              : 'callcenter 連携 未設定 (env: CALLCENTER_API_BASE_URL / CALLCENTER_API_TOKEN)'}
-          >
-            {syncingBoth ? '双方向同期中…' : 'callcenter と双方向同期'}
-          </button>
-          {/* 個別操作 (折り畳み) */}
+
+          {/* ▼ 同期 (callcenter 連携 + 個別操作 すべて畳む) */}
           <details className="inline-block">
             <summary className="cursor-pointer px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50 list-none select-none">
-              ▼ 個別
+              ▼ 同期
             </summary>
-            <div className="absolute mt-1 bg-white border border-zinc-200 rounded-md shadow-lg p-2 flex flex-col gap-1 z-10">
+            <div className="absolute mt-1 bg-white border border-zinc-200 rounded-md shadow-lg p-2 flex flex-col gap-1 z-10 min-w-[220px]">
+              {/* primary: 双方向同期 */}
               <button
-                onClick={pullFromCallcenter}
-                disabled={syncPulling || syncingBoth || (syncStatus && !syncStatus.configured)}
-                className="px-3 py-1.5 text-xs bg-white border border-zinc-200 text-zinc-400 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap line-through"
-                title="(レガシー) HTTPベース取込。Phase 2 のシャドー書き込みで実質不要"
+                onClick={syncBoth}
+                disabled={syncingBoth || syncPulling || syncPushing || (syncStatus && !syncStatus.configured)}
+                className="px-3 py-1.5 text-xs bg-sky-600 text-white rounded hover:bg-sky-700 disabled:opacity-50 whitespace-nowrap"
+                title={syncStatus?.configured
+                  ? 'callcenter と双方向同期 (pull → push 順次)'
+                  : 'callcenter 連携 未設定 (env: CALLCENTER_API_BASE_URL / CALLCENTER_API_TOKEN)'}
               >
-                {syncPulling ? '取込中…' : '← callcenter から取込のみ (旧)'}
-              </button>
-              <button
-                onClick={pushToCallcenter}
-                disabled={syncPushing || syncingBoth || (syncStatus && !syncStatus.configured)}
-                className="px-3 py-1.5 text-xs bg-white border border-zinc-200 text-zinc-400 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap line-through"
-                title="(レガシー) HTTPベース送信。Phase 2 のシャドー書き込みで実質不要"
-              >
-                {syncPushing ? '送信中…' : '→ callcenter へ送信のみ (旧)'}
-              </button>
-              <button
-                onClick={pushUnlinkedToCallcenter}
-                disabled={syncPushing || syncingBoth || (syncStatus && !syncStatus.configured)}
-                className="px-3 py-1.5 text-xs bg-white border border-emerald-200 text-emerald-500 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap line-through"
-                title="(レガシー) HTTPベース未連携 push。Phase 2 の差分バックフィルを推奨"
-              >
-                {syncPushing ? '送信中…' : '+ 未連携顧客のみ全件 push (旧)'}
+                {syncingBoth ? '双方向同期中…' : 'callcenter と双方向同期'}
               </button>
               <hr className="border-zinc-200 my-1" />
+              {/* Phase 2 (推奨) */}
               <button
                 onClick={() => shadowBackfill(true)}
                 disabled={syncPushing || syncingBoth}
@@ -439,6 +418,7 @@ export default function CustomersPage() {
                 {syncPushing ? '実行中…' : 'Phase3 ドリフトチェック'}
               </button>
               <hr className="border-zinc-200 my-1" />
+              {/* 全件再同期 */}
               <button
                 onClick={pullFullFromCallcenter}
                 disabled={syncPulling || syncingBoth || (syncStatus && !syncStatus.configured)}
@@ -447,13 +427,42 @@ export default function CustomersPage() {
               >
                 {syncPulling ? '全件同期中…' : '⟳ 全件再同期 (差分無視)'}
               </button>
+              <hr className="border-zinc-200 my-1" />
+              {/* レガシー (取消線) */}
+              <button
+                onClick={pullFromCallcenter}
+                disabled={syncPulling || syncingBoth || (syncStatus && !syncStatus.configured)}
+                className="px-3 py-1.5 text-xs bg-white border border-zinc-200 text-zinc-400 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap line-through"
+                title="(レガシー) HTTPベース取込。Phase 2 のシャドー書き込みで実質不要"
+              >
+                {syncPulling ? '取込中…' : '← 取込のみ (旧)'}
+              </button>
+              <button
+                onClick={pushToCallcenter}
+                disabled={syncPushing || syncingBoth || (syncStatus && !syncStatus.configured)}
+                className="px-3 py-1.5 text-xs bg-white border border-zinc-200 text-zinc-400 rounded hover:bg-sky-50 disabled:opacity-50 whitespace-nowrap line-through"
+                title="(レガシー) HTTPベース送信。Phase 2 のシャドー書き込みで実質不要"
+              >
+                {syncPushing ? '送信中…' : '→ 送信のみ (旧)'}
+              </button>
+              <button
+                onClick={pushUnlinkedToCallcenter}
+                disabled={syncPushing || syncingBoth || (syncStatus && !syncStatus.configured)}
+                className="px-3 py-1.5 text-xs bg-white border border-emerald-200 text-emerald-500 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap line-through"
+                title="(レガシー) HTTPベース未連携 push。Phase 2 の差分バックフィルを推奨"
+              >
+                {syncPushing ? '送信中…' : '+ 未連携のみ push (旧)'}
+              </button>
             </div>
           </details>
+
+          {/* ▼ メンテナンス (業種カテゴリ + 都道府県 を統合) */}
           <details className="inline-block">
             <summary className="cursor-pointer px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50 list-none select-none">
-              ▼ 業種カテゴリ
+              ▼ メンテナンス
             </summary>
-            <div className="absolute mt-1 bg-white border border-zinc-200 rounded-md shadow-lg p-2 flex flex-col gap-1 z-10">
+            <div className="absolute mt-1 bg-white border border-zinc-200 rounded-md shadow-lg p-2 flex flex-col gap-1 z-10 min-w-[220px]">
+              <div className="px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">業種カテゴリ</div>
               <button
                 onClick={() => recategorize('missing')}
                 disabled={recategorizing}
@@ -470,13 +479,8 @@ export default function CustomersPage() {
               >
                 {recategorizing ? '実行中…' : '全件 強制再分類'}
               </button>
-            </div>
-          </details>
-          <details className="inline-block">
-            <summary className="cursor-pointer px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50 list-none select-none">
-              ▼ 都道府県
-            </summary>
-            <div className="absolute mt-1 bg-white border border-zinc-200 rounded-md shadow-lg p-2 flex flex-col gap-1 z-10">
+              <hr className="border-zinc-200 my-1" />
+              <div className="px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">都道府県</div>
               <button
                 onClick={() => normalizePref('region')}
                 disabled={normalizingPref}
@@ -503,9 +507,10 @@ export default function CustomersPage() {
               </button>
             </div>
           </details>
+
           <button onClick={() => setShowImport(true)}
                   className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
-            CSVインポート
+            リストインポート
           </button>
         </div>
       </div>

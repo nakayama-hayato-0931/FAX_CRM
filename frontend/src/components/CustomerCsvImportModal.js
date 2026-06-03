@@ -67,7 +67,7 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-lg shadow-xl max-w-xl w-full p-6 max-h-[92vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-zinc-900">顧客マスタ インポート (CSV / Excel)</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">リストインポート (CSV / Excel)</h2>
           <button className="text-zinc-400 hover:text-zinc-600 text-xl leading-none" onClick={onClose} disabled={busy}>×</button>
         </div>
 
