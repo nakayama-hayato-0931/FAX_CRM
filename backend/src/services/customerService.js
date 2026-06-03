@@ -303,21 +303,10 @@ async function setBlacklist(id, isBlacklisted, reason) {
 }
 
 /**
- * 全顧客の industry_category を industry + note から再算出して UPDATE する。
- *
- *   options.mode = 'missing'   : industry_category が NULL / '' / 'その他' の行だけ対象
- *                                (デフォルト。 既に明示分類が入っている行は尊重)
- *                = 'all'       : 全顧客 (industry が空でない行) を対象に再分類で上書き
- *   options.batchSize          : 1チャンクあたりの SELECT 件数 (default 2000)
- *
- * 結果: { scanned, updated, byCategory: { 飲食: n, 製造: n, ... } }
+ * 単一テーブル (customers / companies) の industry_category を
+ * industry + note から再算出して UPDATE する内部ヘルパ
  */
-async function recategorizeIndustries(options = {}) {
-  const pool = getPool();
-  if (!pool) throw new Error('DB未設定');
-  const mode = options.mode === 'all' ? 'all' : 'missing';
-  const batchSize = Math.max(100, Math.min(Number(options.batchSize) || 2000, 5000));
-
+async function recategorizeIndustryTable(pool, table, mode, batchSize) {
   let lastId = 0;
   let scanned = 0;
   let updated = 0;
@@ -329,11 +318,11 @@ async function recategorizeIndustries(options = {}) {
     if (mode === 'missing') {
       whereParts.push(`(industry_category IS NULL OR industry_category = '' OR industry_category = 'その他')`);
     }
-    // industry / industry_detail / note いずれかに手がかりが必要
+    // industry / note いずれかに手がかりが必要
     whereParts.push(`((industry IS NOT NULL AND industry <> '') OR (note IS NOT NULL AND note <> ''))`);
     const [rows] = await pool.query(
       `SELECT id, industry, industry_category, note
-         FROM customers
+         FROM ${table}
         WHERE ${whereParts.join(' AND ')}
         ORDER BY id ASC
         LIMIT ?`,
@@ -343,12 +332,10 @@ async function recategorizeIndustries(options = {}) {
     lastId = rows[rows.length - 1].id;
     scanned += rows.length;
 
-    // ID ごとに新カテゴリを算出 → 同一カテゴリでまとめて IN(?) で UPDATE
     const buckets = new Map();
     for (const r of rows) {
       const corpus = [r.industry || '', r.note || ''].filter(Boolean).join(' ');
       const newCat = normalizeIndustry(corpus);
-      // 'その他' になっていて 既に 'その他' なら no-op
       if ((r.industry_category || '') === newCat) continue;
       if (!buckets.has(newCat)) buckets.set(newCat, []);
       buckets.get(newCat).push(r.id);
@@ -356,7 +343,7 @@ async function recategorizeIndustries(options = {}) {
     for (const [cat, ids] of buckets) {
       if (!ids.length) continue;
       await pool.query(
-        `UPDATE customers SET industry_category = ? WHERE id IN (?)`,
+        `UPDATE ${table} SET industry_category = ? WHERE id IN (?)`,
         [cat, ids]
       );
       updated += ids.length;
@@ -364,7 +351,50 @@ async function recategorizeIndustries(options = {}) {
     }
   }
 
-  return { mode, scanned, updated, byCategory };
+  return { scanned, updated, byCategory };
+}
+
+/**
+ * 全顧客の industry_category を industry + note から再算出して UPDATE する。
+ * fax-crm.customers + callcenter.companies の両 DB を処理する。
+ *
+ *   options.mode = 'missing'   : industry_category が NULL / '' / 'その他' の行だけ対象
+ *                                (デフォルト。 既に明示分類が入っている行は尊重)
+ *                = 'all'       : 全顧客 (industry が空でない行) を対象に再分類で上書き
+ *   options.batchSize          : 1チャンクあたりの SELECT 件数 (default 2000)
+ *
+ * 結果: { mode, faxcrm: {...}, callcenter: {...} }
+ */
+async function recategorizeIndustries(options = {}) {
+  const mode = options.mode === 'all' ? 'all' : 'missing';
+  const batchSize = Math.max(100, Math.min(Number(options.batchSize) || 2000, 5000));
+
+  const result = { mode };
+
+  // (A) fax-crm.customers
+  const pool = getPool();
+  if (!pool) throw new Error('DB未設定');
+  result.faxcrm = await recategorizeIndustryTable(pool, 'customers', mode, batchSize);
+
+  // (B) callcenter.companies (接続できる時のみ)
+  try {
+    const ccDb = require('../../config/callcenterDb');
+    if (ccDb.isConfigured()) {
+      const ccPool = ccDb.getPool();
+      if (ccPool) {
+        result.callcenter = await recategorizeIndustryTable(ccPool, 'companies', mode, batchSize);
+      } else {
+        result.callcenter = { skipped: 'callcenter DB pool 取得不可' };
+      }
+    } else {
+      result.callcenter = { skipped: 'callcenter DB 未設定' };
+    }
+  } catch (e) {
+    console.warn('[recategorizeIndustries] callcenter 処理失敗:', e.message);
+    result.callcenter = { skipped: `エラー: ${e.message}` };
+  }
+
+  return result;
 }
 
 /**
