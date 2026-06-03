@@ -35,6 +35,17 @@ export default function CpaCostInputModal({ month, monthLabel, row, costPerFax, 
   const [outsourcedMemo, setOutsourcedMemo] = useState('');
   const [outsourcedExists, setOutsourcedExists] = useState(false);
 
+  // 受電数 手動入力 (空欄 = 自動集計)
+  const [pickedValue, setPickedValue] = useState(
+    row?.incoming_picked_is_manual ? String(row.incoming_picked ?? '') : ''
+  );
+  const [missedValue, setMissedValue] = useState(
+    row?.incoming_missed_is_manual ? String(row.incoming_missed ?? '') : ''
+  );
+  // 自動集計の参考値 (手動が入っていない時の現値)
+  const autoPicked = row?.incoming_picked_is_manual ? null : Number(row?.incoming_picked ?? 0);
+  const autoMissed = row?.incoming_missed_is_manual ? null : Number(row?.incoming_missed ?? 0);
+
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -54,6 +65,13 @@ export default function CpaCostInputModal({ month, monthLabel, row, costPerFax, 
         ]);
         if (cancelled) return;
         if (mc.data.data?.memo) setMemo(mc.data.data.memo);
+        // 受電数 手動入力 の現値
+        if (mc.data.data) {
+          const mp = mc.data.data.incoming_picked_manual;
+          const mm = mc.data.data.incoming_missed_manual;
+          if (mp != null) setPickedValue(String(mp));
+          if (mm != null) setMissedValue(String(mm));
+        }
         const o = of.data.data;
         if (o) {
           setOutsourcedExists(true);
@@ -148,6 +166,43 @@ export default function CpaCostInputModal({ month, monthLabel, row, costPerFax, 
     } catch (e) { toast.error(e.userMessage || '削除失敗'); }
     finally { setBusy(false); }
   };
+
+  // ---- 受電数 操作 ----
+  const saveIncoming = async () => {
+    const p = pickedValue === '' ? null : Number(pickedValue);
+    const m = missedValue === '' ? null : Number(missedValue);
+    if (p != null && (!Number.isFinite(p) || p < 0)) { toast.error('受電 は 0以上の数値、 または空 (自動集計)'); return; }
+    if (m != null && (!Number.isFinite(m) || m < 0)) { toast.error('不在 は 0以上の数値、 または空 (自動集計)'); return; }
+    setBusy(true);
+    try {
+      await api.put(`/api/cpa/monthly-incoming/${month}`, {
+        incoming_picked_manual: p,
+        incoming_missed_manual: m,
+      });
+      toast.success('受電数 を保存しました');
+      onSaved?.();
+      onClose();
+    } catch (e) { toast.error(e.userMessage || '受電数の保存失敗'); }
+    finally { setBusy(false); }
+  };
+
+  const resetIncoming = async () => {
+    if (!window.confirm(`${monthLabel} の受電数 手動入力を削除して 自動集計 (zp_*) に戻します。よろしいですか？`)) return;
+    setBusy(true);
+    try {
+      await api.put(`/api/cpa/monthly-incoming/${month}`, {
+        incoming_picked_manual: null,
+        incoming_missed_manual: null,
+      });
+      setPickedValue(''); setMissedValue('');
+      toast.success('受電数 を自動集計に戻しました');
+      onSaved?.();
+      onClose();
+    } catch (e) { toast.error(e.userMessage || '削除失敗'); }
+    finally { setBusy(false); }
+  };
+
+  const incomingHasManual = !!(row?.incoming_picked_is_manual || row?.incoming_missed_is_manual);
 
   const yen = (v) => '¥' + Math.round(v).toLocaleString();
 
@@ -251,6 +306,48 @@ export default function CpaCostInputModal({ month, monthLabel, row, costPerFax, 
               <button type="button" onClick={saveOutsourced} disabled={busy}
                       className="px-3 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50">
                 外注費を保存
+              </button>
+            </div>
+          </section>
+
+          {/* === 受電数 セクション === */}
+          <section className="border border-zinc-200 rounded-lg p-3 bg-sky-50/40">
+            <h3 className="text-xs font-semibold text-zinc-700 mb-2">③ 受電数 (手動入力)</h3>
+            <p className="text-[11px] text-zinc-500 mb-2 leading-relaxed">
+              空欄なら zp_* (Zoom Phone) の自動集計 (2ヶ月クールダウン dedup 適用) が使われます。
+              数値を入れると その月は手動値で上書きされます。
+            </p>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 mb-1">
+                  受電 {autoPicked != null && <span className="text-[10px] text-zinc-400">(自動: {autoPicked.toLocaleString()})</span>}
+                </label>
+                <input type="text" inputMode="numeric" value={pickedValue}
+                       onChange={(e) => setPickedValue(e.target.value)}
+                       placeholder={autoPicked != null ? String(autoPicked) : '自動集計'}
+                       disabled={busy}
+                       className="w-full border border-zinc-300 rounded px-2 py-2 text-right tabular-nums text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 mb-1">
+                  不在 {autoMissed != null && <span className="text-[10px] text-zinc-400">(自動: {autoMissed.toLocaleString()})</span>}
+                </label>
+                <input type="text" inputMode="numeric" value={missedValue}
+                       onChange={(e) => setMissedValue(e.target.value)}
+                       placeholder={autoMissed != null ? String(autoMissed) : '自動集計'}
+                       disabled={busy}
+                       className="w-full border border-zinc-300 rounded px-2 py-2 text-right tabular-nums text-sm" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={resetIncoming}
+                      disabled={busy || !incomingHasManual}
+                      className="px-3 py-1 text-xs bg-white border border-red-200 text-red-700 rounded hover:bg-red-50 disabled:opacity-30">
+                自動集計に戻す
+              </button>
+              <button type="button" onClick={saveIncoming} disabled={busy}
+                      className="px-3 py-1 text-xs bg-sky-600 text-white rounded hover:bg-sky-700 disabled:opacity-50">
+                受電数を保存
               </button>
             </div>
           </section>

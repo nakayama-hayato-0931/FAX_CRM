@@ -101,6 +101,39 @@ async function ensureMonthlyCostsTable() {
          ON UPDATE CURRENT_TIMESTAMP
      ) ENGINE=InnoDB COMMENT='CPA 月別 確定版コスト (手動入力)'`
   );
+  // 受電数 手動入力列 (NULL = 自動集計を使う / 数値 = 手動上書き)
+  await ensureManualIncomingColumns(pool);
+}
+
+// cpa_monthly_costs に incoming_picked_manual / incoming_missed_manual を追加
+let _manualIncomingEnsured = false;
+async function ensureManualIncomingColumns(pool) {
+  if (_manualIncomingEnsured) return;
+  try {
+    const [cols] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cpa_monthly_costs'
+          AND COLUMN_NAME IN ('incoming_picked_manual', 'incoming_missed_manual')`
+    );
+    const have = new Set(cols.map((c) => c.COLUMN_NAME));
+    if (!have.has('incoming_picked_manual')) {
+      await pool.query(
+        `ALTER TABLE cpa_monthly_costs
+           ADD COLUMN incoming_picked_manual INT DEFAULT NULL
+             COMMENT '受電数(受電) 手動入力 (NULL=自動集計)'`
+      );
+    }
+    if (!have.has('incoming_missed_manual')) {
+      await pool.query(
+        `ALTER TABLE cpa_monthly_costs
+           ADD COLUMN incoming_missed_manual INT DEFAULT NULL
+             COMMENT '受電数(不在) 手動入力 (NULL=自動集計)'`
+      );
+    }
+    _manualIncomingEnsured = true;
+  } catch (e) {
+    console.error('[cpaService] incoming manual 列 ensure 失敗:', e.message);
+  }
 }
 
 const RAW_COLUMNS = [
@@ -222,10 +255,13 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       COALESCE(out_.outsourced_sends, 0)                              AS outsourced_sends,
       -- 受電数 (受電 + 不在) は JS 側で 2ヶ月クールダウン dedup を適用後に merge する。
       -- ここでは 0 で placeholder。 incoming_rate も同様に JS で計算し直す。
+      -- ただし cmc.incoming_*_manual に手動入力があれば JS 側でそれを優先する。
       0                                                               AS incoming_picked,
       0                                                               AS incoming_missed,
       0                                                               AS incoming_calls,
       0                                                               AS incoming_rate,
+      cmc.incoming_picked_manual                                      AS incoming_picked_manual,
+      cmc.incoming_missed_manual                                      AS incoming_missed_manual,
       ROUND(COALESCE(jp.projects, 0)
             / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
                                                                       AS project_rate,
@@ -359,29 +395,39 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
   const [rows] = await pool.query(sql, [limit]);
 
   // 受電 (zp_recordings) / 不在 (zp_missed_calls) の 2ヶ月クールダウン dedup を
-  // JS 側で行い、 月別 count を rows に merge する
+  // JS 側で行い、 月別 count を rows に merge する。
+  //   手動入力 (cmc.incoming_*_manual) があればそれを優先 (自動集計を上書き)
+  let pickedByMonth = {};
+  let missedByMonth = {};
   try {
-    const [pickedByMonth, missedByMonth] = await Promise.all([
+    [pickedByMonth, missedByMonth] = await Promise.all([
       getZpPickedCountsByMonth(pool),
       getZpMissedCountsByMonth(pool),
     ]);
-    for (const r of rows) {
-      const mKey = (r.month instanceof Date)
-        ? `${r.month.getFullYear()}-${String(r.month.getMonth() + 1).padStart(2, '0')}-01`
-        : String(r.month).slice(0, 10);
-      const picked = pickedByMonth[mKey] || 0;
-      const missed = missedByMonth[mKey] || 0;
-      r.incoming_picked  = picked;
-      r.incoming_missed  = missed;
-      r.incoming_calls   = picked + missed;
-      const denom = Number(r.sends || 0);
-      r.incoming_rate = denom > 0
-        ? Math.round((picked + missed) / denom * 10000) / 100
-        : 0;
-    }
   } catch (e) {
     console.error('[cpaService] zp_* 受電集計 失敗:', e.message);
-    // 失敗時は 受電数 0 のまま返却 (他指標には影響なし)
+    // 失敗時は 自動集計 0 のまま (手動入力があればそれは効く)
+  }
+  for (const r of rows) {
+    const mKey = (r.month instanceof Date)
+      ? `${r.month.getFullYear()}-${String(r.month.getMonth() + 1).padStart(2, '0')}-01`
+      : String(r.month).slice(0, 10);
+    const autoPicked = pickedByMonth[mKey] || 0;
+    const autoMissed = missedByMonth[mKey] || 0;
+    // 手動入力 (NULL でなければ採用)
+    const manualPicked = r.incoming_picked_manual;
+    const manualMissed = r.incoming_missed_manual;
+    const picked = manualPicked != null ? Number(manualPicked) : autoPicked;
+    const missed = manualMissed != null ? Number(manualMissed) : autoMissed;
+    r.incoming_picked = picked;
+    r.incoming_missed = missed;
+    r.incoming_calls = picked + missed;
+    r.incoming_picked_is_manual = manualPicked != null ? 1 : 0;
+    r.incoming_missed_is_manual = manualMissed != null ? 1 : 0;
+    const denom = Number(r.sends || 0);
+    r.incoming_rate = denom > 0
+      ? Math.round((picked + missed) / denom * 10000) / 100
+      : 0;
   }
 
   return rows;
@@ -488,7 +534,9 @@ async function getMonthlyCost(month) {
   if (!pool) return null;
   await ensureMonthlyCostsTable();
   const [rows] = await pool.query(
-    `SELECT month, in_house_cost, memo, updated_at FROM cpa_monthly_costs WHERE month = ?`,
+    `SELECT month, in_house_cost, memo,
+            incoming_picked_manual, incoming_missed_manual, updated_at
+       FROM cpa_monthly_costs WHERE month = ?`,
     [month]
   );
   return rows[0] || null;
@@ -510,6 +558,38 @@ async function setMonthlyCost(month, { in_house_cost, memo }) {
        in_house_cost = VALUES(in_house_cost),
        memo = VALUES(memo)`,
     [month, Math.round(cost), memo || null]
+  );
+  return getMonthlyCost(month);
+}
+
+/**
+ * 受電数の月別 手動入力を設定。
+ *   picked / missed それぞれ null を渡すと 「自動集計に戻す」 (列を NULL に)
+ *   数値を渡すと 手動上書き
+ */
+async function setMonthlyIncoming(month, { incoming_picked_manual, incoming_missed_manual }) {
+  assertMonth(month);
+  const norm = (v) => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) {
+      const err = new Error('受電数 は 0 以上の数値、 または空 (自動集計)'); err.status = 400; throw err;
+    }
+    return Math.round(n);
+  };
+  const picked = norm(incoming_picked_manual);
+  const missed = norm(incoming_missed_manual);
+  const pool = getPool();
+  if (!pool) { const err = new Error('DB未設定'); err.status = 500; throw err; }
+  await ensureMonthlyCostsTable();
+  // 行が無いケースもあるので INSERT ... ON DUPLICATE。 in_house_cost は既存維持
+  await pool.query(
+    `INSERT INTO cpa_monthly_costs (month, in_house_cost, incoming_picked_manual, incoming_missed_manual)
+     VALUES (?, 0, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       incoming_picked_manual = VALUES(incoming_picked_manual),
+       incoming_missed_manual = VALUES(incoming_missed_manual)`,
+    [month, picked, missed]
   );
   return getMonthlyCost(month);
 }
@@ -537,4 +617,5 @@ module.exports = {
   getMonthly, listDetail, importCsv,
   getCostPerFax,
   getMonthlyCost, setMonthlyCost, deleteMonthlyCost, listMonthlyCosts,
+  setMonthlyIncoming,
 };

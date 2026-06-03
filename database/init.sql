@@ -156,8 +156,10 @@ CREATE TABLE IF NOT EXISTS cpa_monthly_costs (
   month DATE NOT NULL PRIMARY KEY,
   in_house_cost BIGINT NOT NULL DEFAULT 0 COMMENT '自社FAX 月別 確定版コスト (円、 手動入力)',
   memo VARCHAR(255) DEFAULT NULL,
+  incoming_picked_manual INT DEFAULT NULL COMMENT '受電数(受電) 手動入力 (NULL=自動集計)',
+  incoming_missed_manual INT DEFAULT NULL COMMENT '受電数(不在) 手動入力 (NULL=自動集計)',
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB COMMENT='CPA 月別 確定版コスト (手動入力)';
+) ENGINE=InnoDB COMMENT='CPA 月別 確定版コスト + 受電数 手動入力';
 
 INSERT IGNORE INTO system_settings (setting_key, setting_value, description) VALUES
   ('cpa_cost_per_fax', '9.385423213', 'CPA コスト概算: 送信数1通あたりのコスト (円)');

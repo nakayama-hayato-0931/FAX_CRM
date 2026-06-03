@@ -87,4 +87,14 @@ router.delete('/monthly-cost/:month(\\d{4}-\\d{2}-\\d{2})', async (req, res, nex
   } catch (e) { next(e); }
 });
 
+// PUT /api/cpa/monthly-incoming/:month  受電数 手動入力
+//   body: { incoming_picked_manual, incoming_missed_manual }
+//   各値 null / 空 を渡すと その項目は自動集計に戻す
+router.put('/monthly-incoming/:month(\\d{4}-\\d{2}-\\d{2})', async (req, res, next) => {
+  try {
+    const r = await cpa.setMonthlyIncoming(req.params.month, req.body || {});
+    return ok(res, r);
+  } catch (e) { next(e); }
+});
+
 module.exports = router;

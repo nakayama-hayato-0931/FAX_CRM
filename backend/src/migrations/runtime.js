@@ -116,6 +116,30 @@ async function runStartupMigrations() {
     failed.push({ name: 'cpa_cost_per_fax setting', error: e.message });
   }
 
+  // ④b cpa_monthly_costs に 受電数 手動入力列 (incoming_picked_manual / incoming_missed_manual)
+  try {
+    if (await colExists(pool, 'cpa_monthly_costs', 'month')) {
+      if (!(await colExists(pool, 'cpa_monthly_costs', 'incoming_picked_manual'))) {
+        await pool.query(
+          `ALTER TABLE cpa_monthly_costs
+             ADD COLUMN incoming_picked_manual INT DEFAULT NULL
+               COMMENT '受電数(受電) 手動入力 (NULL=自動集計)'`
+        );
+        applied.push('cpa_monthly_costs.incoming_picked_manual 追加');
+      }
+      if (!(await colExists(pool, 'cpa_monthly_costs', 'incoming_missed_manual'))) {
+        await pool.query(
+          `ALTER TABLE cpa_monthly_costs
+             ADD COLUMN incoming_missed_manual INT DEFAULT NULL
+               COMMENT '受電数(不在) 手動入力 (NULL=自動集計)'`
+        );
+        applied.push('cpa_monthly_costs.incoming_missed_manual 追加');
+      }
+    }
+  } catch (e) {
+    failed.push({ name: 'cpa_monthly_costs.incoming_*_manual', error: e.message });
+  }
+
   // ⑤a incoming_call_reports.sales_owner 列 (担当営業)
   try {
     if (await colExists(pool, 'incoming_call_reports', 'customer_id')

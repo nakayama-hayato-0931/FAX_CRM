@@ -372,6 +372,13 @@ export default function CpaPage() {
                           ? <span className="ml-1 px-1 py-0.5 text-[9px] rounded bg-emerald-100 text-emerald-700 align-middle">確定</span>
                           : <span className="ml-1 px-1 py-0.5 text-[9px] rounded bg-zinc-200 text-zinc-600 align-middle">概算</span>)
                       : null;
+                    // 受電数 (受電/不在/合計) が手動入力された月には 「手動」 マーク
+                    const incomingManualBadge =
+                      ((c.key === 'incoming_picked' && row.incoming_picked_is_manual) ||
+                       (c.key === 'incoming_missed' && row.incoming_missed_is_manual) ||
+                       (c.key === 'incoming_calls' && (row.incoming_picked_is_manual || row.incoming_missed_is_manual)))
+                        ? <span className="ml-1 px-1 py-0.5 text-[9px] rounded bg-sky-100 text-sky-700 align-middle">手動</span>
+                        : null;
                     return (
                       <td key={c.key} className={cellClass}>
                         {isClickable ? (
@@ -387,6 +394,7 @@ export default function CpaPage() {
                           c.format(value)
                         )}
                         {costBadge}
+                        {incomingManualBadge}
                       </td>
                     );
                   })}
