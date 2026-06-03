@@ -212,6 +212,22 @@ CREATE TABLE IF NOT EXISTS manuscript_content_usage (
 -- --------------------------------------------
 -- リスト抽出バッチ (Excelファイル1個に相当)
 -- --------------------------------------------
+-- --------------------------------------------
+-- NGワード (リスト抽出時に該当顧客を自動除外)
+-- field 列 × word の部分一致で customers をフィルタする。 enabled=0 で一時無効化
+-- --------------------------------------------
+CREATE TABLE IF NOT EXISTS ng_words (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  field VARCHAR(50) NOT NULL COMMENT 'マッチ対象列 (company_name/industry/address/note/url/representative)',
+  word VARCHAR(255) NOT NULL COMMENT '除外したい部分文字列',
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  memo VARCHAR(255) DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_ng_words_field_word (field, word),
+  INDEX idx_ng_words_field_enabled (field, enabled)
+) ENGINE=InnoDB COMMENT='リスト抽出 NGワード (部分一致で除外)';
+
 CREATE TABLE IF NOT EXISTS extraction_batches (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,

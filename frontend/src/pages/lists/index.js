@@ -4,6 +4,7 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
 import BatchResultModal from '@/components/BatchResultModal';
+import NgWordsModal from '@/components/NgWordsModal';
 
 const DEMO_BATCHES = [
   { id: 7, name: '関東-製造業-PC03', filter_industry: '製造業', filter_prefecture: '東京都', target_count: 200, actual_count: 200, pc_number: 'PC03', status: 'ready', drive_file_url: null, created_at: '2026-05-12T09:00:00Z' },
@@ -25,6 +26,7 @@ export default function ListsPage() {
   const [loading, setLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [resultBatchId, setResultBatchId] = useState(null);
+  const [showNgWords, setShowNgWords] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +109,11 @@ export default function ListsPage() {
           <button onClick={() => setReloadKey((k) => k + 1)}
                   className="px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50">
             再読み込み
+          </button>
+          <button onClick={() => setShowNgWords(true)}
+                  className="px-3 py-2 text-sm bg-white border border-red-300 text-red-700 rounded-md hover:bg-red-50"
+                  title="NGワード を設定すると 該当する顧客が次回以降のリスト抽出から自動除外されます">
+            NGワード
           </button>
           <Link href={`/lists/new${isDemo ? '?demo=1' : ''}`}
                 className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
@@ -203,6 +210,9 @@ export default function ListsPage() {
 
       {resultBatchId && (
         <BatchResultModal batchId={resultBatchId} onClose={() => setResultBatchId(null)} />
+      )}
+      {showNgWords && (
+        <NgWordsModal onClose={() => setShowNgWords(false)} />
       )}
     </div>
   );

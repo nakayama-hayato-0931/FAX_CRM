@@ -131,6 +131,33 @@ async function runStartupMigrations() {
     failed.push({ name: 'incoming_call_reports.sales_owner', error: e.message });
   }
 
+  // ⑤c ng_words テーブル (リスト抽出 NGワード)
+  try {
+    const [tbls] = await pool.query(
+      `SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ng_words' LIMIT 1`
+    );
+    if (tbls.length === 0) {
+      await pool.query(
+        `CREATE TABLE ng_words (
+           id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+           field VARCHAR(50) NOT NULL
+             COMMENT 'マッチ対象列 (company_name/industry/address/note/url/representative)',
+           word VARCHAR(255) NOT NULL COMMENT '除外したい部分文字列',
+           enabled TINYINT(1) NOT NULL DEFAULT 1,
+           memo VARCHAR(255) DEFAULT NULL,
+           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+           UNIQUE KEY uk_ng_words_field_word (field, word),
+           INDEX idx_ng_words_field_enabled (field, enabled)
+         ) ENGINE=InnoDB COMMENT='リスト抽出 NGワード (部分一致で除外)'`
+      );
+      applied.push('ng_words テーブル作成');
+    }
+  } catch (e) {
+    failed.push({ name: 'ng_words CREATE', error: e.message });
+  }
+
   // ⑤b extraction_batches.is_test 列 (テストモード抽出)
   try {
     if (await colExists(pool, 'extraction_batches', 'id')

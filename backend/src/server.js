@@ -53,6 +53,7 @@ const salesProjectsRouter = require('./routes/salesProjects');
 const interviewsRouter = require('./routes/interviews');
 const jobPostingsRouter = require('./routes/jobPostings');
 const manuscriptContentsRouter = require('./routes/manuscriptContents');
+const ngWordsRouter = require('./routes/ngWords');
 
 const app = express();
 
@@ -89,6 +90,7 @@ app.use('/api/sales-projects', requireAuth, salesProjectsRouter);
 app.use('/api/interviews', requireAuth, interviewsRouter);
 app.use('/api/job-postings', requireAuth, jobPostingsRouter);
 app.use('/api/manuscript-contents', requireAuth, manuscriptContentsRouter);
+app.use('/api/ng-words', requireAuth, ngWordsRouter);
 
 app.use(notFound);
 app.use(errorHandler);

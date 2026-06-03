@@ -1,6 +1,7 @@
 const ExcelJS = require('exceljs');
 const { getPool, isConfigured } = require('../../config/db');
 const drive = require('./driveService');
+const ngWordService = require('./ngWordService');
 
 // Railway デプロイ race 対策: is_test 列が無ければ ALTER で追加 (1度成功すれば no-op)
 let _isTestColumnEnsured = false;
@@ -27,7 +28,7 @@ async function ensureIsTestColumn(pool) {
   }
 }
 
-function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects }) {
+function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects, ngWordClause }) {
   // 抽出条件:
   //   - ブラックリスト除外
   //   - FAX 番号必須 (callcenter由来等のFAX無し顧客は対象外)
@@ -84,6 +85,11 @@ function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeP
        WHERE company_name IS NOT NULL AND company_name <> ''
     )`);
   }
+  // NGワード (会社名/業種/住所/備考/URL/代表者 の部分一致でヒットしたら除外)
+  if (ngWordClause && ngWordClause.sql) {
+    where.push(`(${ngWordClause.sql})`);
+    params.push(...(ngWordClause.params || []));
+  }
   return { whereSql: 'WHERE ' + where.join(' AND '), params };
 }
 
@@ -101,9 +107,11 @@ async function previewCount(filters = {}) {
   const pool = getPool();
   if (!pool) return { matchCount: 0 };
   // boolean は文字列で来る (query string) ので正規化
+  const ngWordClause = await ngWordService.buildNgWordWhereClause();
   const normalized = {
     ...filters,
     excludeProjects: filters.excludeProjects === true || filters.excludeProjects === 'true' || filters.excludeProjects === '1',
+    ngWordClause,
   };
   const { whereSql, params } = buildWhere(normalized);
   const [rows] = await pool.query(
@@ -151,7 +159,8 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
     const batchId = batchInsert.insertId;
 
     // 2. 該当顧客を選定 (FOR UPDATE で同時実行時の二重取得を防止)
-    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects });
+    const ngWordClause = await ngWordService.buildNgWordWhereClause();
+    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects, ngWordClause });
     const [customers] = await conn.query(
       `SELECT id FROM customers ${whereSql} ${PRIORITY_ORDER} LIMIT ? FOR UPDATE`,
       [...params, Number(targetCount)]
@@ -236,7 +245,8 @@ async function createBatchesPerPc({
 
     // 1. 全 PC 分の顧客を 一括取得
     const totalWant = Number(targetCount) * pcNumbers.length;
-    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects });
+    const ngWordClause = await ngWordService.buildNgWordWhereClause();
+    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects, ngWordClause });
     const [customers] = await conn.query(
       `SELECT id FROM customers ${whereSql} ${PRIORITY_ORDER} LIMIT ? FOR UPDATE`,
       [...params, totalWant]
