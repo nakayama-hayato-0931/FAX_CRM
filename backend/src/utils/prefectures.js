@@ -50,12 +50,13 @@ function extractPrefecture(address) {
   if (!address) return null;
   const s = String(address).trim();
   if (!s) return null;
+  // 47都道府県 だけを厳密マッチ (= 配列のいずれかが文字列内にあれば採用)
+  //   ※ 以前の 正規表現フォールバックは 「岐阜市水海道」 「大阪市都」 等を
+  //     誤って prefecture として登録してしまうので 廃止。
+  //     47都道府県 で見つからない住所は null = 「未確定」 とする
   for (const pref of PREFECTURES) {
     if (s.startsWith(pref) || s.includes(pref)) return pref;
   }
-  // 例外パターン (常用漢字外の異字体): 「XX都/道/府/県」 で始まり 6文字以下
-  const m = s.match(/^([^\s\d]+?[都道府県])/);
-  if (m && m[1].length <= 6 && !REGION_ONLY_NAMES.has(m[1])) return m[1];
   return null;
 }
 

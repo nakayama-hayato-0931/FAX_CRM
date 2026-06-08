@@ -6,6 +6,18 @@ import { api } from '@/utils/api';
 import CustomerCsvImportModal from '@/components/CustomerCsvImportModal';
 import CustomerDetailModal from '@/components/CustomerDetailModal';
 
+// 8地域 → 構成都道府県 (lists/new.js と同じ定義)
+const REGION_GROUPS = [
+  { region: '北海道', prefs: ['北海道'] },
+  { region: '東北',   prefs: ['青森県','岩手県','宮城県','秋田県','山形県','福島県'] },
+  { region: '関東',   prefs: ['茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県'] },
+  { region: '中部',   prefs: ['新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県'] },
+  { region: '近畿',   prefs: ['三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県'] },
+  { region: '中国',   prefs: ['鳥取県','島根県','岡山県','広島県','山口県'] },
+  { region: '四国',   prefs: ['徳島県','香川県','愛媛県','高知県'] },
+  { region: '九州',   prefs: ['福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'] },
+];
+
 const DEMO_CUSTOMERS = [
   { id: 1, company_name: '株式会社サンプル製作所', fax_number: '0312345678', industry: '製造業', prefecture: '東京都', city: '千代田区', send_count: 4, last_sent_at: '2026-04-22T10:00:00Z', last_pc_number: 'PC03', last_result: 'no_response', response_count: 0, is_blacklisted: 0, updated_at: '2026-04-22T10:00:00Z' },
   { id: 2, company_name: '合同会社テスト商事', fax_number: '0623456789', industry: '卸売業', prefecture: '大阪府', city: '大阪市北区', send_count: 6, last_sent_at: '2026-03-15T09:00:00Z', last_pc_number: 'PC01', last_result: 'response_inquiry', response_count: 1, is_blacklisted: 0, updated_at: '2026-03-15T09:00:00Z' },
@@ -29,7 +41,8 @@ export default function CustomersPage() {
   const [items, setItems] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 50, total: 0, totalPages: 0 });
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({ q: '', industry: '', prefecture: '', blacklisted: '', has_fax: '' });
+  const [filters, setFilters] = useState({ q: '', industry: '', prefectures: [], blacklisted: '', has_fax: '' });
+  const [showPrefPanel, setShowPrefPanel] = useState(false);
   const [industries, setIndustries] = useState([]);
   const [prefectures, setPrefectures] = useState([]);
   const [reloadKey, setReloadKey] = useState(0);
@@ -46,6 +59,7 @@ export default function CustomersPage() {
   const normalizePref = async (mode) => {
     if (isDemo) { toast('デモ表示中は実行できません', { icon: 'ℹ' }); return; }
     const label = {
+      invalid: '47都道府県 以外の値 (地域名 / 住所断片の誤抽出 等) の行を address から県名に再抽出します。 抽出できなかった行は NULL に戻します。 進めますか？',
       region:  '都道府県 が 地域名 (東北/関東/...) の行を address から県名に再抽出します。 進めますか？',
       missing: '都道府県 が 未設定 の行を address から県名抽出します。 進めますか？',
       all:     '全顧客 を address から県名 再抽出します (現値も上書き)。 進めますか？',
@@ -332,7 +346,7 @@ export default function CustomersPage() {
         const params = { page: 1, pageSize: 50 };
         if (filters.q) params.q = filters.q;
         if (filters.industry) params.industry = filters.industry;
-        if (filters.prefecture) params.prefecture = filters.prefecture;
+        if (filters.prefectures?.length) params.prefecture = filters.prefectures.join(',');
         if (filters.blacklisted !== '') params.blacklisted = filters.blacklisted;
         if (filters.has_fax !== '') params.has_fax = filters.has_fax;
         const [list, ind, pref] = await Promise.all([
@@ -355,7 +369,7 @@ export default function CustomersPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [isDemo, reloadKey, filters.industry, filters.prefecture, filters.blacklisted, filters.has_fax]);
+  }, [isDemo, reloadKey, filters.industry, JSON.stringify(filters.prefectures), filters.blacklisted, filters.has_fax]);
 
   return (
     <div>
@@ -493,6 +507,14 @@ export default function CustomersPage() {
               <hr className="border-zinc-200 my-1" />
               <div className="px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">都道府県</div>
               <button
+                onClick={() => normalizePref('invalid')}
+                disabled={normalizingPref}
+                className="px-3 py-1.5 text-xs bg-white border border-rose-200 text-rose-700 rounded hover:bg-rose-50 disabled:opacity-50 whitespace-nowrap"
+                title="47都道府県以外の値 (地域名/住所断片の誤抽出 等) を address から県名に再抽出。 抽出できなかった行は NULL に戻す"
+              >
+                {normalizingPref ? '実行中…' : '無効値クリーンアップ (推奨)'}
+              </button>
+              <button
                 onClick={() => normalizePref('region')}
                 disabled={normalizingPref}
                 className="px-3 py-1.5 text-xs bg-white border border-emerald-200 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap"
@@ -544,14 +566,93 @@ export default function CustomersPage() {
               <option key={i.industry} value={i.industry}>{i.industry} ({i.cnt})</option>
             ))}
           </select>
-          <select className="border border-zinc-300 rounded-md px-3 py-2 text-sm"
-                  value={filters.prefecture}
-                  onChange={(e) => setFilters({ ...filters, prefecture: e.target.value })}>
-            <option value="">都道府県 (すべて)</option>
-            {prefectures.map((p) => (
-              <option key={p.prefecture} value={p.prefecture}>{p.prefecture} ({p.cnt})</option>
-            ))}
-          </select>
+          {/* 都道府県 multi-select (47県固定リスト、 地域グループ + チェックボックス) */}
+          <div className="relative">
+            <button type="button"
+                    onClick={() => setShowPrefPanel((v) => !v)}
+                    className="w-full border border-zinc-300 rounded-md px-3 py-2 text-sm text-left bg-white hover:bg-zinc-50 flex items-center justify-between">
+              <span>
+                {filters.prefectures.length === 0
+                  ? '都道府県 (すべて)'
+                  : filters.prefectures.length <= 2
+                    ? filters.prefectures.join(', ')
+                    : `${filters.prefectures.length} 県選択中`}
+              </span>
+              <span className="text-zinc-400 ml-2">▾</span>
+            </button>
+            {showPrefPanel && (
+              <>
+                {/* 外側クリックで閉じる */}
+                <div className="fixed inset-0 z-10" onClick={() => setShowPrefPanel(false)} />
+                <div className="absolute z-20 mt-1 w-[420px] right-0 bg-white border border-zinc-200 rounded-md shadow-lg p-3 max-h-[60vh] overflow-auto">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-zinc-700">
+                      都道府県 ({filters.prefectures.length === 0 ? 'すべて' : `${filters.prefectures.length} 県`})
+                    </span>
+                    <button type="button"
+                            onClick={() => setFilters({ ...filters, prefectures: [] })}
+                            disabled={filters.prefectures.length === 0}
+                            className="text-[11px] text-zinc-500 hover:underline disabled:invisible">
+                      全クリア
+                    </button>
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mb-2">
+                    地域名クリック で 配下全選択/解除。 県名チェックで個別選択。
+                  </div>
+                  <div className="space-y-1.5">
+                    {REGION_GROUPS.map((g) => {
+                      const allSel = g.prefs.every((p) => filters.prefectures.includes(p));
+                      const someSel = g.prefs.some((p) => filters.prefectures.includes(p));
+                      return (
+                        <div key={g.region} className="flex items-start gap-1.5">
+                          <button type="button"
+                                  onClick={() => {
+                                    const set = new Set(filters.prefectures);
+                                    if (allSel) g.prefs.forEach((p) => set.delete(p));
+                                    else g.prefs.forEach((p) => set.add(p));
+                                    setFilters({ ...filters, prefectures: [...set] });
+                                  }}
+                                  className={[
+                                    'flex-shrink-0 text-[10px] w-12 py-0.5 rounded font-medium transition',
+                                    allSel
+                                      ? 'bg-indigo-600 text-white'
+                                      : someSel
+                                        ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                                        : 'bg-white text-zinc-500 border border-zinc-300 hover:bg-zinc-50',
+                                  ].join(' ')}>
+                            {g.region}
+                          </button>
+                          <div className="flex flex-wrap gap-0.5">
+                            {g.prefs.map((p) => {
+                              const checked = filters.prefectures.includes(p);
+                              return (
+                                <label key={p}
+                                       className={[
+                                         'cursor-pointer text-[11px] px-1.5 py-0.5 rounded border transition select-none',
+                                         checked
+                                           ? 'bg-indigo-600 text-white border-indigo-600'
+                                           : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
+                                       ].join(' ')}>
+                                  <input type="checkbox" checked={checked}
+                                         onChange={() => {
+                                           const set = new Set(filters.prefectures);
+                                           if (checked) set.delete(p); else set.add(p);
+                                           setFilters({ ...filters, prefectures: [...set] });
+                                         }}
+                                         className="sr-only" />
+                                  {p}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
           <select className="border border-zinc-300 rounded-md px-3 py-2 text-sm"
                   value={filters.blacklisted}
                   onChange={(e) => setFilters({ ...filters, blacklisted: e.target.value })}>
@@ -572,7 +673,7 @@ export default function CustomersPage() {
                   onClick={reload}>検索</button>
           <button className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded-md"
                   onClick={() => {
-                    setFilters({ q: '', industry: '', prefecture: '', blacklisted: '', has_fax: '' });
+                    setFilters({ q: '', industry: '', prefectures: [], blacklisted: '', has_fax: '' });
                     setTimeout(reload, 0);
                   }}>条件クリア</button>
         </div>

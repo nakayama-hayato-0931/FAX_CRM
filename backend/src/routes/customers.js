@@ -113,7 +113,7 @@ router.post('/recategorize', async (req, res, next) => {
 //   - mode=all              : 両方
 router.post('/normalize-prefecture', async (req, res, next) => {
   try {
-    const mode = ['region', 'missing', 'all'].includes(req.query.mode) ? req.query.mode : 'region';
+    const mode = ['region', 'missing', 'invalid', 'all'].includes(req.query.mode) ? req.query.mode : 'region';
     const result = await customerService.normalizePrefectures({ mode });
     return ok(res, result);
   } catch (e) { next(e); }

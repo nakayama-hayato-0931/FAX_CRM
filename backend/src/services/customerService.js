@@ -1,6 +1,6 @@
 const { getPool } = require('../../config/db');
 const { normalizeIndustry } = require('../utils/industryCategory');
-const { extractPrefecture, isRegionOnly, REGION_ONLY_NAMES } = require('../utils/prefectures');
+const { extractPrefecture, isRegionOnly, REGION_ONLY_NAMES, PREFECTURES } = require('../utils/prefectures');
 const { normalizePhone, digitsOnly } = require('../utils/phone');
 
 const SEARCHABLE = ['company_name', 'fax_number', 'phone_number', 'address'];
@@ -404,16 +404,26 @@ async function recategorizeIndustries(options = {}) {
  */
 async function normalizePrefectureTable(pool, table, mode, batchSize) {
   const regionList = Array.from(REGION_ONLY_NAMES);
+  const validPrefSet = new Set(PREFECTURES);
+  // mode='invalid' の対象: 「NULLでも空でもなく、 47都道府県でもない」 値 (例: 岐阜市水海道、 大阪市都 等)
   const whereByMode = () => {
     if (mode === 'region')  return `prefecture IN (?)`;
     if (mode === 'missing') return `(prefecture IS NULL OR prefecture = '')`;
+    if (mode === 'invalid') return `(prefecture IS NOT NULL AND prefecture <> '' AND prefecture NOT IN (?))`;
     return `1=1`;
   };
-  const paramsByMode = () => (mode === 'region' ? [regionList] : []);
+  const paramsByMode = () => {
+    if (mode === 'region')  return [regionList];
+    if (mode === 'invalid') return [PREFECTURES];
+    return [];
+  };
+  // address 必須: invalid モードは address から抽出できなかった行は NULL に戻す
+  const requireAddress = mode !== 'invalid';
 
   let lastId = 0;
   let scanned = 0;
   let updated = 0;
+  let cleared = 0;  // NULL に戻した件数
   const byPref = {};
 
   while (true) {
@@ -422,7 +432,7 @@ async function normalizePrefectureTable(pool, table, mode, batchSize) {
          FROM ${table}
         WHERE id > ?
           AND ${whereByMode()}
-          AND address IS NOT NULL AND address <> ''
+          ${requireAddress ? "AND address IS NOT NULL AND address <> ''" : ''}
         ORDER BY id ASC
         LIMIT ?`,
       [lastId, ...paramsByMode(), batchSize]
@@ -432,12 +442,25 @@ async function normalizePrefectureTable(pool, table, mode, batchSize) {
     scanned += rows.length;
 
     const buckets = new Map();
+    const clearIds = [];
     for (const r of rows) {
       const extracted = extractPrefecture(r.address);
-      if (!extracted) continue;
-      if (extracted === r.prefecture) continue;
-      if (!buckets.has(extracted)) buckets.set(extracted, []);
-      buckets.get(extracted).push(r.id);
+      if (extracted) {
+        if (extracted === r.prefecture) continue;
+        if (!buckets.has(extracted)) buckets.set(extracted, []);
+        buckets.get(extracted).push(r.id);
+      } else if (mode === 'invalid') {
+        // address からも抽出できず、 現値も 47県以外 → NULL に戻す
+        if (r.prefecture && !validPrefSet.has(r.prefecture)) clearIds.push(r.id);
+      }
+    }
+    // 47県以外を NULL に戻す bulk UPDATE
+    if (clearIds.length) {
+      await pool.query(
+        `UPDATE ${table} SET prefecture = NULL WHERE id IN (?)`,
+        [clearIds]
+      );
+      cleared += clearIds.length;
     }
     for (const [pref, ids] of buckets) {
       if (!ids.length) continue;
@@ -450,27 +473,29 @@ async function normalizePrefectureTable(pool, table, mode, batchSize) {
     }
   }
 
-  return { scanned, updated, byPrefecture: byPref };
+  return { scanned, updated, cleared, byPrefecture: byPref };
 }
 
 /**
  * customers.prefecture (fax-crm) と companies.prefecture (callcenter)
- * の 「東北/関東/中部/近畿/中国/四国/九州」 等の地域名を
- * address から再抽出して 県名 に正規化する。
+ * の 「東北/関東/中部/近畿/中国/四国/九州」 等の地域名や、
+ * 「岐阜市水海道」 「大阪市都」 等のバグ抽出値を address から再抽出して 県名 に正規化する。
  *
  * USE_CALLCENTER_DB=tier1+ モードでは 一覧/詳細は callcenter.companies から
  * 読むので fax-crm 側だけ正規化しても 「近畿」 のまま表示される問題があるため
  * callcenter DB が接続できる時は 両方を処理する。
  *
- * options.mode = 'region' (default) : 地域名 だけを対象
+ * options.mode = 'region' (default) : 地域名 (東北/関東/...) だけを対象
  *                'missing'          : NULL / 空文字 だけを対象
- *                'all'              : 両方 (address があれば常に再抽出)
+ *                'invalid'          : 47都道府県以外の値が入っている行を全て対象
+ *                                     (address 抽出失敗時は NULL に戻す)
+ *                'all'              : 全行 (address があれば常に再抽出)
  *
- * 結果: { mode, faxcrm: {scanned, updated, byPrefecture},
- *         callcenter: {scanned, updated, byPrefecture, skipped?} }
+ * 結果: { mode, faxcrm: {scanned, updated, cleared, byPrefecture},
+ *         callcenter: {scanned, updated, cleared, byPrefecture, skipped?} }
  */
 async function normalizePrefectures(options = {}) {
-  const mode = ['region', 'missing', 'all'].includes(options.mode) ? options.mode : 'region';
+  const mode = ['region', 'missing', 'invalid', 'all'].includes(options.mode) ? options.mode : 'region';
   const batchSize = Math.max(100, Math.min(Number(options.batchSize) || 2000, 5000));
 
   const result = { mode };
