@@ -60,6 +60,49 @@ function extractPrefecture(address) {
   return null;
 }
 
+/**
+ * 渡された都道府県配列を解析して、 完全に揃っている地域 (8地域のうち) を抽出。
+ * 戻り値: { full: [ '関東', ... ], remaining: [ '愛知県', ... ] }
+ *   - full     : 配下都道府県が 完全に選択されている地域名
+ *   - remaining: full にカバーされなかった単体の県名
+ *
+ * 用途: 顧客マスタフィルタで 「関東 7県 完全選択」 されたとき、 検索クエリに
+ * 「関東」 という地域名 (バグ値や旧データに残ってる文字列) も含めて OR する。
+ */
+function expandRegions(prefList) {
+  if (!Array.isArray(prefList) || !prefList.length) return { full: [], remaining: [] };
+  const set = new Set(prefList);
+  const full = [];
+  const covered = new Set();
+  for (const [region, prefs] of Object.entries(REGIONS)) {
+    if (prefs.every((p) => set.has(p))) {
+      full.push(region);
+      prefs.forEach((p) => covered.add(p));
+    }
+  }
+  const remaining = prefList.filter((p) => !covered.has(p));
+  return { full, remaining };
+}
+
+/**
+ * 選択された県名リストから 「該当する地域名」 を追加した拡張リストを返す。
+ *   例: ['茨城県','大阪府']  → ['茨城県','大阪府','関東','近畿']
+ *       ['北海道']           → ['北海道'] (北海道は地域=県名なので追加なし)
+ *
+ * 用途: callcenter.companies の prefecture 列に 「関東」 等の地域名が
+ * そのまま残っているデータも、 県名選択でヒットさせる (クリーンアップ前
+ * でも検索結果が出るように)
+ */
+function withRegionNames(prefList) {
+  if (!Array.isArray(prefList) || !prefList.length) return [];
+  const set = new Set(prefList);
+  for (const [region, prefs] of Object.entries(REGIONS)) {
+    if (region === '北海道') continue;  // 北海道は地域名=県名なので不要
+    if (prefs.some((p) => set.has(p))) set.add(region);
+  }
+  return [...set];
+}
+
 module.exports = {
   PREFECTURES,
   REGIONS,
@@ -67,4 +110,6 @@ module.exports = {
   isPrefecture,
   isRegionOnly,
   extractPrefecture,
+  expandRegions,
+  withRegionNames,
 };

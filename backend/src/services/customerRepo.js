@@ -19,6 +19,29 @@
 const { getPool: getFaxPool } = require('../../config/db');
 const ccDb = require('../../config/callcenterDb');
 const { digitsOnly: phoneDigits } = require('../utils/phone');
+const { withRegionNames } = require('../utils/prefectures');
+
+/**
+ * prefecture フィルタ: 単一/CSV/配列 を受け取り、 選択された県の所属地域名
+ * (関東/近畿 等) も常に OR に追加する。 callcenter.companies に
+ * 「関東」 のような地域名がそのまま残っているデータも県名選択でヒットさせるため。
+ */
+function addPrefectureFilter(query, alias, where, params) {
+  const v = query.prefecture;
+  if (!v) return;
+  let list;
+  if (Array.isArray(v)) list = v;
+  else list = String(v).split(',').map((s) => s.trim()).filter(Boolean);
+  if (!list.length) return;
+  const finalList = withRegionNames(list);
+  if (finalList.length === 1) {
+    where.push(`${alias}prefecture = ?`);
+    params.push(finalList[0]);
+  } else {
+    where.push(`${alias}prefecture IN (?)`);
+    params.push(finalList);
+  }
+}
 
 function readMode() {
   const v = String(process.env.USE_CALLCENTER_DB || '').toLowerCase();
@@ -71,7 +94,7 @@ async function listFromFaxCrm(query) {
     where.push(`(${orParts.join(' OR ')})`);
   }
   if (query.industry) { where.push('c.industry_category = ?'); params.push(query.industry); }
-  if (query.prefecture) { where.push('c.prefecture = ?'); params.push(query.prefecture); }
+  addPrefectureFilter(query, 'c.', where, params);
   if (query.blacklisted === 'true')  where.push('c.is_blacklisted = 1');
   if (query.blacklisted === 'false') where.push('c.is_blacklisted = 0');
   // has_fax フィルタ
@@ -138,7 +161,7 @@ async function listFromCallcenter(query) {
     where.push(`(${orParts.join(' OR ')})`);
   }
   if (query.industry) { where.push('c.industry_category = ?'); params.push(query.industry); }
-  if (query.prefecture) { where.push('c.prefecture = ?'); params.push(query.prefecture); }
+  addPrefectureFilter(query, 'c.', where, params);
   if (query.blacklisted === 'true')  where.push('c.is_blacklisted = 1');
   if (query.blacklisted === 'false') where.push('c.is_blacklisted = 0');
   // has_fax フィルタ (fax-crm 側と同じ挙動)

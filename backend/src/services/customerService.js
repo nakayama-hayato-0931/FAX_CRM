@@ -1,6 +1,34 @@
 const { getPool } = require('../../config/db');
 const { normalizeIndustry } = require('../utils/industryCategory');
-const { extractPrefecture, isRegionOnly, REGION_ONLY_NAMES, PREFECTURES } = require('../utils/prefectures');
+const { extractPrefecture, isRegionOnly, REGION_ONLY_NAMES, PREFECTURES, withRegionNames } = require('../utils/prefectures');
+
+/**
+ * prefecture フィルタを WHERE 句に追加するヘルパ。
+ *   query.prefecture が
+ *     - 単一文字列     → カンマ区切り として分解 (例: '東京都' / '東京都,神奈川県')
+ *     - 配列           → そのまま
+ *   選択された県の 該当地域名 も自動で IN リストに加える:
+ *     ['茨城県']            → IN ('茨城県','関東')
+ *     ['東京都','大阪府']   → IN ('東京都','大阪府','関東','近畿')
+ *   これで callcenter.companies の prefecture 列に 「関東」 のような
+ *   地域名がそのまま残っているデータも 県名選択でヒットする (旧データ救済)。
+ */
+function addPrefectureFilter(query, alias, where, params) {
+  const v = query.prefecture;
+  if (!v) return;
+  let list;
+  if (Array.isArray(v)) list = v;
+  else list = String(v).split(',').map((s) => s.trim()).filter(Boolean);
+  if (!list.length) return;
+  const finalList = withRegionNames(list);
+  if (finalList.length === 1) {
+    where.push(`${alias}prefecture = ?`);
+    params.push(finalList[0]);
+  } else {
+    where.push(`${alias}prefecture IN (?)`);
+    params.push(finalList);
+  }
+}
 const { normalizePhone, digitsOnly } = require('../utils/phone');
 
 const SEARCHABLE = ['company_name', 'fax_number', 'phone_number', 'address'];
@@ -49,7 +77,7 @@ async function listCustomers(query = {}) {
     where.push('c.industry_category = ?');
     params.push(query.industry);
   }
-  if (query.prefecture) { where.push('c.prefecture = ?'); params.push(query.prefecture); }
+  addPrefectureFilter(query, 'c.', where, params);
   if (query.blacklisted === 'true')  where.push('c.is_blacklisted = 1');
   if (query.blacklisted === 'false') where.push('c.is_blacklisted = 0');
   // has_fax: 数字を含む実 FAX 番号がある顧客に限る (placeholder 等の非数字も除外)
