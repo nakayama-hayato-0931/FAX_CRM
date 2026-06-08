@@ -301,6 +301,14 @@ async function debugInspectSheet({ targetYM = '2026-04' } = {}) {
   const byBeColumn = {};
   const sampleAprilRows = [];
   let totalDataRows = 0;
+  // 一時診断: G(登録番号) がある行の BI/BJ/BK/CC 周辺の生値をダンプして
+  //   どの列に 入金実績 が入っているか実データで確認する
+  const colRawSamples = [];
+  const idxOf = (letter) => {
+    let n = 0; for (const ch of letter.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+    return n - 1;
+  };
+  const dumpCols = ['BD','BH','BI','BJ','BK','CB','CC','CD'];
 
   for (let r = 1; r < values.length; r++) {
     const row = values[r] || [];
@@ -332,6 +340,16 @@ async function debugInspectSheet({ targetYM = '2026-04' } = {}) {
       const ym = offer.slice(0, 7);
       rawCountsOffer[ym] = (rawCountsOffer[ym] || 0) + 1;
     }
+
+    // 一時診断: G(登録番号) があり 金額っぽい値が BI/BJ/BK/CC のどこかにある行を最大15件ダンプ
+    if (colRawSamples.length < 15) {
+      const g = clean(row[COL.G]);
+      if (g) {
+        const dump = { row: r + 1, G_regno: g };
+        for (const c of dumpCols) dump[c] = row[idxOf(c)];
+        colRawSamples.push(dump);
+      }
+    }
   }
 
   const sortedDesc = (obj) => Object.entries(obj).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 30);
@@ -344,6 +362,7 @@ async function debugInspectSheet({ targetYM = '2026-04' } = {}) {
     byBeColumn: Object.entries(byBeColumn).sort((a, b) => b[1] - a[1]).slice(0, 10),
     targetYM,
     sampleRowsForTargetYM: sampleAprilRows,
+    colRawSamples,
   };
 }
 
