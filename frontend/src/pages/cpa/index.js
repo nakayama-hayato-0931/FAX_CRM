@@ -8,6 +8,7 @@ import SalesProjectsDetailModal from '@/components/SalesProjectsDetailModal';
 import InterviewsDetailModal from '@/components/InterviewsDetailModal';
 import JobPostingsDetailModal from '@/components/JobPostingsDetailModal';
 import CpaCostInputModal from '@/components/CpaCostInputModal';
+import CpaIncomingInputModal from '@/components/CpaIncomingInputModal';
 
 // ROAS = first_payment / cost * 100
 const DEMO_ROWS = [
@@ -51,11 +52,11 @@ const COLUMNS_BASE = [
 function buildColumns(incomingExpanded) {
   const incomingCols = incomingExpanded
     ? [
-        { key: 'incoming_picked', label: '受電',  kind: 'raw', format: num, align: 'right', headerToggle: 'incoming' },
-        { key: 'incoming_missed', label: '不在',  kind: 'raw', format: num, align: 'right', headerToggle: 'incoming' },
+        { key: 'incoming_picked', label: '受電',  kind: 'raw', format: num, align: 'right', headerToggle: 'incoming', clickable: 'incoming' },
+        { key: 'incoming_missed', label: '不在',  kind: 'raw', format: num, align: 'right', headerToggle: 'incoming', clickable: 'incoming' },
       ]
     : [
-        { key: 'incoming_calls',  label: '受電数', kind: 'raw', format: num, align: 'right', headerToggle: 'incoming' },
+        { key: 'incoming_calls',  label: '受電数', kind: 'raw', format: num, align: 'right', headerToggle: 'incoming', clickable: 'incoming' },
       ];
   const out = [...COLUMNS_BASE];
   // 「送信数」 の直後 (index 3) に受電系を挿入
@@ -89,6 +90,8 @@ export default function CpaPage() {
   const [rejectsDetailMonth, setRejectsDetailMonth] = useState(null);
   // コスト手動入力モーダル: { month, monthLabel, row }
   const [costInputMonth, setCostInputMonth] = useState(null);
+  // 受電数 手動入力モーダル: { month, monthLabel, row }
+  const [incomingInputMonth, setIncomingInputMonth] = useState(null);
   // 概算単価
   const [costPerFax, setCostPerFax] = useState(9.385423213);
   // 受電数 を 受電/不在 の 2列に展開するかどうか
@@ -312,8 +315,8 @@ export default function CpaPage() {
                 <tr key={row.month} className="border-t border-zinc-100 hover:bg-zinc-50/60">
                   {COLUMNS.map((c) => {
                     const value = row[c.key];
-                    // cost は 0 でも編集できるよう常にクリック可
-                    const isClickable = c.clickable && (c.clickable === 'cost' || Number(value) > 0);
+                    // cost / incoming は 0 でも編集できるよう常にクリック可
+                    const isClickable = c.clickable && (c.clickable === 'cost' || c.clickable === 'incoming' || Number(value) > 0);
                     const cellClass = [
                       'px-3 py-2.5 whitespace-nowrap tabular-nums',
                       c.align === 'right' ? 'text-right' : 'text-left',
@@ -359,6 +362,13 @@ export default function CpaPage() {
                           monthLabel: formatMonth(row.month),
                           row,
                         });
+                      } else if (c.clickable === 'incoming') {
+                        if (isDemo) { toast('デモ表示中は受電数編集できません'); return; }
+                        setIncomingInputMonth({
+                          month: row.month,
+                          monthLabel: formatMonth(row.month),
+                          row,
+                        });
                       }
                     };
                     const titleText = c.clickable === 'offers' ? '内定社の内訳を表示'
@@ -366,7 +376,8 @@ export default function CpaPage() {
                                     : c.clickable === 'projects' ? '案件の内訳を表示'
                                     : c.clickable === 'cancels' ? 'バラシの内訳を表示'
                                     : c.clickable === 'rejects' ? '不合格の内訳を表示'
-                                    : c.clickable === 'cost' ? 'クリックで確定値を入力 / 概算に戻す' : '';
+                                    : c.clickable === 'cost' ? 'クリックで確定値を入力 / 概算に戻す'
+                                    : c.clickable === 'incoming' ? 'クリックで受電数を手動入力 / 自動集計に戻す' : '';
                     const costBadge = c.key === 'cost'
                       ? (row.in_house_cost_is_manual
                           ? <span className="ml-1 px-1 py-0.5 text-[9px] rounded bg-emerald-100 text-emerald-700 align-middle">確定</span>
@@ -478,6 +489,16 @@ export default function CpaPage() {
           row={costInputMonth.row}
           costPerFax={costPerFax}
           onClose={() => setCostInputMonth(null)}
+          onSaved={() => reload()}
+        />
+      )}
+
+      {incomingInputMonth && (
+        <CpaIncomingInputModal
+          month={incomingInputMonth.month}
+          monthLabel={incomingInputMonth.monthLabel}
+          row={incomingInputMonth.row}
+          onClose={() => setIncomingInputMonth(null)}
           onSaved={() => reload()}
         />
       )}
