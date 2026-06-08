@@ -308,7 +308,11 @@ async function debugInspectSheet({ targetYM = '2026-04' } = {}) {
     let n = 0; for (const ch of letter.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
     return n - 1;
   };
-  const dumpCols = ['BD','BH','BI','BJ','BK','CB','CC','CD'];
+  const dumpCols = ['BD','BH','BI','BJ','BK','CA','CB','CC','CD','CE'];
+  // ヘッダ行 (values[0]) の該当列ラベルも一緒に返す
+  const headerRow = values[0] || [];
+  const headerLabels = {};
+  for (const c of dumpCols) headerLabels[c] = headerRow[idxOf(c)];
 
   for (let r = 1; r < values.length; r++) {
     const row = values[r] || [];
@@ -362,6 +366,7 @@ async function debugInspectSheet({ targetYM = '2026-04' } = {}) {
     byBeColumn: Object.entries(byBeColumn).sort((a, b) => b[1] - a[1]).slice(0, 10),
     targetYM,
     sampleRowsForTargetYM: sampleAprilRows,
+    headerLabels,
     colRawSamples,
   };
 }
