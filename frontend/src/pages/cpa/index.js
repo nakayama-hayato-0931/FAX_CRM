@@ -46,6 +46,8 @@ const COLUMNS_BASE = [
   { key: 'first_payment',   label: '初回入金',            kind: 'raw',     format: yen, align: 'right' },
   { key: 'expected_revenue',label: '見込売上',            kind: 'raw',     format: yen, align: 'right' },
   { key: 'roas',            label: 'ROAS',              kind: 'derived', format: pct, align: 'right' },
+  { key: 'payment_actual',      label: '入金実績',           kind: 'raw',     format: yen, align: 'right' },
+  { key: 'payment_actual_roas', label: '入金実績ROAS',       kind: 'derived', format: pct, align: 'right' },
 ];
 
 // incomingExpanded で 受電数 を 受電/不在 の 2列に展開した COLUMNS を返す

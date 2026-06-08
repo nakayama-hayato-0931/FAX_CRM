@@ -287,7 +287,12 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       COALESCE(sp.expected_revenue, 0)                                AS expected_revenue,
       ROUND(COALESCE(sp.first_payment, 0)
             / NULLIF(${inHouseCostExpr} + COALESCE(out_.outsourced_cost, 0), 0) * 100, 2)
-                                                                      AS roas
+                                                                      AS roas,
+      -- 入金実績 (sales_projects.payment_actual = CC列) と そこから出す ROAS
+      COALESCE(sp.payment_actual, 0)                                  AS payment_actual,
+      ROUND(COALESCE(sp.payment_actual, 0)
+            / NULLIF(${inHouseCostExpr} + COALESCE(out_.outsourced_cost, 0), 0) * 100, 2)
+                                                                      AS payment_actual_roas
     FROM (
       SELECT DISTINCT month FROM (
         SELECT DATE_FORMAT(period_date, '%Y-%m-01')          AS month FROM performance_records
@@ -376,7 +381,8 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       SELECT DATE_FORMAT(${col}, '%Y-%m-01') AS month,
         COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS offers,
         SUM(first_payment) AS first_payment,
-        SUM(expected_revenue) AS expected_revenue
+        SUM(expected_revenue) AS expected_revenue,
+        SUM(payment_actual) AS payment_actual
       FROM sales_projects WHERE ${col} IS NOT NULL
       GROUP BY 1
     ) sp ON sp.month = m.month
