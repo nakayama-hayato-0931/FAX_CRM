@@ -44,7 +44,7 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
       fd.append('mode', mode);
       const { data } = await api.post('/api/customers/import', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 600000,
+        timeout: 60 * 60 * 1000,  // 60分 (60万行クラスでも完走できるよう余裕)
       });
       setResult(data.data);
       const r = data.data;
@@ -101,16 +101,17 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
             <div className="text-xs text-zinc-500 leading-relaxed mb-3 bg-zinc-50 border border-zinc-200 rounded p-2.5">
               <div className="font-semibold text-zinc-700 mb-1">対応形式</div>
               <div className="text-[11px] mb-1.5">
-                CSV (.csv) / Excel (.xls / .xlsx) — 1行目をヘッダとして自動マッピング。
-                Urizo (売り蔵) データリスト形式もそのまま取り込めます。
+                CSV (.csv) / Excel (.xls / .xlsx / .xlsm) — 1行目をヘッダとして自動マッピング。
+                Urizo (売り蔵) / 法人名称形式 (全業界まとめ等) もそのまま取り込めます。
+                .xlsx はストリーミング読み込みのため 60万行クラスの大規模ファイルにも対応 (最大 500MB)。
               </div>
               <div className="font-semibold text-zinc-700 mb-1 mt-2">対応列 (自動マッピング)</div>
               <code className="text-[11px] block">
-                会社名 / FAX / 電話番号 / 業種 / 業種詳細 / 都道府県 / 市区町村 / 住所 / 郵便番号 / URL / 従業員数 / 代表者(名) / 備考 / メモ / コメント
+                会社名 / 法人名称 / FAX / 電話番号 / 業種 / 業種(中分類1) / 都道府県 / 市区町村 / 住所 / 郵便番号 / URL / サイトURL / 従業員数 / 代表者(名) / 備考 / メモ / コメント / 法人サマリー
                 {(mode === 'ng' || mode === 'existing') && ' / NG理由'}
               </code>
               <div className="text-[11px] mt-1 text-zinc-500">
-                Urizo 補助列 (メール / データ元 / 設立日 / 売上高 / 資本金 / 担当者名 / 法人番号 / 職種 等) は備考欄に集約保存。
+                補助列 (メールアドレス / データ元 / 設立年月日 / 売上高 / 資本金 / 法人番号 / 法人種別 / 担当者名 / 職種 等) は備考欄に集約保存。
                 〒付き郵便番号 / 「企業全体...68人」形式の従業員数 / 都道府県無し住所 も自動正規化。
               </div>
               <div className="mt-2 text-[11px]">

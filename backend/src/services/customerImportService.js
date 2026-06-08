@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const csv = require('csv-parser');
 const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 const { getPool, isConfigured } = require('../../config/db');
 const { normalizeIndustry } = require('../utils/industryCategory');
 
@@ -62,34 +63,49 @@ function extractPrefecture(address) {
  *   '_meta_xxx' プレフィックス付きの内部キーは「DB列にはマップせず note に集約」 する印。
  */
 const HEADER_ALIASES = {
-  // 基本列
-  '会社名': 'company_name', '企業名': 'company_name', 'company_name': 'company_name',
+  // 基本列 (社名)
+  '会社名': 'company_name', '企業名': 'company_name', '法人名称': 'company_name',
+  'company_name': 'company_name',
+  // FAX
   'FAX': 'fax_number', 'FAX番号': 'fax_number', 'fax': 'fax_number', 'fax_number': 'fax_number',
+  // 電話
   '電話番号': 'phone_number', 'TEL': 'phone_number', 'phone': 'phone_number', 'phone_number': 'phone_number',
+  // 業種
   '業種': 'industry', 'industry': 'industry',
+  '業種(中分類1)': 'industry', '業種(大分類)': 'industry', '業種(小分類)': 'industry',
   '業種詳細': 'industry_detail',
+  // 地域
   '都道府県': 'prefecture', 'prefecture': 'prefecture',
   '市区町村': 'city', 'city': 'city',
   '住所': 'address', 'address': 'address',
   '郵便番号': 'postal_code', 'postal_code': 'postal_code',
-  'URL': 'url', 'HP': 'url', 'url': 'url',
+  // URL
+  'URL': 'url', 'HP': 'url', 'url': 'url', 'サイトURL': 'url', 'ホームページ': 'url',
+  // 従業員 / 代表者
   '従業員数': 'employee_count', 'employee_count': 'employee_count',
   '代表者': 'representative', '代表者名': 'representative', 'representative': 'representative',
+  // 備考 (本文) — 法人サマリーは長文なので備考扱い
   '備考': 'note', 'メモ': 'note', 'コメント': 'note', 'note': 'note',
+  '法人サマリー': 'note', '会社概要': 'note', '概要': 'note',
+  // NG 理由
   'NG理由': 'blacklisted_reason', 'ブラック理由': 'blacklisted_reason',
   'blacklisted_reason': 'blacklisted_reason',
-  // Urizo 形式の追加列 (note に集約)
+  // 補助列 (note に集約)
   'メール':                 '_meta_email',
   'email':                  '_meta_email',
   'E-mail':                 '_meta_email',
+  'メールアドレス':         '_meta_email',
   'データ元':               '_meta_source',
   '設立日':                 '_meta_founded',
+  '設立年月日':             '_meta_founded',
   '売上高':                 '_meta_revenue',
   '資本金':                 '_meta_capital',
+  '資本金(円)':             '_meta_capital',
   '担当者名':               '_meta_contact',
   'お問い合わせフォーム':   '_meta_inquiry_url',
   '職種':                   '_meta_jobtype',
   '法人番号':               '_meta_corporate_no',
+  '法人種別':               '_meta_legal_form',
   '日付':                   '_meta_date',
   '最終更新日':             '_meta_updated',
 };
@@ -211,58 +227,102 @@ function rowToCustomer(rawRow) {
 }
 
 /**
- * ファイルパスから rows[] を取得 (CSV / XLS / XLSX 自動判別)
- *   元ファイル名から拡張子を推定 (multer の tmp 名には拡張子が無いため)
+ * ファイルパスから rows[] を取得 (旧 API、 小〜中規模用、 全件メモリ展開)
+ *   後方互換のため残す。 大規模なら parseFileStream を使う
  */
 async function parseFile(filePath, originalName) {
-  const ext = path.extname(originalName || filePath).toLowerCase();
-  if (ext === '.xls' || ext === '.xlsx' || ext === '.xlsm' || ext === '.xlsb') {
-    return parseExcel(filePath);
-  }
-  // それ以外 (.csv / .txt / 拡張子無し) は CSV として試行
-  return parseCsv(filePath);
-}
-
-function parseCsv(filePath) {
-  return new Promise((resolve, reject) => {
-    const rows = [];
-    fs.createReadStream(filePath)
-      .pipe(csv())
-      .on('data', (row) => rows.push(row))
-      .on('end', () => resolve(rows))
-      .on('error', reject);
-  });
-}
-
-function parseExcel(filePath) {
-  // BIFF8 .xls / OOXML .xlsx 両対応。 codepage=932 は Shift-JIS の保険
-  const wb = XLSX.readFile(filePath, { cellDates: true, codepage: 932 });
-  if (!wb.SheetNames.length) return [];
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  // raw:false → 数値/日付 もフォーマット済み文字列で取得 (列ごとに型がバラつく対策)
-  // defval:'' → 空セルも '' で揃えてキー集合を一定にする
-  return XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+  const rows = [];
+  for await (const row of parseFileStream(filePath, originalName)) rows.push(row);
+  return rows;
 }
 
 /**
- * mode 別の取込処理
- *   1チャンク = 500件 で:
- *     - 入力値から company_name / digits(phone) / digits(fax) を集める
- *     - 既存顧客を 3 軸 OR で bulk SELECT
- *     - 各行を分類 (insert / update / skip / blacklist)
- *   ハイフン無視マッチに REGEXP_REPLACE を使用
+ * ファイルから 1行ずつ async-iterate するストリーミング版 (60万行クラスでも OK)
+ *   - .csv / .txt        → csv-parser stream
+ *   - .xls (BIFF8/古い)  → SheetJS で全件読み (BIFF はストリーム非対応)
+ *   - .xlsx / .xlsm      → ExcelJS WorkbookReader (ストリーミング、 メモリ低い)
  */
-async function processImport(rows, sourceFile, mode) {
-  const stats = { inserted: 0, updated: 0, skipped: 0, blacklisted: 0 };
-  if (!rows.length) return stats;
+async function* parseFileStream(filePath, originalName) {
+  const ext = path.extname(originalName || filePath).toLowerCase();
+  if (ext === '.xlsx' || ext === '.xlsm') {
+    yield* parseXlsxStream(filePath);
+  } else if (ext === '.xls' || ext === '.xlsb') {
+    yield* parseExcelLegacy(filePath);
+  } else {
+    yield* parseCsvStream(filePath);
+  }
+}
 
-  const pool = getPool();
-  const conn = await pool.getConnection();
-  try {
-    const CHUNK = 500;
-    for (let i = 0; i < rows.length; i += CHUNK) {
-      const chunk = rows.slice(i, i + CHUNK);
+async function* parseCsvStream(filePath) {
+  const stream = fs.createReadStream(filePath).pipe(csv());
+  for await (const row of stream) yield row;
+}
 
+/**
+ * .xls (BIFF8) / .xlsb は ExcelJS が読めないので SheetJS で全件読み込み。
+ *   Urizo 等 数千行のケースが主なので全件展開で OK。
+ */
+function* parseExcelLegacy(filePath) {
+  const wb = XLSX.readFile(filePath, { cellDates: true, codepage: 932 });
+  if (!wb.SheetNames.length) return;
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+  for (const r of rows) yield r;
+}
+
+/**
+ * .xlsx を ExcelJS の Stream API で 1行ずつ読み出す。
+ *   60万行 / 100MB クラスでも メモリ数百MB に収まる。
+ */
+async function* parseXlsxStream(filePath) {
+  // entries: emit → worksheet を 1つずつ取得
+  // sharedStrings: cache → 文字列重複は cache (デフォルト)
+  // styles: ignore → スタイル無視で軽量化
+  const options = { entries: 'emit', sharedStrings: 'cache', styles: 'ignore' };
+  const reader = new ExcelJS.stream.xlsx.WorkbookReader(filePath, options);
+  let firstSheetDone = false;
+  for await (const worksheetReader of reader) {
+    if (firstSheetDone) break;
+    let headers = null;
+    for await (const row of worksheetReader) {
+      // row.values は 1-indexed: [empty, A, B, C, ...]
+      const values = row.values || [];
+      if (!headers) {
+        headers = [];
+        for (let i = 1; i < values.length; i++) {
+          headers.push(values[i] == null ? '' : String(values[i]).trim());
+        }
+        continue;
+      }
+      const obj = {};
+      for (let i = 0; i < headers.length; i++) {
+        const k = headers[i];
+        if (!k) continue;
+        const v = values[i + 1];
+        if (v === undefined || v === null || v === '') continue;
+        // ExcelJS は ハイパーリンク等を {text, hyperlink} で返すことがある
+        let s;
+        if (typeof v === 'object') {
+          if (v instanceof Date) s = v.toISOString().slice(0, 10);
+          else if ('text' in v) s = String(v.text);
+          else if ('result' in v) s = String(v.result);
+          else s = JSON.stringify(v);
+        } else {
+          s = String(v);
+        }
+        obj[k] = s;
+      }
+      yield obj;
+    }
+    firstSheetDone = true;
+  }
+}
+
+/**
+ * 1 chunk 分の rows を処理して stats を進める内部関数。
+ *   processImport / processImportStream の共通処理。
+ */
+async function processChunk(conn, chunk, sourceFile, mode, stats) {
       // 1. lookup 値を集約
       const names = new Set(), phones = new Set(), faxes = new Set();
       for (const r of chunk) {
@@ -382,11 +442,68 @@ async function processImport(rows, sourceFile, mode) {
           }
         }
       }
+}
+
+/**
+ * mode 別の取込処理 (配列版、 後方互換)
+ *   1チャンク = 500件 で processChunk を回す
+ */
+async function processImport(rows, sourceFile, mode) {
+  const stats = { inserted: 0, updated: 0, skipped: 0, blacklisted: 0 };
+  if (!rows.length) return stats;
+  const pool = getPool();
+  const conn = await pool.getConnection();
+  try {
+    const CHUNK = 500;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      await processChunk(conn, rows.slice(i, i + CHUNK), sourceFile, mode, stats);
     }
   } finally {
     conn.release();
   }
   return stats;
+}
+
+/**
+ * ストリーミング版: 行 iterator (rawRow) を受け取り、 rowToCustomer 変換 +
+ *   500件ごとに processChunk で DB write。
+ *   メモリ使用量は CHUNK 分だけ (60万行でも数MB程度)。
+ *
+ * onProgress(state): 5,000 行ごとに呼ばれる (任意)
+ */
+async function processImportStream(iterator, sourceFile, mode, { onProgress } = {}) {
+  const stats = { inserted: 0, updated: 0, skipped: 0, blacklisted: 0 };
+  let totalRows = 0;
+  let validRows = 0;
+  const CHUNK = 500;
+  let buffer = [];
+
+  const pool = getPool();
+  const conn = await pool.getConnection();
+  const flush = async () => {
+    if (!buffer.length) return;
+    await processChunk(conn, buffer, sourceFile, mode, stats);
+    buffer = [];
+  };
+  try {
+    for await (const rawRow of iterator) {
+      totalRows++;
+      const c = rowToCustomer(rawRow);
+      if (!c.company_name) continue;
+      validRows++;
+      buffer.push(c);
+      if (buffer.length >= CHUNK) {
+        await flush();
+        if (onProgress && validRows % 5000 === 0) {
+          try { onProgress({ totalRows, validRows, ...stats }); } catch (_e) {}
+        }
+      }
+    }
+    await flush();
+  } finally {
+    conn.release();
+  }
+  return { totalRows, validRows, ...stats };
 }
 
 /**
@@ -471,15 +588,12 @@ async function importCsv(filePath, originalName, options = {}) {
     throw err;
   }
 
-  const rawRows = await parseFile(filePath, originalName);
-  const totalRows = rawRows.length;
-  const customers = rawRows
-    .map(rowToCustomer)
-    // 全モード共通: 会社名 必須 (未マッチ時の 新規 insert で company_name が必須カラムのため)
-    .filter((c) => c.company_name);
-
-  const stats = await processImport(customers, originalName, mode);
-  return { totalRows, validRows: customers.length, mode, ...stats };
+  // ストリーミング版を使用 (大規模 60万行+ でも メモリ低い)
+  const iterator = parseFileStream(filePath, originalName);
+  const result = await processImportStream(iterator, originalName, mode, {
+    onProgress: (s) => console.log(`[customerImport] progress: 走査${s.totalRows} 有効${s.validRows} (insert=${s.inserted}/update=${s.updated}/skip=${s.skipped}/black=${s.blacklisted})`),
+  });
+  return { mode, ...result };
 }
 
-module.exports = { importCsv, rowToCustomer, parseFile, HEADER_ALIASES, MODES };
+module.exports = { importCsv, rowToCustomer, parseFile, parseFileStream, HEADER_ALIASES, MODES };

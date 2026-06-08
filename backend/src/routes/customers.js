@@ -16,7 +16,7 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const upload = multer({
   dest: UPLOAD_DIR,
-  limits: { fileSize: (Number(process.env.MAX_UPLOAD_SIZE_MB) || 20) * 1024 * 1024 },
+  limits: { fileSize: (Number(process.env.MAX_UPLOAD_SIZE_MB) || 500) * 1024 * 1024 },
 });
 
 router.get('/', async (req, res, next) => {
