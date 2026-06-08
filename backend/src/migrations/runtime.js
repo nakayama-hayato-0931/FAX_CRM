@@ -155,6 +155,39 @@ async function runStartupMigrations() {
     failed.push({ name: 'incoming_call_reports.sales_owner', error: e.message });
   }
 
+  // ⑤d sales_owners テーブル (担当営業 マスタ)
+  try {
+    const [tbls] = await pool.query(
+      `SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sales_owners' LIMIT 1`
+    );
+    if (tbls.length === 0) {
+      await pool.query(
+        `CREATE TABLE sales_owners (
+           id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+           name VARCHAR(100) NOT NULL,
+           is_active TINYINT(1) NOT NULL DEFAULT 1,
+           sort_order INT NOT NULL DEFAULT 0,
+           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+           UNIQUE KEY uk_sales_owners_name (name),
+           INDEX idx_sales_owners_active (is_active, sort_order)
+         ) ENGINE=InnoDB COMMENT='担当営業 マスタ (受電報告 トグル選択)'`
+      );
+      // 既存 incoming_call_reports.sales_owner からマスタを初期投入 (重複は IGNORE)
+      try {
+        await pool.query(
+          `INSERT IGNORE INTO sales_owners (name)
+           SELECT DISTINCT sales_owner FROM incoming_call_reports
+            WHERE sales_owner IS NOT NULL AND sales_owner <> ''`
+        );
+      } catch (_e) { /* incoming_call_reports に sales_owner 列が無い等 → skip */ }
+      applied.push('sales_owners テーブル作成 + 既存値 初期投入');
+    }
+  } catch (e) {
+    failed.push({ name: 'sales_owners CREATE', error: e.message });
+  }
+
   // ⑤c ng_words テーブル (リスト抽出 NGワード)
   try {
     const [tbls] = await pool.query(

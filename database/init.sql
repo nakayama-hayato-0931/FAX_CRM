@@ -165,6 +165,20 @@ INSERT IGNORE INTO system_settings (setting_key, setting_value, description) VAL
   ('cpa_cost_per_fax', '9.385423213', 'CPA コスト概算: 送信数1通あたりのコスト (円)');
 
 -- --------------------------------------------
+-- 担当営業 マスタ (受電報告の担当営業 トグル選択用)
+-- --------------------------------------------
+CREATE TABLE IF NOT EXISTS sales_owners (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0 COMMENT '表示順 (小さいほど先)',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_sales_owners_name (name),
+  INDEX idx_sales_owners_active (is_active, sort_order)
+) ENGINE=InnoDB COMMENT='担当営業 マスタ (受電報告 トグル選択)';
+
+-- --------------------------------------------
 -- 原稿管理 (PDFファイル + メタデータ) ※旧「原稿管理」(Drive スロット) は ドライブ格納 に改名
 -- --------------------------------------------
 CREATE TABLE IF NOT EXISTS manuscript_contents (

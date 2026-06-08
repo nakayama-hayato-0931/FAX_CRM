@@ -75,6 +75,38 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
   });
   const [busy, setBusy] = useState(false);
 
+  // 担当営業 マスタ (トグル選択肢)
+  const [salesOwners, setSalesOwners] = useState([]);
+  const [showNewOwner, setShowNewOwner] = useState(false);
+  const [newOwnerName, setNewOwnerName] = useState('');
+  const [addingOwner, setAddingOwner] = useState(false);
+
+  const loadSalesOwners = async () => {
+    try {
+      const { data } = await api.get('/api/sales-owners');
+      setSalesOwners(data.data || []);
+    } catch (_e) { /* ignore */ }
+  };
+  useEffect(() => { loadSalesOwners(); }, []);
+
+  const addSalesOwner = async () => {
+    const n = newOwnerName.trim();
+    if (!n) { toast.error('担当営業名を入力してください'); return; }
+    setAddingOwner(true);
+    try {
+      const { data } = await api.post('/api/sales-owners', { name: n });
+      await loadSalesOwners();
+      setForm((f) => ({ ...f, salesOwner: data.data?.name || n }));
+      setNewOwnerName('');
+      setShowNewOwner(false);
+      toast.success(`担当営業 「${n}」 を追加しました`);
+    } catch (e) {
+      toast.error(e.userMessage || '追加失敗');
+    } finally {
+      setAddingOwner(false);
+    }
+  };
+
   // 顧客選択時:
   //   1) customers の last_sent_at / last_pc_number から 送信日 / 使用PC を補完
   //   2) その顧客の最新 incoming_call_report から 原稿(登録番号) を補完
@@ -330,11 +362,59 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
             <Field label="担当営業 *"
                    hint={mode === 'search' && customer
                      ? '同顧客の前回報告から自動補完 (変更可)'
-                     : '応対した営業担当者の名前'}>
-              <input type="text" required value={form.salesOwner}
-                     onChange={(e) => setForm({ ...form, salesOwner: e.target.value })}
-                     placeholder="例: 山田 / 佐藤 等"
-                     className="rep-input" />
+                     : '応対した営業担当者を選択。 無ければ + 新規追加'}>
+              <div className="flex gap-1.5 flex-wrap items-center">
+                {salesOwners.map((o) => {
+                  const selected = form.salesOwner === o.name;
+                  return (
+                    <button key={o.id} type="button"
+                            onClick={() => setForm({ ...form, salesOwner: o.name })}
+                            className={[
+                              'px-3 py-1.5 text-sm rounded border transition',
+                              selected
+                                ? 'bg-indigo-600 text-white border-indigo-600 font-medium'
+                                : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
+                            ].join(' ')}>
+                      {o.name}
+                    </button>
+                  );
+                })}
+                {/* 自動補完された値が マスタに無い場合も 選択中として表示 */}
+                {form.salesOwner && !salesOwners.some((o) => o.name === form.salesOwner) && (
+                  <button type="button"
+                          className="px-3 py-1.5 text-sm rounded border bg-indigo-600 text-white border-indigo-600 font-medium">
+                    {form.salesOwner}
+                  </button>
+                )}
+                {!showNewOwner ? (
+                  <button type="button"
+                          onClick={() => setShowNewOwner(true)}
+                          className="px-3 py-1.5 text-sm rounded border border-dashed border-zinc-400 text-zinc-600 hover:bg-zinc-50">
+                    + 新規追加
+                  </button>
+                ) : (
+                  <span className="inline-flex items-center gap-1">
+                    <input type="text" value={newOwnerName}
+                           onChange={(e) => setNewOwnerName(e.target.value)}
+                           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSalesOwner(); } }}
+                           placeholder="名前を入力"
+                           autoFocus disabled={addingOwner}
+                           className="border border-zinc-300 rounded px-2 py-1.5 text-sm w-32" />
+                    <button type="button" onClick={addSalesOwner} disabled={addingOwner}
+                            className="px-2 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                      追加
+                    </button>
+                    <button type="button" onClick={() => { setShowNewOwner(false); setNewOwnerName(''); }}
+                            disabled={addingOwner}
+                            className="px-2 py-1.5 text-sm bg-white border border-zinc-300 rounded text-zinc-500">
+                      取消
+                    </button>
+                  </span>
+                )}
+              </div>
+              {form.salesOwner && (
+                <div className="text-[11px] text-zinc-500 mt-1">選択中: <span className="font-medium text-zinc-700">{form.salesOwner}</span></div>
+              )}
             </Field>
 
             <Field label="結果 *">

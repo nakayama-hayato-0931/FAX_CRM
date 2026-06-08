@@ -294,6 +294,14 @@ async function createSingle({ customerId, sendDate, pcNumber, result, resultDeta
     err.status = 400; err.code = 'INVALID_INPUT';
     throw err;
   }
+  // 担当営業 を マスタ (sales_owners) にも 自動登録 (トグル選択肢に反映)
+  if (salesOwner && String(salesOwner).trim()) {
+    try {
+      await require('./salesOwnerService').findOrCreate(salesOwner);
+    } catch (e) {
+      console.warn('[createSingle] sales_owner マスタ登録 skip:', e.message);
+    }
+  }
   // sendDate / pcNumber は任意化 (顧客の最終送信が不明な場合 NULL を許容)
   return bulkSave({
     batchId: batchId || null,

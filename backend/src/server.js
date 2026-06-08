@@ -54,6 +54,7 @@ const interviewsRouter = require('./routes/interviews');
 const jobPostingsRouter = require('./routes/jobPostings');
 const manuscriptContentsRouter = require('./routes/manuscriptContents');
 const ngWordsRouter = require('./routes/ngWords');
+const salesOwnersRouter = require('./routes/salesOwners');
 
 const app = express();
 
@@ -91,6 +92,7 @@ app.use('/api/interviews', requireAuth, interviewsRouter);
 app.use('/api/job-postings', requireAuth, jobPostingsRouter);
 app.use('/api/manuscript-contents', requireAuth, manuscriptContentsRouter);
 app.use('/api/ng-words', requireAuth, ngWordsRouter);
+app.use('/api/sales-owners', requireAuth, salesOwnersRouter);
 
 app.use(notFound);
 app.use(errorHandler);
