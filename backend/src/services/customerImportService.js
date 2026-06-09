@@ -531,7 +531,7 @@ async function processImportStream(iterator, sourceFile, mode, { onProgress } = 
   } finally {
     conn.release();
   }
-  return { totalRows, validRows, dupInFile, ...stats };
+  return { totalRows, validRows, dupInFile, version: 'import-v2', ...stats };
 }
 
 /**
@@ -579,6 +579,7 @@ async function updateExisting(conn, id, r) {
 }
 
 async function insertSingle(conn, r, { sourceFile, blacklist, reason }) {
+  // [import-v2] バージョン印 — Railway logs に出して デプロイ反映を即座に確認可能に
   const blacklistReason = blacklist
     ? (reason || r.blacklisted_reason || r.note || null)
     : (r.blacklisted_reason || null);
@@ -603,12 +604,13 @@ async function insertSingle(conn, r, { sourceFile, blacklist, reason }) {
     );
     return result.insertId;
   } catch (e) {
-    // UNIQUE 衝突 (uk_customers_fax / uk_customers_phone 等) は chunk 跨ぎ重複や
-    // 直前の lookup タイミング race で発生し得る。 既存 ID を取得して 肉付け
-    // フォールバック、 ダメなら skip 扱い (例外を握り潰して null を返す)
+    // [import-v2] どんな例外でも 上位に伝播させない (fail-soft)。
+    //   - UNIQUE 衝突 (ER_DUP_ENTRY) → 既存 ID で 肉付け復旧
+    //   - データ長エラー (ER_DATA_TOO_LONG) や その他 → 当該行 skip
+    //   60万行を 1 リクエストで処理するので 1 行のために全体を倒さない方針
+    console.warn(`[customerImport][import-v2] insertSingle exception code=${e.code} msg=${e.message} company=${r.company_name?.slice(0, 50)}`);
     if (e.code === 'ER_DUP_ENTRY') {
       try {
-        // どの列が衝突したか判別して既存 ID を取得
         const conds = [];
         const params = [];
         if (r.fax_number)   { conds.push(`fax_number = ?`);   params.push(r.fax_number); }
@@ -619,16 +621,19 @@ async function insertSingle(conn, r, { sourceFile, blacklist, reason }) {
             params
           );
           if (rows[0]) {
-            await updateExisting(conn, rows[0].id, r);
-            return rows[0].id;
+            try {
+              await updateExisting(conn, rows[0].id, r);
+              return rows[0].id;
+            } catch (e3) {
+              console.warn(`[customerImport][import-v2] updateExisting fail id=${rows[0].id} err=${e3.message}`);
+            }
           }
         }
       } catch (e2) {
-        console.warn('[customerImport] dup recovery failed:', e2.message);
+        console.warn(`[customerImport][import-v2] dup recovery select fail err=${e2.message}`);
       }
-      return null;  // skip
     }
-    throw e;
+    return null;  // skip (例外は上に伝播させない)
   }
 }
 
