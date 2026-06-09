@@ -384,7 +384,7 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
     ) out_ ON out_.month = m.month
     LEFT JOIN (
       -- 内定社数 / 初回入金 / 見込売上 / 入金実績
-      --   status_label に 「ビザ」 を含む行 (ビザ / ビザサポ / 海外\nビザ 等) は集計から除外
+      --   status_label に ビザ を含む行 (ビザ単体 / ビザサポ / 海外ビザ 等) は集計から除外
       SELECT DATE_FORMAT(${col}, '%Y-%m-01') AS month,
         COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS offers,
         SUM(first_payment) AS first_payment,
