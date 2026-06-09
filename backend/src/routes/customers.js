@@ -120,7 +120,11 @@ router.post('/normalize-prefecture', async (req, res, next) => {
 });
 
 router.post('/import', upload.single('file'), async (req, res, next) => {
+  // 60万行クラスの大規模ファイル対応: HTTP request/response の timeout を 2 時間に
+  if (req.setTimeout) req.setTimeout(2 * 60 * 60 * 1000);
+  if (res.setTimeout) res.setTimeout(2 * 60 * 60 * 1000);
   let p;
+  const startedAt = Date.now();
   try {
     if (!req.file) return fail(res, 400, 'NO_FILE', 'ファイル (CSV / Excel) が必要です');
     const mode = (req.body?.mode || req.query?.mode || 'new').toString();
@@ -128,10 +132,16 @@ router.post('/import', upload.single('file'), async (req, res, next) => {
       return fail(res, 400, 'INVALID_INPUT', `不正な mode: ${mode} (許容: new / existing / ng)`);
     }
     p = req.file.path;
+    console.log(`[customers/import] START name=${req.file.originalname} size=${req.file.size} mode=${mode}`);
     const result = await customerImport.importCsv(p, req.file.originalname, { mode });
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
+    console.log(`[customers/import] DONE elapsed=${elapsed}s result=${JSON.stringify(result)}`);
     return created(res, result);
-  } catch (e) { next(e); }
-  finally { if (p && fs.existsSync(p)) fs.unlink(p, () => {}); }
+  } catch (e) {
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
+    console.error(`[customers/import] FAILED elapsed=${elapsed}s err=${e.message}\n${e.stack}`);
+    next(e);
+  } finally { if (p && fs.existsSync(p)) fs.unlink(p, () => {}); }
 });
 
 // ============================================================

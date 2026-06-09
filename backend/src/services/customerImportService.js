@@ -475,8 +475,10 @@ async function processImportStream(iterator, sourceFile, mode, { onProgress } = 
   const stats = { inserted: 0, updated: 0, skipped: 0, blacklisted: 0 };
   let totalRows = 0;
   let validRows = 0;
-  const CHUNK = 500;
+  const CHUNK = Number(process.env.IMPORT_CHUNK_SIZE) || 2000;
   let buffer = [];
+  const startedAt = Date.now();
+  let lastLogAt = startedAt;
 
   const pool = getPool();
   const conn = await pool.getConnection();
@@ -493,7 +495,15 @@ async function processImportStream(iterator, sourceFile, mode, { onProgress } = 
       validRows++;
       buffer.push(c);
       if (buffer.length >= CHUNK) {
+        const t0 = Date.now();
         await flush();
+        const chunkMs = Date.now() - t0;
+        // 10 秒ごとに console.log で進捗 (Railway logs で確認用)
+        if (Date.now() - lastLogAt >= 10000) {
+          const elapsed = Math.round((Date.now() - startedAt) / 1000);
+          console.log(`[customerImport] ${elapsed}s scanned=${totalRows} valid=${validRows} chunk=${chunkMs}ms insert=${stats.inserted} update=${stats.updated} skip=${stats.skipped} black=${stats.blacklisted}`);
+          lastLogAt = Date.now();
+        }
         if (onProgress && validRows % 5000 === 0) {
           try { onProgress({ totalRows, validRows, ...stats }); } catch (_e) {}
         }

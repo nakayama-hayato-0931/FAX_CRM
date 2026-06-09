@@ -9,6 +9,23 @@
 
 ---
 
+## [2026-06-09] 大規模 Import 失敗 (500) 対策: timeout 緩和 + chunk 2000 化 + 詳細ログ
+
+**問題**: 60万行 xlsx をリストインポートすると 500 エラー。 真因は ログ不足で未確定 (HTTP timeout / DB connection / メモリ / 例外 のいずれか)。
+
+**短期対策**:
+- `routes/customers.js`: POST /api/customers/import の req/res に `setTimeout(2h)` を設定。 START / DONE / FAILED を console.log
+- `server.js`: HTTP server の `requestTimeout=0` / `headersTimeout=2h` / `keepAliveTimeout=2h` / `timeout=2h` を設定。 Node 18 default 65秒 → 2時間に
+- `customerImportService.processImportStream`:
+  - CHUNK 500 → **2000** に増 (DB ラウンドトリップ 1/4)
+  - env `IMPORT_CHUNK_SIZE` で上書き可
+  - 10 秒ごとに console.log で 経過時間/scanned/valid/insert/update/skip/black を出力 (Railway logs で進捗追える)
+
+**次のアクション**: ユーザーに再試行 + Railway logs を確認してもらう。 真因に応じて
+追加対策 (background job 化 / 行制限 / chunked upload 等) を検討。
+
+---
+
 ## [2026-06-09] 都道府県: バグ値クリーンアップ + チェックボックスUI + 県名選択時の地域名 OR
 
 **問題**: 都道府県セレクタに 「岐阜市水海道」 「大阪市都」 「府中市府」 「磐田市国府」 等のバグ値が大量混入。 + 個別県選択しても callcenter.companies の prefecture が 「関東」 等の地域名で保存されているため 0 件になっていた。

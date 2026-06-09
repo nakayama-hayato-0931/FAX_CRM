@@ -98,7 +98,7 @@ app.use(notFound);
 app.use(errorHandler);
 
 const PORT = Number(process.env.PORT || 4001);
-app.listen(PORT, async () => {
+const server = app.listen(PORT, async () => {
   console.log(`[server] FAX CRM Backend listening on :${PORT}`);
   if (!isConfigured()) {
     console.log('[server] ⚠ DB未設定 (DB_HOST が空)。.env を設定するとDB機能が有効になります。');
@@ -126,3 +126,11 @@ app.listen(PORT, async () => {
     console.error('[auth] 初期 admin 作成失敗:', e.message);
   }
 });
+
+// 大規模インポート (60万行クラス) 対応: HTTP server の各種 timeout を緩める
+//   - keepAliveTimeout / headersTimeout の デフォは 65/66 秒 (Node 18)
+//   - 大規模アップロード処理中の long polling 接続 維持のため 2時間に
+server.requestTimeout = 0;            // 0 = リクエスト全体の timeout を無効化 (Node 18.2+)
+server.headersTimeout = 2 * 60 * 60 * 1000;
+server.keepAliveTimeout = 2 * 60 * 60 * 1000;
+server.timeout = 2 * 60 * 60 * 1000;  // socket timeout
