@@ -142,6 +142,25 @@ router.get('/import/status', (_req, res) => {
   return ok(res, importJob);
 });
 
+// DELETE /api/customers/import/status — 完了/失敗したジョブ状態をクリアして
+// 次のインポートを受け付け可能に。 running 中はクリア不可 (409)
+router.delete('/import/status', (_req, res) => {
+  if (importJob.state === 'running') {
+    return fail(res, 409, 'JOB_BUSY', '実行中のジョブはクリアできません');
+  }
+  importJob.id = null;
+  importJob.state = 'idle';
+  importJob.startedAt = null;
+  importJob.finishedAt = null;
+  importJob.name = null;
+  importJob.size = null;
+  importJob.mode = null;
+  importJob.progress = { totalRows: 0, validRows: 0, inserted: 0, updated: 0, skipped: 0, blacklisted: 0, dupInFile: 0 };
+  importJob.result = null;
+  importJob.error = null;
+  return ok(res, { cleared: true });
+});
+
 router.post('/import', upload.single('file'), async (req, res, next) => {
   // 60万行クラスの大規模ファイル対応: HTTP request の receive 中の timeout のみ伸ばす
   if (req.setTimeout) req.setTimeout(2 * 60 * 60 * 1000);

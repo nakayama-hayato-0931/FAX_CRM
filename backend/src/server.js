@@ -125,7 +125,61 @@ const server = app.listen(PORT, async () => {
   } catch (e) {
     console.error('[auth] 初期 admin 作成失敗:', e.message);
   }
+
+  // 定時スケジューラ: 毎朝 7:00 JST に FAX 送信実績の直近1週間同期を実行
+  startFaxStatsDailyScheduler();
 });
+
+// ============================================================
+// 定時スケジューラ (JST 基準)
+// ============================================================
+//   Railway は UTC で動くので TZ 計算を内部で実施。
+//   node-cron を入れず 軽量 setTimeout チェーンで実装 (毎回 次の 7:00 を計算)。
+//   FAX_STATS_DAILY_SYNC_HOUR (default 7) / *_MINUTE (default 0) で env 上書き可。
+//   FAX_STATS_DAILY_SYNC_ENABLED=0 で無効化可。
+function startFaxStatsDailyScheduler() {
+  if (process.env.FAX_STATS_DAILY_SYNC_ENABLED === '0') {
+    console.log('[scheduler] fax-stats daily sync: DISABLED (env)');
+    return;
+  }
+  const hour = Number(process.env.FAX_STATS_DAILY_SYNC_HOUR ?? 7);
+  const minute = Number(process.env.FAX_STATS_DAILY_SYNC_MINUTE ?? 0);
+  const days = Number(process.env.FAX_STATS_DAILY_SYNC_DAYS ?? 7);
+
+  const faxStatsSvc = require('./services/faxStatsService');
+
+  function nextRunMs() {
+    // JST = UTC + 9h。 「JST の今日 hour:minute」 が過ぎていれば翌日に
+    const now = new Date();
+    const jstMs = now.getTime() + 9 * 60 * 60 * 1000;
+    const jst = new Date(jstMs);
+    jst.setUTCHours(hour, minute, 0, 0);
+    let targetUtcMs = jst.getTime() - 9 * 60 * 60 * 1000;
+    if (targetUtcMs <= now.getTime()) targetUtcMs += 24 * 60 * 60 * 1000;
+    return targetUtcMs - now.getTime();
+  }
+
+  async function run() {
+    const startedAt = Date.now();
+    console.log(`[scheduler] fax-stats daily sync: START (recentDays=${days})`);
+    try {
+      const result = await faxStatsSvc.syncFromSheets({ recentOnly: true, recentDays: days });
+      const elapsed = Math.round((Date.now() - startedAt) / 1000);
+      console.log(`[scheduler] fax-stats daily sync: DONE elapsed=${elapsed}s result=${JSON.stringify(result)}`);
+    } catch (e) {
+      console.error(`[scheduler] fax-stats daily sync: FAILED err=${e.message}`);
+    } finally {
+      // 次回 (24h 後) も予約
+      const delay = nextRunMs();
+      console.log(`[scheduler] fax-stats next run in ${Math.round(delay / 1000 / 60)} min`);
+      setTimeout(run, delay);
+    }
+  }
+
+  const initialDelay = nextRunMs();
+  console.log(`[scheduler] fax-stats daily sync: enabled at JST ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (recentDays=${days}). First run in ${Math.round(initialDelay / 1000 / 60)} min`);
+  setTimeout(run, initialDelay);
+}
 
 // 大規模インポート (60万行クラス) 対応: HTTP server の各種 timeout を緩める
 //   - keepAliveTimeout / headersTimeout の デフォは 65/66 秒 (Node 18)

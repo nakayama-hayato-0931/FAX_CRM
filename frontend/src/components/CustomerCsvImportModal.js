@@ -37,21 +37,22 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
   const [result, setResult] = useState(null);
   const pollRef = useRef(null);
 
-  // 既存ジョブの自動レジューム: モーダル open 時に status を確認 → running ならそのまま polling
+  // 既存ジョブの自動レジューム: モーダル open 時に status を確認 → running のみ resume
+  // done/failed はクリアして 新しいインポートを開始できるようにする
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         const { data } = await api.get('/api/customers/import/status');
         const job = data.data || {};
-        if (mounted && (job.state === 'running' || job.state === 'done' || job.state === 'failed')) {
+        if (!mounted) return;
+        if (job.state === 'running') {
           setProgress(job);
-          if (job.state === 'running') {
-            setBusy(true);
-            startPolling();
-          } else if (job.state === 'done' && job.result) {
-            setResult(job.result);
-          }
+          setBusy(true);
+          startPolling();
+        } else if (job.state === 'done' || job.state === 'failed') {
+          // 過去ジョブが残っていてもクリアして fresh で始める (前回結果はトーストで通知済み)
+          try { await api.delete('/api/customers/import/status'); } catch (_e) {}
         }
       } catch (_e) {}
     })();
@@ -61,6 +62,16 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 結果ペインから 「次のインポートへ」 = job 状態をクリアして フォームに戻す
+  const resetForNext = async () => {
+    try { await api.delete('/api/customers/import/status'); } catch (_e) {}
+    setResult(null);
+    setProgress(null);
+    setBusy(false);
+    setUploading(false);
+    setFile(null);
+  };
 
   const stopPolling = () => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -260,8 +271,11 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
                 )}
               </dl>
             </div>
-            <div className="flex justify-end">
-              <button className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md" onClick={onCompleted}>
+            <div className="flex justify-end gap-2">
+              <button className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50" onClick={resetForNext}>
+                次のインポートへ
+              </button>
+              <button className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700" onClick={async () => { await resetForNext(); onCompleted && onCompleted(); }}>
                 閉じる
               </button>
             </div>

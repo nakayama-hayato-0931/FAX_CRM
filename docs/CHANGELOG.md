@@ -9,6 +9,28 @@
 
 ---
 
+## [2026-06-09] Import 結果クリア + FAX 送信実績 朝 7 時 定時同期
+
+**要望**:
+1. インポート結果が出っぱなしで次のリストをインポートできない
+2. FAX 送信実績を 毎朝 7 時に自動同期したい
+
+**変更**:
+- backend: DELETE `/api/customers/import/status` 追加 — done/failed のジョブ状態をクリア (running は 409 で拒否)
+- frontend `CustomerCsvImportModal`:
+  - モーダル open 時の auto resume を **running のみ** に変更
+  - done/failed なジョブは自動で DELETE して fresh フォーム表示
+  - 結果ペインに **「次のインポートへ」** ボタン追加 (DELETE + フォーム復帰)
+  - 「閉じる」 も DELETE してから onCompleted を呼ぶ
+- backend `server.js`: **定時スケジューラ** 追加
+  - 毎朝 JST 07:00 に `faxStatsSvc.syncFromSheets({ recentOnly: true, recentDays: 7 })` を実行
+  - `node-cron` を入れず 軽量 `setTimeout` チェーンで実装 (毎回 次の 7:00 を計算)
+  - env で時刻 (`FAX_STATS_DAILY_SYNC_HOUR/MINUTE`) と日数 (`FAX_STATS_DAILY_SYNC_DAYS`) を上書き可
+  - `FAX_STATS_DAILY_SYNC_ENABLED=0` で無効化可
+  - Railway は UTC で動くので JST 計算は server.js 内部で実施
+
+---
+
 ## [2026-06-09] 大規模 Import を Background Job 化 + 進捗 polling UI
 
 **問題**: 60万行 import は 30-60 分かかり、 Railway proxy timeout (約 5 分) に必ず引っかかって ERR_FAILED / CORS エラー。 backend は処理を続けるが フロントには結果が返らない。
