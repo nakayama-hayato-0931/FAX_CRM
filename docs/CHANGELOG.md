@@ -2,8 +2,126 @@
 
 会話履歴がなくても続きから作業できるよう、機能単位で実装履歴を記録する。
 
+**運用ルール**: システムを更新するたびに ここに新エントリを追記する。 1日に複数機能追加でも 機能単位でブロック分けして書く。
+
 書式:
 - `[YYYY-MM-DD]` 機能名 — 主要なファイル / DB変更 / 注意点
+
+---
+
+## [2026-06-09] 都道府県: バグ値クリーンアップ + チェックボックスUI + 県名選択時の地域名 OR
+
+**問題**: 都道府県セレクタに 「岐阜市水海道」 「大阪市都」 「府中市府」 「磐田市国府」 等のバグ値が大量混入。 + 個別県選択しても callcenter.companies の prefecture が 「関東」 等の地域名で保存されているため 0 件になっていた。
+
+**変更**:
+- `extractPrefecture` の正規表現フォールバック (`^([^\s\d]+?[都道府県])`) を**完全除去**。 今後は 47都道府県厳密一致のみ
+- `normalizePrefectures` に `mode='invalid'` 追加 — 47県以外の値を address から再抽出、 不可は NULL に戻す。 cleared 件数も返却
+- POST `/api/customers/normalize-prefecture?mode=invalid`
+- ▼メンテナンス > 都道府県 に **「無効値クリーンアップ (推奨)」** ボタン追加 (rose ボーダー)
+- 顧客マスタ画面の都道府県セレクタ: facet 由来 → **47県固定の地域グループ チェックボックス UI** に置換 (lists/new.js と統一)。 state を `prefecture` (string) → `prefectures` (string[])
+- `utils/prefectures` に `withRegionNames()` 追加: 県名選択時に所属地域名を OR に自動追加 (例: `['茨城県']` → IN `['茨城県','関東']`)。 旧データに 「関東」 のまま残ってる行も県名選択でヒットする
+- `customerService` / `customerRepo` (×2) の prefecture フィルタを `withRegionNames` ベースに統一
+
+**注意**: クリーンアップ実行後は地域名は消えるので、 `withRegionNames` の地域名 OR は 「過渡期データの救済策」 兼 「全選択時の利便」 として残す。
+
+---
+
+## [2026-06-09] 顧客マスタ Import: 法人名称形式 + 大規模 xlsx (60万行) ストリーミング対応
+
+**要望**: 「全業界まとめ.xlsx」 (60万行/108MB、 法人名称/法人サマリー/サイトURL 等のヘッダ) を取り込めるように。
+
+**変更**:
+- HEADER_ALIASES 拡張: 法人名称 → company_name / サイトURL → url / 業種(中分類1) → industry / 法人サマリー → note 本文 / メールアドレス/法人番号/法人種別/設立年月日/資本金(円) → note メタ集約
+- `parseFileStream` 新設 (async generator): `.xlsx`/`.xlsm` は ExcelJS `WorkbookReader` でストリーミング (5,000行/3秒、 メモリ 119MB)、 `.xls` は SheetJS で全件、 `.csv` は csv-parser stream
+- `processImportStream` 新設: iterator から 500件 buffer flush。 メモリは CHUNK 分だけ
+- `importCsv` を新ストリーミング版に切替 (旧 `parseFile`/`processImport` も配列版として残す)
+- multer `MAX_UPLOAD_SIZE_MB` default を 20MB → **500MB** に
+- frontend axios timeout を 10分 → 60分 に
+- モーダル説明文に 「.xlsx ストリーミング対応 (最大 500MB)」 追記
+
+---
+
+## [2026-06-09] 受電報告: 担当営業 マスタ管理 + トグル選択 + 新規追加
+
+**要望**: 担当営業を自由入力からトグル選択に。 選択肢になければその場で新規追加。
+
+**変更**:
+- `sales_owners` テーブル新設 (id, name UNIQUE, is_active, sort_order)
+- runtime migration ⑤d + `salesOwnerService.ensureTable` で inline ensure
+- 既存 `incoming_call_reports.sales_owner` の DISTINCT 値を初期投入
+- API: GET/POST/PATCH/DELETE `/api/sales-owners`
+- `incomingCallService.createSingle` で `findOrCreate` を呼んでマスタ自動登録
+- 受電報告 手動入力モーダル: input → トグルボタン群 (indigo) + 「+ 新規追加」 → インライン入力 (Enter で追加)
+
+---
+
+## [2026-06-09] CPA: ROAS の右に 入金実績 + 入金実績ROAS + 受電数手動入力モーダル独立
+
+**変更**:
+- CPA表 ROAS の右に **入金実績** (`sales_projects.payment_actual` = シート CC列 × 10000、 取消/辞退は 0) と **入金実績ROAS** (= 入金実績 ÷ コスト合算 × 100) を追加
+- 受電数の手動入力UIをコスト入力モーダルから分離 → 独立した **`CpaIncomingInputModal`** (sky 系)。 CPA表の受電数セルクリックで開く
+- `cpa_monthly_costs` に `incoming_picked_manual` / `incoming_missed_manual` 列追加 (NULL = 自動集計)、 手動値があれば zp_* 集計を上書き
+- PUT `/api/cpa/monthly-incoming/:month`
+- 表セルに 「手動」 バッジ (sky-100)
+
+---
+
+## [2026-06-09] 電話番号正規化 + zp_* と顧客マスタの紐付け
+
+**要望**: 顧客タイムラインに zp 受電を表示、 受電報告手動入力で番号から顧客サジェスト。
+
+**変更**:
+- `utils/phone.js` 新設 — `normalizePhone` / `digitsOnly` で +81/0081/全角/ハイフン を吸収して国内 digits-only に
+- 顧客検索 `q=` の +81 対応 (customerService / customerRepo ×2)
+- `customerService.findByPhoneNormalized` + GET `/api/customers/lookup-by-phone?phone=...`
+- `contactEventService.getTimeline` で `zp_recordings` / `zp_missed_calls` を顧客の正規化phone/fax で照合してマージ表示。 channel='call' / source_system='zoom-phone' / id prefix `zp_rec_` `zp_miss_`
+- フロント CustomerDetailModal の SOURCE_BADGE に 'zoom-phone' (sky-50) 追加
+
+---
+
+## [2026-06-09] リスト抽出: NGワード機能 (DB管理 + 自動除外) + テストモード + 結果モーダル等 多数強化
+
+**変更**:
+- **NGワード**: `ng_words` テーブル (field × word × enabled)、 6 field (company_name/industry/address/note/url/representative) × 部分一致 LIKE で抽出から自動除外。 リスト抽出画面に管理モーダル
+- **テストモード**: `extraction_batches.is_test` 列追加。 ON で `customers.send_count`/`last_sent_at`/`last_pc_number` を更新しない。 バッチ名末尾に `_TEST`、 一覧で TEST バッジ
+- **N日以内架電 除外** (`contact_events` channel=call) と **既存案件 除外** (sales_projects/job_postings の company_name 一致) を抽出条件に追加
+- **原稿同時格納**: 抽出時に原稿管理から選択した PDF も同じスロットに自動コピー (`attachContentToSlot`)
+- **スロットタイトル自動設定**: 抽出時に 業種 / 都道府県 でタイトル埋め (空欄時のみ)
+- **Excel ボタン → 結果モーダル**: window.open で 401 になっていたのを axios + blob に。 BatchResultModal で 検索 + 顧客一覧 + Excel DL ボタン
+- **Excel フォーマット**: タイトル/メタ 5 行 + No. 列を削除。 1 行目からヘッダ
+- **都道府県 multi-select**: REGION_GROUPS で地域グループ化 + 地域ボタンで一括選択。 prefecture[] = ['東京都',...] 配列対応 (IN(?))
+- デフォルト名 「リスト_20260602」 → 「リスト」 (日付重複解消)
+
+---
+
+## [2026-06-09] 顧客マスタ: NG リスト追加 + FAX有無フィルタ + ボタン整理 + リストインポート改名
+
+**変更**:
+- 顧客詳細モーダル フッターに **NG リストに追加 / 解除** ボタン (赤 / 緑)。 prompt() で理由入力。 callcenter-only 顧客 (sentinel 負id) も `callcenter.companies` 直接更新で対応
+- **FAX有無フィルタ** UI 表示可能に (grid-cols-5 → 6)。 `listFromCallcenter` にも has_fax フィルタを追加 (callcenter モードで効いてない bug 修正)
+- トップバー整理: 再読み込み / ▼同期 / ▼メンテナンス / **リストインポート** (旧 CSVインポート) の 4 ボタンに集約
+- 業種カテゴリ 再分類 / 都道府県 正規化 を callcenter.companies にも同時適用 (両DB処理)
+
+---
+
+## [2026-06-09] 受電報告: 担当営業 (sales_owner) 必須フィールド追加 + Urizo (.xls) 取込対応 + 業種カテゴリキーワード大幅拡張
+
+**変更**:
+- 受電報告に **担当営業** (sales_owner VARCHAR(100)) フィールド追加。 結果の上に配置、 必須バリデーション、 直前報告から自動補完
+- `xlsx` パッケージ追加で **Urizo (売り蔵) .xls 形式** 直接取込 (BIFF8)。 〒/従業員数の正規化、 placeholder FAX (0000000000 等) を null化
+- 業種カテゴリ自動分類: import 時に `industry_category` を 2段階判定 (業種 → ダメなら note 本文) で設定。 normalizeIndustry のキーワード大幅拡張 (縫製/印刷/加工/コンビニ/ベーカリー/介護関連 等)。 「飲食」 単体マッチも対応 (lookahead で 「飲食料品」 を除外)
+- 既存 27 万件の再分類: ▼業種カテゴリ > 未分類のみ 再分類 ボタン (両DB対応)
+
+---
+
+## [2026-06-08] ログイン機能 + ユーザー管理 + CLAUDE.md 引き継ぎ整備
+
+**変更**:
+- JWT 認証 (bcryptjs + jsonwebtoken)。 admin / sales ロール
+- ログイン画面: 受電報告 (パスワードなし、 guest-sales JWT) / 管理者 (要パスワード) の選択式
+- ユーザー管理画面 (admin のみ): list/create/update/changePassword/remove。 last-admin 保護
+- 起動時 `bootstrapInitialAdmin` で admin/admin123 作成
+- プロジェクトルートに **CLAUDE.md** 新設 — 規約 / デプロイ / 落とし穴 / 直近作業の追い方を集約。 別の人が同じ Claude アカウントで開いた時に即引き継げる状態に
 
 ---
 
