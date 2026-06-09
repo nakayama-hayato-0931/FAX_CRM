@@ -93,7 +93,10 @@ export default function Layout({ children }) {
         </aside>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="px-8 py-6 max-w-[1500px] mx-auto">{children}</div>
+          {/* max-width 制限を撤廃 — CPA/FAX送信実績 等 横長テーブル系で
+              ワイドモニタの幅を活かせるように。 文章中心ページは内部の
+              レイアウト (max-w-3xl 等) で調整する */}
+          <div className="px-8 py-6">{children}</div>
         </main>
       </div>
 
