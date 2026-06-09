@@ -125,8 +125,8 @@ function parseProjectsSheet(values) {
 
     // 条件1: BE = 「FAX受電」
     if (beVal !== 'FAX受電') { stats.skippedNotFax++; continue; }
-    // 条件2: J ≠ 「ビザ」
-    if (jVal === 'ビザ') { stats.skippedVisa++; continue; }
+    // 条件2: J に「ビザ」 を含まない (「ビザサポ」 「海外\nビザ」 等の派生も除外)
+    if (jVal && jVal.includes('ビザ')) { stats.skippedVisa++; continue; }
 
     // 一意キー: 求人番号 + 登録番号、 どちらも無ければ 行番号
     const jobNumber = clean(row[COL.B]);
@@ -446,6 +446,10 @@ async function list({ from, to, month, basis = 'acquired', status, limit = 200 }
     where.push('is_declined = 1');
   }
   // status === 'all' or undefined → 全件 (取消/辞退含む)
+
+  // ビザ系 (ビザ / ビザサポ / 海外\nビザ 等) は CPA 集計から除外しているので、
+  // 内訳モーダル側でも同じ条件で除外 (件数を CPA と一致させる)
+  where.push(`(status_label IS NULL OR status_label NOT LIKE '%ビザ%')`);
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const [rows] = await pool.query(

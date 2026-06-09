@@ -9,6 +9,31 @@
 
 ---
 
+## [2026-06-09] CPA: 売上シート J列 「ビザ」 を含む行を集計から除外 (部分一致化)
+
+**問題**: 売上シートの J列 (status_label) には 「ビザ」 単体だけでなく 「ビザサポ」 「海外\nビザ」 等の派生値があった。 sync 時の判定が **完全一致** だったため、 派生値の行 (DB で 2 件) が CPA の 初回入金 / 見込売上 / 入金実績 / 内定社数 / 面接数 集計に紛れ込んでいた。
+
+**確認した DB 状態**:
+```
+status_label='ビザサポ'   : 1 件 (payment_actual=55,000)
+status_label='海外\nビザ' : 1 件 (payment_actual=88,000)
+status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
+```
+
+**変更**:
+- `salesProjectService.parseProjectsSheet`: 判定を `jVal === 'ビザ'` → `jVal && jVal.includes('ビザ')` に変更 (部分一致)
+- `cpaService.getMonthly` の SQL で sales_projects を引く **3 箇所** に二重ガード追加:
+  - 月キー UNION
+  - 面接数 UNION の sales_projects 項
+  - 内定社数 / 初回入金 / 見込売上 / 入金実績 集計の sp サブクエリ
+  - 条件: `AND (status_label IS NULL OR status_label NOT LIKE '%ビザ%')`
+- `interviewService.listOfferOnly`: 内定社内訳モーダルの sales_projects 引きにも同条件追加
+- `salesProjectService.list`: 内定詳細モーダルの list にも同条件追加 (件数を CPA と一致)
+
+**運用**: 既存の混入 2 件は DB から削除せず SQL WHERE で集計から除外。 次回 sync 時には新しい派生値 (「ビザ更新」 等) があれば即座に skip される。
+
+---
+
 ## [2026-06-09] 定時同期に CPA 関連シート 3 種 (売上 / 案件 / 面接) を追加
 
 **要望**: CPA にまつわる同期も朝 7 時に走らせたい。

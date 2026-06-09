@@ -301,7 +301,10 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
         UNION
         SELECT DATE_FORMAT(report_month, '%Y-%m-01')         AS month FROM outsourced_fax_records
         UNION
-        SELECT DATE_FORMAT(${col}, '%Y-%m-01')               AS month FROM sales_projects WHERE ${col} IS NOT NULL
+        -- sales_projects の月キー UNION (status_label に 「ビザ」 を含む行は集計から除外)
+        SELECT DATE_FORMAT(${col}, '%Y-%m-01')               AS month FROM sales_projects
+         WHERE ${col} IS NOT NULL
+           AND (status_label IS NULL OR status_label NOT LIKE '%ビザ%')
         UNION
         SELECT DATE_FORMAT(${ivCol}, '%Y-%m-01')              AS month FROM interview_records
          WHERE ${ivCol} IS NOT NULL AND source_kind = 'FAX受電' AND interview_date <= CURDATE()
@@ -341,10 +344,12 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
           AND interview_date <= CURDATE()
           AND NOT (interview_count = 0 AND (pass_count = 0 OR pass_count IS NULL))
         UNION
+        -- sales_projects は status_label に 「ビザ」 を含む行を除外
         SELECT DATE_FORMAT(${col}, '%Y-%m-01') AS month,
                COALESCE(NULLIF(job_number, ''), company_name) AS job_key
         FROM sales_projects
         WHERE ${col} IS NOT NULL
+          AND (status_label IS NULL OR status_label NOT LIKE '%ビザ%')
       ) u
       WHERE month IS NOT NULL AND job_key IS NOT NULL
       GROUP BY month
@@ -378,12 +383,16 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       FROM outsourced_fax_records GROUP BY 1
     ) out_ ON out_.month = m.month
     LEFT JOIN (
+      -- 内定社数 / 初回入金 / 見込売上 / 入金実績
+      --   status_label に 「ビザ」 を含む行 (ビザ / ビザサポ / 海外\nビザ 等) は集計から除外
       SELECT DATE_FORMAT(${col}, '%Y-%m-01') AS month,
         COUNT(DISTINCT COALESCE(NULLIF(job_number, ''), company_name)) AS offers,
         SUM(first_payment) AS first_payment,
         SUM(expected_revenue) AS expected_revenue,
         SUM(payment_actual) AS payment_actual
-      FROM sales_projects WHERE ${col} IS NOT NULL
+      FROM sales_projects
+      WHERE ${col} IS NOT NULL
+        AND (status_label IS NULL OR status_label NOT LIKE '%ビザ%')
       GROUP BY 1
     ) sp ON sp.month = m.month
     LEFT JOIN (

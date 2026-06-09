@@ -392,6 +392,7 @@ async function listOfferOnly({ month, basis = 'acquired', limit = 1000 } = {}) {
           WHERE sp.${col} IS NOT NULL
             AND sp.${col} >= ?
             AND sp.${col} < DATE_ADD(?, INTERVAL 1 MONTH)
+            AND (sp.status_label IS NULL OR sp.status_label NOT LIKE '%ビザ%')
             AND NOT EXISTS (
               SELECT 1 FROM interview_records ir
               WHERE ir.${ivCol} IS NOT NULL
