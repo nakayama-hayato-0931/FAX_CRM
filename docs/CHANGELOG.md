@@ -9,6 +9,20 @@
 
 ---
 
+## [2026-06-09] Import 失敗の真因 — Duplicate FAX (UNIQUE) 対策 + ファイル内 dedup
+
+**問題**: 60万行 import が `Duplicate entry '0758135331' for key 'customers.uk_customers_fax'` で 500。 ファイル内に同じ FAX を持つ複数行が存在し、 chunk 跨ぎで UNIQUE 制約に衝突していた。
+
+**対応**:
+- `customerImportService.processImportStream`: ストリーム冒頭で `seenFax` / `seenPhone` (Set) でファイル内重複を事前 dedup。 同じ番号は最初の 1 行のみ buffer に積む。 結果に `dupInFile` 件数を含める
+- `customerImportService.insertSingle`: `ER_DUP_ENTRY` を catch → 衝突した FAX/電話 で既存 ID を取得 → `updateExisting` (肉付け) にフォールバック → 取得できなければ `null` 返却で skip 扱い (例外を上に伝播させない)
+- 呼び出し側 2 箇所 (new / existing-ng) で `newId === null` を skip に振り分け
+- フロントの結果ペインに 「ファイル内重複」 行を追加 (件数あれば)
+
+**運用**: これで chunk 跨ぎでも 1 ファイル内に同じ番号が複数あっても import は完走する。 fail-soft 設計。
+
+---
+
 ## [2026-06-09] 大規模 Import 失敗 (500) 対策: timeout 緩和 + chunk 2000 化 + 詳細ログ
 
 **問題**: 60万行 xlsx をリストインポートすると 500 エラー。 真因は ログ不足で未確定 (HTTP timeout / DB connection / メモリ / 例外 のいずれか)。

@@ -162,6 +162,12 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
                 )}
                 <dt className="text-zinc-600">スキップ:</dt>
                 <dd className="text-right tabular-nums text-amber-600">{result.skipped.toLocaleString()}</dd>
+                {result.dupInFile > 0 && (
+                  <>
+                    <dt className="text-zinc-600">ファイル内重複:</dt>
+                    <dd className="text-right tabular-nums text-zinc-500">{result.dupInFile.toLocaleString()}</dd>
+                  </>
+                )}
               </dl>
             </div>
             <div className="flex justify-end">

@@ -408,6 +408,11 @@ async function processChunk(conn, chunk, sourceFile, mode, stats) {
           }
           // (3) 非NG 会社名のみ一致 または 完全未一致 → 新規 insert (同名別企業として扱う)
           const newId = await insertSingle(conn, r, { sourceFile, blacklist: false });
+          if (newId === null) {
+            // UNIQUE 衝突で復旧できなかった → skip
+            stats.skipped++;
+            continue;
+          }
           stats.inserted++;
           if (phoneD) actPhoneMap.set(phoneD, newId);
           if (faxD)   actFaxMap.set(faxD, newId);
@@ -434,6 +439,7 @@ async function processChunk(conn, chunk, sourceFile, mode, stats) {
           } else {
             if (!r.company_name) { stats.skipped++; continue; }
             const newId = await insertSingle(conn, r, { sourceFile, blacklist: true, reason });
+            if (newId === null) { stats.skipped++; continue; }
             stats.inserted++;
             stats.blacklisted++;
             if (r.company_name) byName.set(r.company_name, { id: newId, is_blacklisted: 1 });
@@ -475,8 +481,13 @@ async function processImportStream(iterator, sourceFile, mode, { onProgress } = 
   const stats = { inserted: 0, updated: 0, skipped: 0, blacklisted: 0 };
   let totalRows = 0;
   let validRows = 0;
+  let dupInFile = 0;
   const CHUNK = Number(process.env.IMPORT_CHUNK_SIZE) || 2000;
   let buffer = [];
+  // ファイル内重複の事前 dedup: 同じ FAX / 電話 が複数行に出てきたら最初の 1 行だけ
+  // 採用 (chunk 跨ぎでも UNIQUE 制約衝突を防ぐ)
+  const seenFax = new Set();
+  const seenPhone = new Set();
   const startedAt = Date.now();
   let lastLogAt = startedAt;
 
@@ -492,6 +503,13 @@ async function processImportStream(iterator, sourceFile, mode, { onProgress } = 
       totalRows++;
       const c = rowToCustomer(rawRow);
       if (!c.company_name) continue;
+      // ファイル内 FAX / 電話 重複ガード (同じ番号は最初の 1 行のみ採用)
+      const faxKey = c.fax_number ? c.fax_number.replace(/[^0-9]/g, '') : '';
+      const phoneKey = c.phone_number ? c.phone_number.replace(/[^0-9]/g, '') : '';
+      if (faxKey && seenFax.has(faxKey)) { dupInFile++; continue; }
+      if (phoneKey && seenPhone.has(phoneKey)) { dupInFile++; continue; }
+      if (faxKey)   seenFax.add(faxKey);
+      if (phoneKey) seenPhone.add(phoneKey);
       validRows++;
       buffer.push(c);
       if (buffer.length >= CHUNK) {
@@ -513,7 +531,7 @@ async function processImportStream(iterator, sourceFile, mode, { onProgress } = 
   } finally {
     conn.release();
   }
-  return { totalRows, validRows, ...stats };
+  return { totalRows, validRows, dupInFile, ...stats };
 }
 
 /**
@@ -564,25 +582,54 @@ async function insertSingle(conn, r, { sourceFile, blacklist, reason }) {
   const blacklistReason = blacklist
     ? (reason || r.blacklisted_reason || r.note || null)
     : (r.blacklisted_reason || null);
-  const [result] = await conn.query(
-    `INSERT INTO customers
-       (company_name, fax_number, phone_number, industry, industry_category,
-        prefecture, city, address,
-        postal_code, url, employee_count, representative, note,
-        is_blacklisted, blacklisted_reason, source_file, imported_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-    [
-      r.company_name, r.fax_number || null, r.phone_number || null,
-      r.industry || null, r.industry_category || null,
-      r.prefecture || null, r.city || null, r.address || null,
-      r.postal_code || null, r.url || null, r.employee_count ?? null,
-      r.representative || null, r.note || null,
-      blacklist ? 1 : 0,
-      blacklistReason,
-      sourceFile || null,
-    ]
-  );
-  return result.insertId;
+  try {
+    const [result] = await conn.query(
+      `INSERT INTO customers
+         (company_name, fax_number, phone_number, industry, industry_category,
+          prefecture, city, address,
+          postal_code, url, employee_count, representative, note,
+          is_blacklisted, blacklisted_reason, source_file, imported_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        r.company_name, r.fax_number || null, r.phone_number || null,
+        r.industry || null, r.industry_category || null,
+        r.prefecture || null, r.city || null, r.address || null,
+        r.postal_code || null, r.url || null, r.employee_count ?? null,
+        r.representative || null, r.note || null,
+        blacklist ? 1 : 0,
+        blacklistReason,
+        sourceFile || null,
+      ]
+    );
+    return result.insertId;
+  } catch (e) {
+    // UNIQUE 衝突 (uk_customers_fax / uk_customers_phone 等) は chunk 跨ぎ重複や
+    // 直前の lookup タイミング race で発生し得る。 既存 ID を取得して 肉付け
+    // フォールバック、 ダメなら skip 扱い (例外を握り潰して null を返す)
+    if (e.code === 'ER_DUP_ENTRY') {
+      try {
+        // どの列が衝突したか判別して既存 ID を取得
+        const conds = [];
+        const params = [];
+        if (r.fax_number)   { conds.push(`fax_number = ?`);   params.push(r.fax_number); }
+        if (r.phone_number) { conds.push(`phone_number = ?`); params.push(r.phone_number); }
+        if (conds.length) {
+          const [rows] = await conn.query(
+            `SELECT id FROM customers WHERE ${conds.join(' OR ')} LIMIT 1`,
+            params
+          );
+          if (rows[0]) {
+            await updateExisting(conn, rows[0].id, r);
+            return rows[0].id;
+          }
+        }
+      } catch (e2) {
+        console.warn('[customerImport] dup recovery failed:', e2.message);
+      }
+      return null;  // skip
+    }
+    throw e;
+  }
 }
 
 async function importCsv(filePath, originalName, options = {}) {
