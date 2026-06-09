@@ -381,71 +381,78 @@ async function processChunk(conn, chunk, sourceFile, mode, stats) {
         }
       }
 
-      // 4. 行ごと分類処理
+      // 4. 行ごと分類処理 — [import-v3] 各行を try/catch でラップして
+      //    どんな例外が起きても 1 行 skip にとどめ 全体を倒さない
       for (const r of chunk) {
-        const phoneD = r.phone_number ? digitsOnly(r.phone_number) : '';
-        const faxD   = r.fax_number   ? digitsOnly(r.fax_number)   : '';
+        try {
+          const phoneD = r.phone_number ? digitsOnly(r.phone_number) : '';
+          const faxD   = r.fax_number   ? digitsOnly(r.fax_number)   : '';
 
-        if (mode === 'new') {
-          if (!r.company_name) { stats.skipped++; continue; }
-          // (1) NG/既存リストと一致 (どの軸でも) → skip
-          const isBlacklisted =
-            blkNames.has(r.company_name) ||
-            (phoneD && blkPhones.has(phoneD)) ||
-            (faxD && blkFaxes.has(faxD));
-          if (isBlacklisted) { stats.skipped++; continue; }
-          // (2) 非NG の 電話/FAX と一致 → 肉付けマージ (会社名 一致 だけでは merge しない)
-          const mergeId =
-            (phoneD && actPhoneMap.get(phoneD)) ||
-            (faxD && actFaxMap.get(faxD));
-          if (mergeId) {
-            await updateExisting(conn, mergeId, r);
-            stats.updated++;
-            // 後続行が同じ顧客を参照できるよう lookup を更新 (電話/FAX が新たに埋まったケースに備えて)
-            if (phoneD) actPhoneMap.set(phoneD, mergeId);
-            if (faxD)   actFaxMap.set(faxD, mergeId);
-            continue;
-          }
-          // (3) 非NG 会社名のみ一致 または 完全未一致 → 新規 insert (同名別企業として扱う)
-          const newId = await insertSingle(conn, r, { sourceFile, blacklist: false });
-          if (newId === null) {
-            // UNIQUE 衝突で復旧できなかった → skip
-            stats.skipped++;
-            continue;
-          }
-          stats.inserted++;
-          if (phoneD) actPhoneMap.set(phoneD, newId);
-          if (faxD)   actFaxMap.set(faxD, newId);
-        } else if (mode === 'existing' || mode === 'ng') {
-          const match =
-            (r.company_name && byName.get(r.company_name)) ||
-            (phoneD && byPhone.get(phoneD)) ||
-            (faxD && byFax.get(faxD)) ||
-            null;
-          // 既存/NG: 一致したら is_blacklisted=1 にして新規営業対象外 にする。
-          // 未一致は ブラックリスト付き で新規 insert (会社名 必須)。
-          const reasonDefault = DEFAULT_REASON[mode] || null;
-          const reason = r.blacklisted_reason || r.note || reasonDefault;
-          if (match) {
-            await conn.query(
-              `UPDATE customers
-                  SET is_blacklisted = 1,
-                      blacklisted_reason = COALESCE(blacklisted_reason, ?)
-                WHERE id = ?`,
-              [reason, match.id]
-            );
-            if (match.is_blacklisted) stats.updated++;
-            else stats.blacklisted++;
-          } else {
+          if (mode === 'new') {
             if (!r.company_name) { stats.skipped++; continue; }
-            const newId = await insertSingle(conn, r, { sourceFile, blacklist: true, reason });
-            if (newId === null) { stats.skipped++; continue; }
+            // (1) NG/既存リストと一致 (どの軸でも) → skip
+            const isBlacklisted =
+              blkNames.has(r.company_name) ||
+              (phoneD && blkPhones.has(phoneD)) ||
+              (faxD && blkFaxes.has(faxD));
+            if (isBlacklisted) { stats.skipped++; continue; }
+            // (2) 非NG の 電話/FAX と一致 → 肉付けマージ (会社名 一致 だけでは merge しない)
+            const mergeId =
+              (phoneD && actPhoneMap.get(phoneD)) ||
+              (faxD && actFaxMap.get(faxD));
+            if (mergeId) {
+              await updateExisting(conn, mergeId, r);
+              stats.updated++;
+              // 後続行が同じ顧客を参照できるよう lookup を更新 (電話/FAX が新たに埋まったケースに備えて)
+              if (phoneD) actPhoneMap.set(phoneD, mergeId);
+              if (faxD)   actFaxMap.set(faxD, mergeId);
+              continue;
+            }
+            // (3) 非NG 会社名のみ一致 または 完全未一致 → 新規 insert (同名別企業として扱う)
+            const newId = await insertSingle(conn, r, { sourceFile, blacklist: false });
+            if (newId === null) {
+              // UNIQUE 衝突で復旧できなかった → skip
+              stats.skipped++;
+              continue;
+            }
             stats.inserted++;
-            stats.blacklisted++;
-            if (r.company_name) byName.set(r.company_name, { id: newId, is_blacklisted: 1 });
-            if (phoneD)         byPhone.set(phoneD,        { id: newId, is_blacklisted: 1 });
-            if (faxD)           byFax.set(faxD,            { id: newId, is_blacklisted: 1 });
+            if (phoneD) actPhoneMap.set(phoneD, newId);
+            if (faxD)   actFaxMap.set(faxD, newId);
+          } else if (mode === 'existing' || mode === 'ng') {
+            const match =
+              (r.company_name && byName.get(r.company_name)) ||
+              (phoneD && byPhone.get(phoneD)) ||
+              (faxD && byFax.get(faxD)) ||
+              null;
+            // 既存/NG: 一致したら is_blacklisted=1 にして新規営業対象外 にする。
+            // 未一致は ブラックリスト付き で新規 insert (会社名 必須)。
+            const reasonDefault = DEFAULT_REASON[mode] || null;
+            const reason = r.blacklisted_reason || r.note || reasonDefault;
+            if (match) {
+              await conn.query(
+                `UPDATE customers
+                    SET is_blacklisted = 1,
+                        blacklisted_reason = COALESCE(blacklisted_reason, ?)
+                  WHERE id = ?`,
+                [reason, match.id]
+              );
+              if (match.is_blacklisted) stats.updated++;
+              else stats.blacklisted++;
+            } else {
+              if (!r.company_name) { stats.skipped++; continue; }
+              const newId = await insertSingle(conn, r, { sourceFile, blacklist: true, reason });
+              if (newId === null) { stats.skipped++; continue; }
+              stats.inserted++;
+              stats.blacklisted++;
+              if (r.company_name) byName.set(r.company_name, { id: newId, is_blacklisted: 1 });
+              if (phoneD)         byPhone.set(phoneD,        { id: newId, is_blacklisted: 1 });
+              if (faxD)           byFax.set(faxD,            { id: newId, is_blacklisted: 1 });
+            }
           }
+        } catch (rowErr) {
+          // [import-v3] 行レベルの例外を全部吸収。 真因を ログに残す + skip 集計
+          stats.skipped++;
+          console.warn(`[customerImport][import-v3] row exception code=${rowErr.code} msg=${rowErr.message} company=${r.company_name?.slice(0, 60)} fax=${r.fax_number} phone=${r.phone_number}`);
         }
       }
 }
