@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
 
@@ -32,32 +32,87 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
   const [file, setFile] = useState(null);
   const [mode, setMode] = useState(defaultMode);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);   // ファイル送信中
+  const [progress, setProgress] = useState(null);      // backend job 進捗
   const [result, setResult] = useState(null);
+  const pollRef = useRef(null);
+
+  // 既存ジョブの自動レジューム: モーダル open 時に status を確認 → running ならそのまま polling
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { data } = await api.get('/api/customers/import/status');
+        const job = data.data || {};
+        if (mounted && (job.state === 'running' || job.state === 'done' || job.state === 'failed')) {
+          setProgress(job);
+          if (job.state === 'running') {
+            setBusy(true);
+            startPolling();
+          } else if (job.state === 'done' && job.result) {
+            setResult(job.result);
+          }
+        }
+      } catch (_e) {}
+    })();
+    return () => {
+      mounted = false;
+      stopPolling();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const stopPolling = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  };
+
+  const startPolling = () => {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      try {
+        const { data } = await api.get('/api/customers/import/status');
+        const job = data.data || {};
+        setProgress(job);
+        if (job.state === 'done') {
+          stopPolling();
+          setBusy(false);
+          const r = job.result || {};
+          setResult(r);
+          const modeMeta = MODE_OPTIONS.find((m) => m.key === r.mode) || MODE_OPTIONS[0];
+          if (r.mode === 'ng' || r.mode === 'existing') {
+            toast.success(`${modeMeta.label} 取込: NG化 ${r.blacklisted || 0} / 新規(NG付) ${r.inserted || 0} / スキップ ${r.skipped || 0}`);
+          } else {
+            toast.success(`${modeMeta.label} 取込: 新規 ${r.inserted || 0} / 肉付け ${r.updated || 0} / スキップ ${r.skipped || 0}`);
+          }
+        } else if (job.state === 'failed') {
+          stopPolling();
+          setBusy(false);
+          toast.error(`取込失敗: ${job.error?.message || 'unknown'}`);
+        }
+      } catch (_e) {}
+    }, 3000);  // 3 秒ごとに polling
+  };
 
   const submit = async (e) => {
     e.preventDefault();
     if (!file) { toast.error('ファイルを選択してください'); return; }
-    setBusy(true); setResult(null);
+    setBusy(true); setUploading(true); setResult(null); setProgress(null);
     try {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('mode', mode);
+      // 即時 202 (バックグラウンド処理開始) を受け取り、 polling で進捗を追う
       const { data } = await api.post('/api/customers/import', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60 * 60 * 1000,  // 60分 (60万行クラスでも完走できるよう余裕)
+        timeout: 30 * 60 * 1000,  // アップロード自体は 30分以内 (108MB なら数十秒)
       });
-      setResult(data.data);
-      const r = data.data;
-      const modeMeta = MODE_OPTIONS.find((m) => m.key === r.mode) || MODE_OPTIONS[0];
-      if (r.mode === 'ng' || r.mode === 'existing') {
-        toast.success(`${modeMeta.label} 取込: NG化 ${r.blacklisted} / 新規(NG付) ${r.inserted} / スキップ ${r.skipped}`);
-      } else {
-        toast.success(`${modeMeta.label} 取込: 新規 ${r.inserted} / 肉付け ${r.updated} / NG・既存スキップ ${r.skipped}`);
-      }
+      setUploading(false);
+      toast.success(`バックグラウンドで取込開始: ${data.data.jobId}`);
+      startPolling();
     } catch (err) {
-      toast.error(err.userMessage || 'インポート失敗');
-    } finally {
+      setUploading(false);
       setBusy(false);
+      toast.error(err.userMessage || 'アップロード失敗');
     }
   };
 
@@ -71,7 +126,42 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
           <button className="text-zinc-400 hover:text-zinc-600 text-xl leading-none" onClick={onClose} disabled={busy}>×</button>
         </div>
 
-        {!result && (
+        {/* バックグラウンド処理中の進捗表示 */}
+        {!result && busy && progress && progress.state === 'running' && (
+          <div className="bg-sky-50 border border-sky-200 rounded-md p-4 mb-4 text-sm">
+            <div className="font-semibold text-sky-800 mb-2 flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-sky-500 animate-pulse"></span>
+              バックグラウンドで取込処理中… (job: {progress.id})
+            </div>
+            <div className="text-xs text-sky-700 mb-2">
+              {progress.name} ({Math.round((progress.size || 0) / 1024 / 1024)}MB) / モード: {progress.mode}
+            </div>
+            <dl className="grid grid-cols-2 gap-y-1 text-xs">
+              <dt className="text-zinc-600">走査済み行数:</dt>
+              <dd className="text-right tabular-nums">{(progress.progress?.totalRows || 0).toLocaleString()}</dd>
+              <dt className="text-zinc-600">有効行数:</dt>
+              <dd className="text-right tabular-nums">{(progress.progress?.validRows || 0).toLocaleString()}</dd>
+              <dt className="text-zinc-600">新規追加:</dt>
+              <dd className="text-right tabular-nums text-emerald-700">{(progress.progress?.inserted || 0).toLocaleString()}</dd>
+              <dt className="text-zinc-600">肉付け / 更新:</dt>
+              <dd className="text-right tabular-nums">{(progress.progress?.updated || 0).toLocaleString()}</dd>
+              <dt className="text-zinc-600">スキップ:</dt>
+              <dd className="text-right tabular-nums text-amber-600">{(progress.progress?.skipped || 0).toLocaleString()}</dd>
+              {(progress.progress?.dupInFile || 0) > 0 && (
+                <>
+                  <dt className="text-zinc-600">ファイル内重複:</dt>
+                  <dd className="text-right tabular-nums text-zinc-500">{progress.progress.dupInFile.toLocaleString()}</dd>
+                </>
+              )}
+            </dl>
+            <div className="mt-3 text-[11px] text-zinc-500">
+              60万行クラスは 30〜60 分かかります。 このモーダルを閉じても処理は継続します。
+              次回モーダルを開くと自動的に状況を表示します。
+            </div>
+          </div>
+        )}
+
+        {!result && !(busy && progress?.state === 'running') && (
           <form onSubmit={submit}>
             {/* モード選択 */}
             <div className="mb-4">
@@ -133,7 +223,7 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
                       onClick={onClose} disabled={busy}>キャンセル</button>
               <button type="submit" className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
                       disabled={busy || !file}>
-                {busy ? 'アップロード中…' : `${activeMode.label} として取込`}
+                {uploading ? 'アップロード中…' : busy ? '処理中…' : `${activeMode.label} として取込`}
               </button>
             </div>
           </form>

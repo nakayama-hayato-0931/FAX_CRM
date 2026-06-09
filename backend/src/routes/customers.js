@@ -119,29 +119,91 @@ router.post('/normalize-prefecture', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ============================================================
+// 大規模 Import (60万行クラス) を background job 化
+//   Railway proxy timeout (約 5 分) を超えるので 同期返答は不可能。
+//   POST /import: 即時 202 + jobId、 実際の処理は 非同期で継続
+//   GET  /import/status: 現在のジョブ状況を polling で確認
+// ============================================================
+const importJob = {
+  id: null,            // 現在の job ID (1 セッションに 1 ジョブのみ許容)
+  state: 'idle',       // idle / running / done / failed
+  startedAt: null,
+  finishedAt: null,
+  name: null,
+  size: null,
+  mode: null,
+  progress: { totalRows: 0, validRows: 0, inserted: 0, updated: 0, skipped: 0, blacklisted: 0, dupInFile: 0 },
+  result: null,
+  error: null,
+};
+
+router.get('/import/status', (_req, res) => {
+  return ok(res, importJob);
+});
+
 router.post('/import', upload.single('file'), async (req, res, next) => {
-  // 60万行クラスの大規模ファイル対応: HTTP request/response の timeout を 2 時間に
+  // 60万行クラスの大規模ファイル対応: HTTP request の receive 中の timeout のみ伸ばす
   if (req.setTimeout) req.setTimeout(2 * 60 * 60 * 1000);
-  if (res.setTimeout) res.setTimeout(2 * 60 * 60 * 1000);
-  let p;
-  const startedAt = Date.now();
   try {
     if (!req.file) return fail(res, 400, 'NO_FILE', 'ファイル (CSV / Excel) が必要です');
     const mode = (req.body?.mode || req.query?.mode || 'new').toString();
     if (!customerImport.MODES.has(mode)) {
       return fail(res, 400, 'INVALID_INPUT', `不正な mode: ${mode} (許容: new / existing / ng)`);
     }
-    p = req.file.path;
-    console.log(`[customers/import] START name=${req.file.originalname} size=${req.file.size} mode=${mode}`);
-    const result = await customerImport.importCsv(p, req.file.originalname, { mode });
-    const elapsed = Math.round((Date.now() - startedAt) / 1000);
-    console.log(`[customers/import] DONE elapsed=${elapsed}s result=${JSON.stringify(result)}`);
-    return created(res, result);
-  } catch (e) {
-    const elapsed = Math.round((Date.now() - startedAt) / 1000);
-    console.error(`[customers/import] FAILED elapsed=${elapsed}s err=${e.message}\n${e.stack}`);
-    next(e);
-  } finally { if (p && fs.existsSync(p)) fs.unlink(p, () => {}); }
+    if (importJob.state === 'running') {
+      return fail(res, 409, 'JOB_BUSY', `別の取込ジョブが実行中です (job: ${importJob.id})`);
+    }
+    const jobId = `imp_${Date.now().toString(36)}`;
+    const filePath = req.file.path;
+    const originalName = req.file.originalname;
+    const size = req.file.size;
+
+    // job 状態 初期化
+    importJob.id = jobId;
+    importJob.state = 'running';
+    importJob.startedAt = new Date().toISOString();
+    importJob.finishedAt = null;
+    importJob.name = originalName;
+    importJob.size = size;
+    importJob.mode = mode;
+    importJob.progress = { totalRows: 0, validRows: 0, inserted: 0, updated: 0, skipped: 0, blacklisted: 0, dupInFile: 0 };
+    importJob.result = null;
+    importJob.error = null;
+
+    console.log(`[customers/import] START job=${jobId} name=${originalName} size=${size} mode=${mode}`);
+
+    // 即時 202 で 返却 (fire-and-forget)
+    res.status(202).json({ success: true, data: { jobId, accepted: true, message: 'バックグラウンド処理を開始しました。 /api/customers/import/status で進捗確認' } });
+
+    // バックグラウンド処理 (await しない)
+    const startedAtMs = Date.now();
+    customerImport
+      .importCsv(filePath, originalName, {
+        mode,
+        onProgress: (p) => {
+          Object.assign(importJob.progress, p);
+        },
+      })
+      .then((result) => {
+        const elapsed = Math.round((Date.now() - startedAtMs) / 1000);
+        console.log(`[customers/import] DONE job=${jobId} elapsed=${elapsed}s result=${JSON.stringify(result)}`);
+        importJob.state = 'done';
+        importJob.finishedAt = new Date().toISOString();
+        importJob.result = { ...result, elapsedSec: elapsed };
+        Object.assign(importJob.progress, result);
+      })
+      .catch((e) => {
+        const elapsed = Math.round((Date.now() - startedAtMs) / 1000);
+        console.error(`[customers/import] FAILED job=${jobId} elapsed=${elapsed}s err=${e.message}\n${e.stack}`);
+        importJob.state = 'failed';
+        importJob.finishedAt = new Date().toISOString();
+        importJob.error = { code: e.code || 'INTERNAL', message: e.message };
+      })
+      .finally(() => {
+        if (filePath && fs.existsSync(filePath)) fs.unlink(filePath, () => {});
+      });
+  } catch (e) { next(e); }
 });
 
 // ============================================================

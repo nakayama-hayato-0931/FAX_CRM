@@ -659,8 +659,14 @@ async function importCsv(filePath, originalName, options = {}) {
 
   // ストリーミング版を使用 (大規模 60万行+ でも メモリ低い)
   const iterator = parseFileStream(filePath, originalName);
+  const callerOnProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
   const result = await processImportStream(iterator, originalName, mode, {
-    onProgress: (s) => console.log(`[customerImport] progress: 走査${s.totalRows} 有効${s.validRows} (insert=${s.inserted}/update=${s.updated}/skip=${s.skipped}/black=${s.blacklisted})`),
+    onProgress: (s) => {
+      console.log(`[customerImport] progress: 走査${s.totalRows} 有効${s.validRows} (insert=${s.inserted}/update=${s.updated}/skip=${s.skipped}/black=${s.blacklisted})`);
+      if (callerOnProgress) {
+        try { callerOnProgress(s); } catch (_e) {}
+      }
+    },
   });
   return { mode, ...result };
 }

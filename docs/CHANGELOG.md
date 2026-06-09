@@ -9,6 +9,27 @@
 
 ---
 
+## [2026-06-09] 大規模 Import を Background Job 化 + 進捗 polling UI
+
+**問題**: 60万行 import は 30-60 分かかり、 Railway proxy timeout (約 5 分) に必ず引っかかって ERR_FAILED / CORS エラー。 backend は処理を続けるが フロントには結果が返らない。
+
+**対策 (本格)**:
+- backend: POST `/api/customers/import` を 即時 **202 Accepted** + jobId 返却に変更
+  - 実処理は 非同期 (fire-and-forget) で バックグラウンド継続
+  - グローバル `importJob` 状態 (id/state/progress/result/error) で 1 ジョブ管理
+  - 重複ジョブは 409 JOB_BUSY で拒否
+- backend: GET `/api/customers/import/status` 新設 — 現在のジョブ進捗を返す
+- `customerImportService.importCsv` に `onProgress` callback を貫通させ、 走査済み行数 / 有効 / insert / update / skip を リアルタイム反映
+- frontend `CustomerCsvImportModal`:
+  - 送信後 即時 202 を受け取り polling (3 秒間隔) で進捗を表示
+  - 走査済み / 有効行数 / 新規追加 / 肉付け / スキップ / ファイル内重複 をリアルタイム表示
+  - モーダル open 時に既存ジョブを auto resume (閉じても処理は継続するので、 再 open で復帰)
+  - sky 系の progress box + animate-pulse でステータス可視化
+
+**運用**: 60万行クラスでも UI は即時応答、 バックグラウンドで完走。 モーダルを閉じても処理は続き、 再 open で状況確認可能。 ERR_FAILED / CORS 問題は根絶。
+
+---
+
 ## [2026-06-09] Import 失敗の真因 — Duplicate FAX (UNIQUE) 対策 + ファイル内 dedup
 
 **問題**: 60万行 import が `Duplicate entry '0758135331' for key 'customers.uk_customers_fax'` で 500。 ファイル内に同じ FAX を持つ複数行が存在し、 chunk 跨ぎで UNIQUE 制約に衝突していた。
