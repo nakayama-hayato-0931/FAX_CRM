@@ -126,27 +126,50 @@ const server = app.listen(PORT, async () => {
     console.error('[auth] 初期 admin 作成失敗:', e.message);
   }
 
-  // 定時スケジューラ: 毎朝 7:00 JST に FAX 送信実績の直近1週間同期を実行
-  startFaxStatsDailyScheduler();
+  // 定時スケジューラ: 毎朝 JST 7:00 に 各種シート同期を直列実行
+  //   FAX 送信実績 → 売上 → 案件 → 面接 の順
+  startDailyScheduler();
 });
 
 // ============================================================
 // 定時スケジューラ (JST 基準)
 // ============================================================
 //   Railway は UTC で動くので TZ 計算を内部で実施。
-//   node-cron を入れず 軽量 setTimeout チェーンで実装 (毎回 次の 7:00 を計算)。
-//   FAX_STATS_DAILY_SYNC_HOUR (default 7) / *_MINUTE (default 0) で env 上書き可。
-//   FAX_STATS_DAILY_SYNC_ENABLED=0 で無効化可。
-function startFaxStatsDailyScheduler() {
-  if (process.env.FAX_STATS_DAILY_SYNC_ENABLED === '0') {
-    console.log('[scheduler] fax-stats daily sync: DISABLED (env)');
+//   node-cron を入れず 軽量 setTimeout チェーンで実装。
+//
+//   実行ジョブ (順次):
+//     1. FAX 送信実績 同期 (直近 N 日)
+//     2. 売上 (sales-projects) シート同期
+//     3. 案件 (job-postings) シート同期
+//     4. 面接 (interviews) シート同期
+//
+//   env:
+//     DAILY_SYNC_HOUR        (default 7)  — 起動時刻 (JST hour 0-23)
+//     DAILY_SYNC_MINUTE      (default 0)
+//     DAILY_SYNC_ENABLED=0   — 全体無効化
+//     FAX_STATS_DAILY_SYNC_DAYS (default 7) — FAX 同期の直近日数
+//     旧 FAX_STATS_DAILY_SYNC_HOUR/MINUTE/ENABLED も後方互換で読む
+function startDailyScheduler() {
+  // 後方互換: FAX_STATS_DAILY_SYNC_ENABLED=0 でも全体無効化扱い
+  if (process.env.DAILY_SYNC_ENABLED === '0' || process.env.FAX_STATS_DAILY_SYNC_ENABLED === '0') {
+    console.log('[scheduler] daily sync: DISABLED (env)');
     return;
   }
-  const hour = Number(process.env.FAX_STATS_DAILY_SYNC_HOUR ?? 7);
-  const minute = Number(process.env.FAX_STATS_DAILY_SYNC_MINUTE ?? 0);
-  const days = Number(process.env.FAX_STATS_DAILY_SYNC_DAYS ?? 7);
+  const hour = Number(process.env.DAILY_SYNC_HOUR ?? process.env.FAX_STATS_DAILY_SYNC_HOUR ?? 7);
+  const minute = Number(process.env.DAILY_SYNC_MINUTE ?? process.env.FAX_STATS_DAILY_SYNC_MINUTE ?? 0);
+  const faxStatsDays = Number(process.env.FAX_STATS_DAILY_SYNC_DAYS ?? 7);
 
-  const faxStatsSvc = require('./services/faxStatsService');
+  const faxStatsSvc      = require('./services/faxStatsService');
+  const salesProjectsSvc = require('./services/salesProjectService');
+  const jobPostingsSvc   = require('./services/jobPostingService');
+  const interviewsSvc    = require('./services/interviewService');
+
+  const jobs = [
+    { name: 'fax-stats',      fn: () => faxStatsSvc.syncFromSheets({ recentOnly: true, recentDays: faxStatsDays }) },
+    { name: 'sales-projects', fn: () => salesProjectsSvc.syncFromSheets() },
+    { name: 'job-postings',   fn: () => jobPostingsSvc.syncFromSheets() },
+    { name: 'interviews',     fn: () => interviewsSvc.syncFromSheets() },
+  ];
 
   function nextRunMs() {
     // JST = UTC + 9h。 「JST の今日 hour:minute」 が過ぎていれば翌日に
@@ -159,26 +182,32 @@ function startFaxStatsDailyScheduler() {
     return targetUtcMs - now.getTime();
   }
 
-  async function run() {
-    const startedAt = Date.now();
-    console.log(`[scheduler] fax-stats daily sync: START (recentDays=${days})`);
-    try {
-      const result = await faxStatsSvc.syncFromSheets({ recentOnly: true, recentDays: days });
-      const elapsed = Math.round((Date.now() - startedAt) / 1000);
-      console.log(`[scheduler] fax-stats daily sync: DONE elapsed=${elapsed}s result=${JSON.stringify(result)}`);
-    } catch (e) {
-      console.error(`[scheduler] fax-stats daily sync: FAILED err=${e.message}`);
-    } finally {
-      // 次回 (24h 後) も予約
-      const delay = nextRunMs();
-      console.log(`[scheduler] fax-stats next run in ${Math.round(delay / 1000 / 60)} min`);
-      setTimeout(run, delay);
+  async function runAll() {
+    const batchStartedAt = Date.now();
+    console.log(`[scheduler] daily sync batch: START (${jobs.length} jobs)`);
+    for (const job of jobs) {
+      const jobStartedAt = Date.now();
+      try {
+        const result = await job.fn();
+        const elapsed = Math.round((Date.now() - jobStartedAt) / 1000);
+        console.log(`[scheduler] ${job.name} sync: DONE elapsed=${elapsed}s result=${JSON.stringify(result)}`);
+      } catch (e) {
+        const elapsed = Math.round((Date.now() - jobStartedAt) / 1000);
+        console.error(`[scheduler] ${job.name} sync: FAILED elapsed=${elapsed}s err=${e.message}`);
+        // 1 ジョブの失敗で他を止めない (fail-soft)
+      }
     }
+    const totalElapsed = Math.round((Date.now() - batchStartedAt) / 1000);
+    console.log(`[scheduler] daily sync batch: COMPLETE elapsed=${totalElapsed}s`);
+    // 次回 (24h 後) も予約
+    const delay = nextRunMs();
+    console.log(`[scheduler] daily sync next batch in ${Math.round(delay / 1000 / 60)} min`);
+    setTimeout(runAll, delay);
   }
 
   const initialDelay = nextRunMs();
-  console.log(`[scheduler] fax-stats daily sync: enabled at JST ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (recentDays=${days}). First run in ${Math.round(initialDelay / 1000 / 60)} min`);
-  setTimeout(run, initialDelay);
+  console.log(`[scheduler] daily sync: enabled at JST ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (jobs: ${jobs.map((j) => j.name).join(', ')}). First batch in ${Math.round(initialDelay / 1000 / 60)} min`);
+  setTimeout(runAll, initialDelay);
 }
 
 // 大規模インポート (60万行クラス) 対応: HTTP server の各種 timeout を緩める

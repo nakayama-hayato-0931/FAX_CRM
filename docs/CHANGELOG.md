@@ -9,6 +9,25 @@
 
 ---
 
+## [2026-06-09] 定時同期に CPA 関連シート 3 種 (売上 / 案件 / 面接) を追加
+
+**要望**: CPA にまつわる同期も朝 7 時に走らせたい。
+
+**変更**:
+- `server.js` の `startFaxStatsDailyScheduler` を **`startDailyScheduler`** に拡張
+- 毎朝 JST 07:00 に **4 ジョブを直列実行**:
+  1. FAX 送信実績 (`faxStatsSvc.syncFromSheets({ recentOnly: true, recentDays: 7 })`)
+  2. 売上シート (`salesProjectsSvc.syncFromSheets()`)
+  3. 案件シート (`jobPostingsSvc.syncFromSheets()`)
+  4. 面接シート (`interviewsSvc.syncFromSheets()`)
+- 1 ジョブの失敗で他を止めない **fail-soft** (各 try/catch で 続行)
+- env リネーム + 互換:
+  - 新: `DAILY_SYNC_HOUR` / `DAILY_SYNC_MINUTE` / `DAILY_SYNC_ENABLED`
+  - 旧 `FAX_STATS_DAILY_SYNC_HOUR/MINUTE/ENABLED` も後方互換で読む
+- ログ: `[scheduler] daily sync batch: START (4 jobs)` → 各ジョブの DONE/FAILED → `COMPLETE elapsed=Xs`
+
+---
+
 ## [2026-06-09] Import 結果クリア + FAX 送信実績 朝 7 時 定時同期
 
 **要望**:
