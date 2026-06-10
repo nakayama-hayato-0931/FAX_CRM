@@ -9,6 +9,33 @@
 
 ---
 
+## [2026-06-09] Sidebar: ダーク基調 + セクション分け + アイコン付き nav にリデザイン
+
+**要望**: コールセンター画面のサイドバーレベルにスタイリッシュにしたい (緑ベース)。
+
+**変更**: `Layout.js` のサイドバーを 全面刷新。
+- **ダーク基調**: `bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950` で 落ち着いた深色
+- **ブランドヘッダ**: 緑グラデーション角丸ロゴ (H) + 「Hitokiwa」 + 「FAX CRM」 uppercase tracking-[0.2em]
+- **セクション分け** (6グループ): メイン / 集客運用 / 原稿 / 配信・受電 / 分析 / 管理
+  - 各セクションタイトルは `text-[9.5px] tracking-[0.18em]` の薄い uppercase
+- **アイコン付き nav** (heroicons 系の inline SVG):
+  - home / users / filter / document / folder / phone / chart-bar / chart-pie / cog / shield
+  - 絵文字を使わない方針 (stroke-1.5 の細線で統一)
+- **active 状態**:
+  - 右にグラデーション (`from-emerald-600/20 to-emerald-600/5`)
+  - 左端に 3px の緑グラデーション縦バー
+  - アイコンも emerald-400 にハイライト
+  - 文字白
+- **ホバー**: `bg-slate-800/60 hover:text-slate-100` でスムーズに
+- **ユーザー枠** 下部:
+  - 緑グラデーション円形アバター + イニシャル
+  - ロールバッジ (管理者=amber / 営業=emerald) を outlined チップで
+  - パスワード / ログアウト を 2 列ボタンに集約
+- **カスタムスクロールバー** (`.custom-scrollbar`): 6px 幅、 半透明 slate、 ホバーで緑に
+- 各 group は visible items が 0 件なら group ごと非表示 (営業ロールで管理者用 group が空になるケース)
+
+---
+
 ## [2026-06-09] UI: 緑ベースに統一 + ブランドアクセントでスタイリッシュに
 
 **要望**: もっとスタイリッシュに。 callcenter は青なので fax-crm は緑ベース。 絵文字禁止 (継続)。
