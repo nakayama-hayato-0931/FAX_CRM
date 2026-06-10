@@ -55,7 +55,7 @@ export default function ChangePasswordModal({ onClose }) {
             <button type="button" onClick={onClose} disabled={busy}
                     className="px-4 py-1.5 text-sm bg-white border border-zinc-300 rounded">キャンセル</button>
             <button type="submit" disabled={busy}
-                    className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                    className="px-4 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
               {busy ? '変更中…' : '変更'}
             </button>
           </div>

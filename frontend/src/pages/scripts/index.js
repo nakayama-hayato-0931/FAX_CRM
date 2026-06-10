@@ -68,7 +68,7 @@ export default function ScriptsPage() {
         <div className="flex gap-2">
           <button onClick={reload} className="px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50">再読み込み</button>
           <button onClick={() => setShowRegister(true)}
-                  className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">+ 原稿を登録</button>
+                  className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700">+ 原稿を登録</button>
         </div>
       </div>
 
@@ -92,7 +92,7 @@ export default function ScriptsPage() {
             {GENDERS.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
           <div className="flex gap-2">
-            <button onClick={reload} className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">検索</button>
+            <button onClick={reload} className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700">検索</button>
             <button onClick={() => { setFilters({ q: '', nationality: '', gender: '', industry: '' }); setTimeout(reload, 0); }}
                     className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded-md">クリア</button>
           </div>
@@ -130,7 +130,7 @@ export default function ScriptsPage() {
               {!loading && items.map((r) => (
                 <tr key={r.id} className="border-t border-zinc-100 hover:bg-zinc-50/60">
                   <td className="px-3 py-2.5">
-                    <button onClick={() => setDetailId(r.id)} className="text-indigo-700 hover:underline font-medium text-left block">
+                    <button onClick={() => setDetailId(r.id)} className="text-emerald-700 hover:underline font-medium text-left block">
                       {r.title || `原稿 #${r.id}`}
                     </button>
                     {r.registration_no && <div className="text-xs text-zinc-500 font-mono">{r.registration_no}</div>}
@@ -151,7 +151,7 @@ export default function ScriptsPage() {
                     {r.pdf_file_path ? (
                       <a href={`${api.defaults.baseURL || ''}/api/manuscript-contents/${r.id}/pdf`}
                          target="_blank" rel="noreferrer"
-                         className="text-indigo-600 hover:text-indigo-800 underline text-xs">開く</a>
+                         className="text-emerald-600 hover:text-emerald-800 underline text-xs">開く</a>
                     ) : <span className="text-zinc-300 text-xs">—</span>}
                   </td>
                   <td className="px-3 py-2.5 text-right">

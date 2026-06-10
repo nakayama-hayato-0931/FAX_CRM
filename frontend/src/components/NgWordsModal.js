@@ -128,7 +128,7 @@ export default function NgWordsModal({ onClose }) {
                    disabled={busy}
                    className="border border-zinc-300 rounded px-2 py-1.5 text-sm" />
             <button type="submit" disabled={busy || !newWord.trim()}
-                    className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                    className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
               + 追加
             </button>
           </div>

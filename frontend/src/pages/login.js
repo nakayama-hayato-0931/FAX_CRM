@@ -47,11 +47,16 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-100">
-      <div className="bg-white rounded-xl shadow-md w-full max-w-sm p-8">
-        <div className="text-center mb-6">
-          <div className="text-xl font-bold text-zinc-900">Hitokiwa-FAX-CRM</div>
-          <div className="text-xs text-zinc-500 mt-1">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-zinc-50 via-emerald-50/30 to-teal-50/40 px-4">
+      <div className="bg-white rounded-2xl shadow-xl shadow-emerald-900/5 w-full max-w-sm p-8 border border-zinc-200/60 relative overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-700 via-emerald-500 to-teal-400" />
+        <div className="text-center mb-7 mt-1">
+          <div className="inline-flex items-center gap-2 mb-1">
+            <span className="inline-block w-1.5 h-5 bg-gradient-to-b from-emerald-500 to-emerald-700 rounded-sm" />
+            <div className="text-xl font-bold text-zinc-900 tracking-tight">Hitokiwa</div>
+          </div>
+          <div className="text-[10px] text-emerald-700 font-medium tracking-widest uppercase">FAX CRM</div>
+          <div className="text-xs text-zinc-500 mt-4">
             {mode === 'choice' ? '入室モードを選択してください' : '管理者ログイン'}
           </div>
         </div>
@@ -59,9 +64,9 @@ export default function LoginPage() {
         {mode === 'choice' && (
           <div className="space-y-3">
             <button type="button" onClick={goSales} disabled={busy}
-                    className="w-full py-3 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition">
+                    className="w-full py-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 transition">
               <div>受電報告</div>
-              <div className="text-[10px] text-indigo-100 font-normal mt-0.5">パスワード不要 / 受電応対だけ</div>
+              <div className="text-[10px] text-emerald-100 font-normal mt-0.5">パスワード不要 / 受電応対だけ</div>
             </button>
             <button type="button" onClick={() => setMode('admin')} disabled={busy}
                     className="w-full py-3 rounded-lg bg-white border border-zinc-300 text-zinc-700 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 transition">
@@ -88,12 +93,12 @@ export default function LoginPage() {
                      className="w-full border border-zinc-300 rounded-md px-3 py-2 text-sm" />
             </div>
             <button type="submit" disabled={busy}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-md text-sm font-medium disabled:opacity-50">
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-md text-sm font-medium disabled:opacity-50">
               {busy ? 'ログイン中…' : 'ログイン'}
             </button>
             <button type="button" onClick={() => { setMode('choice'); setUsername(''); setPassword(''); }}
                     disabled={busy}
-                    className="w-full text-xs text-zinc-500 hover:text-indigo-700 py-1">
+                    className="w-full text-xs text-zinc-500 hover:text-emerald-700 py-1">
               ← モード選択に戻る
             </button>
           </form>

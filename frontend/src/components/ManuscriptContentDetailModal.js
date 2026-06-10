@@ -166,7 +166,7 @@ export default function ManuscriptContentDetailModal({ manuscriptId, onClose, on
                             {Number(r.response_count) > 0 ? (
                               <button type="button"
                                       onClick={() => openResponseDetail(r)}
-                                      className="text-indigo-600 hover:text-indigo-800 underline font-medium"
+                                      className="text-emerald-600 hover:text-emerald-800 underline font-medium"
                                       title="反応詳細を表示">
                                 {r.response_count}
                               </button>
@@ -193,7 +193,7 @@ export default function ManuscriptContentDetailModal({ manuscriptId, onClose, on
                           </Td>
                           <Td>
                             {r.drive_url ? (
-                              <a href={r.drive_url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline text-xs">開く ↗</a>
+                              <a href={r.drive_url} target="_blank" rel="noreferrer" className="text-emerald-600 hover:underline text-xs">開く ↗</a>
                             ) : <span className="text-zinc-300">—</span>}
                           </Td>
                         </tr>

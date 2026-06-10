@@ -413,7 +413,7 @@ export default function CustomersPage() {
               <button
                 onClick={() => shadowBackfill(true)}
                 disabled={syncPushing || syncingBoth}
-                className="px-3 py-1.5 text-xs bg-white border border-purple-200 text-purple-700 rounded hover:bg-purple-50 disabled:opacity-50 whitespace-nowrap"
+                className="px-3 py-1.5 text-xs bg-white border border-emerald-200 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap"
                 title="Phase 2: 10件だけ callcenter DB に直接書き込んでみる"
               >
                 {syncPushing ? '実行中…' : 'Phase2 テスト書込 (10件)'}
@@ -421,7 +421,7 @@ export default function CustomersPage() {
               <button
                 onClick={() => shadowBackfill(false)}
                 disabled={syncPushing || syncingBoth}
-                className="px-3 py-1.5 text-xs bg-white border border-purple-300 text-purple-800 rounded hover:bg-purple-50 disabled:opacity-50 whitespace-nowrap"
+                className="px-3 py-1.5 text-xs bg-white border border-emerald-300 text-emerald-800 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap"
                 title="Phase 2: 全件 callcenter DB に直接書き込み (時間かかります)"
               >
                 {syncPushing ? '実行中…' : 'Phase2 全件バックフィル'}
@@ -542,7 +542,7 @@ export default function CustomersPage() {
           </details>
 
           <button onClick={() => setShowImport(true)}
-                  className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                  className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700">
             リストインポート
           </button>
         </div>
@@ -615,9 +615,9 @@ export default function CustomersPage() {
                                   className={[
                                     'flex-shrink-0 text-[10px] w-12 py-0.5 rounded font-medium transition',
                                     allSel
-                                      ? 'bg-indigo-600 text-white'
+                                      ? 'bg-emerald-600 text-white'
                                       : someSel
-                                        ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
                                         : 'bg-white text-zinc-500 border border-zinc-300 hover:bg-zinc-50',
                                   ].join(' ')}>
                             {g.region}
@@ -630,7 +630,7 @@ export default function CustomersPage() {
                                        className={[
                                          'cursor-pointer text-[11px] px-1.5 py-0.5 rounded border transition select-none',
                                          checked
-                                           ? 'bg-indigo-600 text-white border-indigo-600'
+                                           ? 'bg-emerald-600 text-white border-emerald-600'
                                            : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
                                        ].join(' ')}>
                                   <input type="checkbox" checked={checked}
@@ -669,7 +669,7 @@ export default function CustomersPage() {
           </select>
         </div>
         <div className="mt-3 flex gap-2">
-          <button className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+          <button className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
                   onClick={reload}>検索</button>
           <button className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded-md"
                   onClick={() => {
@@ -712,7 +712,7 @@ export default function CustomersPage() {
                     <button
                       type="button"
                       onClick={() => setDetail({ id: c.id, initialTab: 'overview' })}
-                      className="text-indigo-700 hover:underline font-medium text-left"
+                      className="text-emerald-700 hover:underline font-medium text-left"
                     >
                       {c.company_name}
                     </button>
@@ -728,7 +728,7 @@ export default function CustomersPage() {
                       <button
                         type="button"
                         onClick={() => setDetail({ id: c.id, initialTab: 'calls', channelFilter: 'call' })}
-                        className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2 font-medium"
+                        className="text-emerald-600 hover:text-emerald-800 underline underline-offset-2 font-medium"
                         title="架電結果の詳細を表示"
                       >
                         {c.call_count}

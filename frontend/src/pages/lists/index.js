@@ -14,7 +14,7 @@ const DEMO_BATCHES = [
 
 const STATUS_LABEL = {
   draft: { label: '下書き', cls: 'bg-zinc-100 text-zinc-700' },
-  ready: { label: '送信待ち', cls: 'bg-indigo-100 text-indigo-700' },
+  ready: { label: '送信待ち', cls: 'bg-emerald-100 text-emerald-700' },
   sent:  { label: '送信済', cls: 'bg-emerald-100 text-emerald-700' },
   failed:{ label: '失敗',   cls: 'bg-red-100 text-red-700' },
 };
@@ -116,7 +116,7 @@ export default function ListsPage() {
             NGワード
           </button>
           <Link href={`/lists/new${isDemo ? '?demo=1' : ''}`}
-                className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700">
             + 新規抽出
           </Link>
         </div>
@@ -174,7 +174,7 @@ export default function ListsPage() {
                     <td className="px-4 py-2.5 text-right">
                       <div className="flex gap-1 justify-end flex-wrap">
                         <button
-                          className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                          className="px-2 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700"
                           onClick={() => setResultBatchId(b.id)}
                         >
                           結果

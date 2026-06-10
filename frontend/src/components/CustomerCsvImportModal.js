@@ -10,7 +10,7 @@ const MODE_OPTIONS = [
       '(1) NG/既存リスト と 会社名・電話・FAX のいずれかで一致 → スキップ / ' +
       '(2) 非NG の 電話 or FAX と一致 → 肉付けマージ (既存データを補完) / ' +
       '(3) 非NG で 会社名のみ 一致 または 完全未一致 → 新規登録 (同名別企業として OK)',
-    badgeCls: 'bg-indigo-100 text-indigo-700 border-indigo-300',
+    badgeCls: 'bg-emerald-100 text-emerald-700 border-emerald-300',
   },
   {
     key: 'existing',
@@ -232,7 +232,7 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
             <div className="flex justify-end gap-2">
               <button type="button" className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md"
                       onClick={onClose} disabled={busy}>キャンセル</button>
-              <button type="submit" className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+              <button type="submit" className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50"
                       disabled={busy || !file}>
                 {uploading ? 'アップロード中…' : busy ? '処理中…' : `${activeMode.label} として取込`}
               </button>
@@ -275,7 +275,7 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
               <button className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50" onClick={resetForNext}>
                 次のインポートへ
               </button>
-              <button className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700" onClick={async () => { await resetForNext(); onCompleted && onCompleted(); }}>
+              <button className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700" onClick={async () => { await resetForNext(); onCompleted && onCompleted(); }}>
                 閉じる
               </button>
             </div>

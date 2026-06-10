@@ -269,12 +269,12 @@ export default function FaxStatsPage() {
           </button>
           <button onClick={() => sync('recent')} disabled={syncing}
                   title="直近7日分のみ upsert (高速)"
-                  className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
+                  className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50">
             {syncing ? '同期中…' : '直近1週間同期'}
           </button>
           <button onClick={() => sync('full')} disabled={syncing}
                   title="全期間 を upsert (時間がかかる)"
-                  className="px-3 py-2 text-sm bg-white border border-indigo-300 text-indigo-700 rounded-md hover:bg-indigo-50 disabled:opacity-50">
+                  className="px-3 py-2 text-sm bg-white border border-emerald-300 text-emerald-700 rounded-md hover:bg-emerald-50 disabled:opacity-50">
             {syncing ? '…' : '全件同期'}
           </button>
         </div>
@@ -290,7 +290,7 @@ export default function FaxStatsPage() {
                     className={[
                       'px-3 py-1.5 text-sm rounded-md border transition',
                       preset === p.key
-                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        ? 'bg-emerald-600 text-white border-emerald-600'
                         : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
                     ].join(' ')}>
               {p.label}
@@ -449,11 +449,11 @@ export default function FaxStatsPage() {
             )}
             {byPc.map((p) => (
               <tr key={p.pc_number}
-                  className="border-t border-zinc-100 hover:bg-indigo-50/40 cursor-pointer"
+                  className="border-t border-zinc-100 hover:bg-emerald-50/40 cursor-pointer"
                   onClick={() => openPcDetail(p.pc_number)}
                   title="クリックで日別明細を表示">
                 <td className="px-4 py-2 font-mono text-xs">
-                  <span className="text-indigo-700 hover:underline">{p.pc_number}</span>
+                  <span className="text-emerald-700 hover:underline">{p.pc_number}</span>
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{Number(p.sent || 0).toLocaleString()}</td>
                 <td className="px-4 py-2 text-right tabular-nums text-red-700">{Number(p.errors || 0).toLocaleString()}</td>

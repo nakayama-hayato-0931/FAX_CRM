@@ -438,7 +438,7 @@ export default function SettingsPage() {
         <button onClick={() => setReloadKey((k) => k + 1)}
                 className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md">再読込</button>
         <button onClick={save} disabled={saving}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
+                className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50">
           {saving ? '保存中…' : '設定を保存'}
         </button>
       </div>
@@ -493,7 +493,7 @@ export default function SettingsPage() {
             {savingSheets ? '保存中…' : 'シート設定を保存'}
           </button>
           <button onClick={syncSheets} disabled={syncing || !sheetsForm.sheet_id}
-                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                  className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
             {syncing ? '同期中…' : '今すぐ同期'}
           </button>
           {syncResult && syncResult.ok !== false && (
@@ -561,7 +561,7 @@ export default function SettingsPage() {
             {savingProjects ? '保存中…' : '案件シート設定を保存'}
           </button>
           <button onClick={syncProjects} disabled={syncingProjects || !projectsForm.projects_sheet_id}
-                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                  className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
             {syncingProjects ? '同期中…' : '今すぐ同期'}
           </button>
           {projectsSyncResult && (
@@ -630,7 +630,7 @@ export default function SettingsPage() {
             {savingJobs ? '保存中…' : '求人シート設定を保存'}
           </button>
           <button onClick={syncJobs} disabled={syncingJobs || !jobsForm.jobs_sheet_id}
-                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                  className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
             {syncingJobs ? '同期中…' : '今すぐ同期'}
           </button>
           {jobsSyncResult && (
@@ -701,7 +701,7 @@ export default function SettingsPage() {
             {savingInterviews ? '保存中…' : '面接シート設定を保存'}
           </button>
           <button onClick={syncInterviews} disabled={syncingInterviews || !interviewsForm.interviews_sheet_id}
-                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                  className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
             {syncingInterviews ? '同期中…' : '今すぐ同期'}
           </button>
           {interviewsSyncResult && (
@@ -750,7 +750,7 @@ function Toggle({ label, hint, checked, onChange }) {
       <button type="button" onClick={() => onChange(!checked)}
               className={[
                 'flex-shrink-0 relative inline-flex h-5 w-10 rounded-full transition mt-0.5',
-                checked ? 'bg-indigo-600' : 'bg-zinc-300',
+                checked ? 'bg-emerald-600' : 'bg-zinc-300',
               ].join(' ')}>
         <span className={[
           'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition',

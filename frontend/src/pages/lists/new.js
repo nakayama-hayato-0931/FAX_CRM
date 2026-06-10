@@ -205,7 +205,7 @@ export default function NewBatchPage() {
   if (result) {
     return (
       <div className="max-w-3xl">
-        <Link href={`/lists${isDemo ? '?demo=1' : ''}`} className="text-sm text-indigo-700 hover:underline">← リスト一覧へ</Link>
+        <Link href={`/lists${isDemo ? '?demo=1' : ''}`} className="text-sm text-emerald-700 hover:underline">← リスト一覧へ</Link>
         <h1 className="text-2xl font-bold text-zinc-900 mt-3">抽出完了</h1>
         <p className="text-zinc-500 text-sm mt-1">日付: {result.date} / 選択PC: {result.results.length}台</p>
 
@@ -246,7 +246,7 @@ export default function NewBatchPage() {
                   {r.batch?.batchId && (
                     <button type="button"
                             onClick={() => setResultBatchId(r.batch.batchId)}
-                            className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700">
+                            className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700">
                       結果
                     </button>
                   )}
@@ -274,7 +274,7 @@ export default function NewBatchPage() {
 
   return (
     <div className="max-w-3xl">
-      <Link href={`/lists${isDemo ? '?demo=1' : ''}`} className="text-sm text-indigo-700 hover:underline">← リスト一覧へ</Link>
+      <Link href={`/lists${isDemo ? '?demo=1' : ''}`} className="text-sm text-emerald-700 hover:underline">← リスト一覧へ</Link>
       <h1 className="text-2xl font-bold text-zinc-900 mt-3">新規リスト抽出</h1>
       <p className="text-zinc-500 mt-1 text-sm">
         「抽出件数 × PC台数」分の顧客を一括取得し、重複なく各 PC に分割して ドライブ格納の該当スロットに自動アップします。
@@ -345,9 +345,9 @@ export default function NewBatchPage() {
                       className={[
                         'flex-shrink-0 text-[10px] w-12 py-0.5 rounded font-medium transition',
                         allSelected
-                          ? 'bg-indigo-600 text-white'
+                          ? 'bg-emerald-600 text-white'
                           : someSelected
-                            ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                            ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
                             : 'bg-white text-zinc-500 border border-zinc-300 hover:bg-zinc-50',
                       ].join(' ')}
                       title={`${g.region} を一括選択/解除`}
@@ -362,7 +362,7 @@ export default function NewBatchPage() {
                                  className={[
                                    'cursor-pointer text-[11px] px-1.5 py-0.5 rounded border transition select-none',
                                    checked
-                                     ? 'bg-indigo-600 text-white border-indigo-600'
+                                     ? 'bg-emerald-600 text-white border-emerald-600'
                                      : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
                                  ].join(' ')}>
                             <input type="checkbox" checked={checked}
@@ -410,7 +410,7 @@ export default function NewBatchPage() {
               <input type="checkbox"
                      checked={form.excludeProjects}
                      onChange={(e) => { setForm({ ...form, excludeProjects: e.target.checked }); setPreviewCount(null); }}
-                     className="w-4 h-4 text-indigo-600 rounded" />
+                     className="w-4 h-4 text-emerald-600 rounded" />
               <span className="text-sm text-zinc-700">既に案件化済みの会社名を除外</span>
             </label>
           </Field>
@@ -420,12 +420,12 @@ export default function NewBatchPage() {
         <Field label="原稿を同時にスロットへ格納 (任意)"
                hint="選択すると、 リスト Excel と同じ日付/PC のスロットフォルダに 原稿 PDF も自動コピーされます (既に紐付け済みならスキップ)">
           {form.manuscript ? (
-            <div className="flex items-center justify-between gap-2 border border-indigo-200 bg-indigo-50 rounded-md px-3 py-2">
+            <div className="flex items-center justify-between gap-2 border border-emerald-200 bg-emerald-50 rounded-md px-3 py-2">
               <div className="text-sm min-w-0 flex-1">
-                <div className="font-medium text-indigo-900 truncate">
+                <div className="font-medium text-emerald-900 truncate">
                   {form.manuscript.title || `原稿 #${form.manuscript.id}`}
                 </div>
-                <div className="text-[11px] text-indigo-700/70 flex gap-2 flex-wrap mt-0.5">
+                <div className="text-[11px] text-emerald-700/70 flex gap-2 flex-wrap mt-0.5">
                   {form.manuscript.registration_no && <span>登録番号: {form.manuscript.registration_no}</span>}
                   {form.manuscript.nationality && <span>国籍: {form.manuscript.nationality}</span>}
                   {form.manuscript.gender && <span>性別: {form.manuscript.gender}</span>}
@@ -434,7 +434,7 @@ export default function NewBatchPage() {
               </div>
               <div className="flex gap-1 flex-shrink-0">
                 <button type="button" onClick={() => setShowManuscriptPicker(true)}
-                        className="px-2 py-1 text-xs bg-white border border-indigo-300 text-indigo-700 rounded hover:bg-indigo-100">
+                        className="px-2 py-1 text-xs bg-white border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-100">
                   変更
                 </button>
                 <button type="button" onClick={() => setForm({ ...form, manuscript: null })}
@@ -480,7 +480,7 @@ export default function NewBatchPage() {
           <div className="flex items-center justify-between mb-2">
             <div className="flex gap-2">
               <button type="button" onClick={selectAllPcs}
-                      className="text-xs text-indigo-700 hover:underline">全選択</button>
+                      className="text-xs text-emerald-700 hover:underline">全選択</button>
               <button type="button" onClick={clearAllPcs}
                       className="text-xs text-zinc-500 hover:underline">クリア</button>
             </div>
@@ -492,7 +492,7 @@ export default function NewBatchPage() {
                 <label key={pc}
                        className={[
                          'cursor-pointer text-center text-xs py-1.5 rounded border transition select-none',
-                         checked ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
+                         checked ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
                        ].join(' ')}>
                   <input type="checkbox" checked={checked} onChange={() => togglePc(pc)} className="sr-only" />
                   {pc}
@@ -509,7 +509,7 @@ export default function NewBatchPage() {
               {previewCount === null ? (
                 <span className="text-zinc-500">FAX番号が登録されている顧客 × 業種/都道府県/N日以内除外 を満たす件数</span>
               ) : (
-                <>該当件数 (FAX付き): <span className="font-bold text-lg text-indigo-700 tabular-nums">{previewCount.toLocaleString()}</span> 件
+                <>該当件数 (FAX付き): <span className="font-bold text-lg text-emerald-700 tabular-nums">{previewCount.toLocaleString()}</span> 件
                   {form.pcNumbers.length > 0 && (
                     <span className="ml-2 text-xs text-zinc-500">
                       (合計予定 {(Number(form.targetCount) * form.pcNumbers.length).toLocaleString()} 件)
@@ -537,7 +537,7 @@ export default function NewBatchPage() {
           <button type="submit" disabled={submitting || !form.pcNumbers.length}
                   className={[
                     'px-4 py-2 text-sm text-white rounded-md disabled:opacity-50',
-                    form.testMode ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700',
+                    form.testMode ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700',
                   ].join(' ')}>
             {submitting
               ? (form.testMode ? 'テスト抽出中…' : '抽出中…')

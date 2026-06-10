@@ -65,7 +65,7 @@ export default function AdminUsersPage() {
           <button onClick={() => setReloadKey((k) => k + 1)}
                   className="px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md hover:bg-zinc-50">再読み込み</button>
           <button onClick={() => setShowCreate(true)}
-                  className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">+ ユーザー追加</button>
+                  className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700">+ ユーザー追加</button>
         </div>
       </div>
 
@@ -204,7 +204,7 @@ function CreateUserModal({ onClose, onCompleted }) {
             <button type="button" onClick={onClose} disabled={busy}
                     className="px-4 py-1.5 text-sm bg-white border border-zinc-300 rounded">キャンセル</button>
             <button type="submit" disabled={busy}
-                    className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                    className="px-4 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
               {busy ? '作成中…' : '作成'}
             </button>
           </div>
@@ -249,7 +249,7 @@ function ResetPasswordModal({ user, onClose }) {
             <button type="button" onClick={onClose} disabled={busy}
                     className="px-4 py-1.5 text-sm bg-white border border-zinc-300 rounded">キャンセル</button>
             <button type="submit" disabled={busy}
-                    className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                    className="px-4 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
               {busy ? '変更中…' : '変更'}
             </button>
           </div>

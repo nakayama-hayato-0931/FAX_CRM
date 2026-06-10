@@ -158,14 +158,14 @@ export default function BatchInputPage() {
   if (loading) return <div className="text-zinc-400 py-12 text-center">読み込み中…</div>;
   if (!batch) return (
     <div>
-      <Link href={`/reports${isDemo ? '?demo=1' : ''}`} className="text-sm text-indigo-700 hover:underline">← 受電報告一覧へ</Link>
+      <Link href={`/reports${isDemo ? '?demo=1' : ''}`} className="text-sm text-emerald-700 hover:underline">← 受電報告一覧へ</Link>
       <div className="text-zinc-400 py-12 text-center">バッチが見つかりません</div>
     </div>
   );
 
   return (
     <div>
-      <Link href={`/reports${isDemo ? '?demo=1' : ''}`} className="text-sm text-indigo-700 hover:underline">← 受電報告一覧へ</Link>
+      <Link href={`/reports${isDemo ? '?demo=1' : ''}`} className="text-sm text-emerald-700 hover:underline">← 受電報告一覧へ</Link>
 
       <div className="mt-3 mb-6">
         <h1 className="text-2xl font-bold text-zinc-900">受電報告 - {batch.name}</h1>
@@ -230,7 +230,7 @@ export default function BatchInputPage() {
                       onClick={() => setActiveIdx(idx)}
                       className={[
                         'border-t border-zinc-100 cursor-pointer transition',
-                        active ? 'bg-indigo-50/60' : 'hover:bg-zinc-50/60',
+                        active ? 'bg-emerald-50/60' : 'hover:bg-zinc-50/60',
                       ].join(' ')}>
                     <td className="text-center px-2 py-2 tabular-nums text-xs text-zinc-500">{it.row_index}</td>
                     <td className="px-3 py-2 font-medium text-zinc-900">
@@ -276,7 +276,7 @@ export default function BatchInputPage() {
         <Link href={`/reports${isDemo ? '?demo=1' : ''}`}
               className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md">キャンセル</Link>
         <button onClick={save} disabled={saving}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
+                className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50">
           {saving ? '保存中…' : `${items.length} 件をまとめて保存`}
         </button>
       </div>

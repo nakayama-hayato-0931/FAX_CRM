@@ -146,7 +146,7 @@ export default function BulkSlotUploadModal({ date, slots, onClose, onCompleted 
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">{date} / 一斉格納</h2>
             <p className="text-xs text-zinc-500 mt-0.5">
-              各スロットの原稿は <a href="/scripts" target="_blank" rel="noreferrer" className="text-indigo-700 underline">原稿管理</a> から選択、
+              各スロットの原稿は <a href="/scripts" target="_blank" rel="noreferrer" className="text-emerald-700 underline">原稿管理</a> から選択、
               Excelリストはファイルから選択。「一括アップロード」で全スロットの Drive 格納をまとめて実行します。
             </p>
           </div>
@@ -179,7 +179,7 @@ export default function BulkSlotUploadModal({ date, slots, onClose, onCompleted 
                 return (
                   <tr key={s.id} className="border-t border-zinc-100">
                     <td className="px-3 py-2 align-top">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
                         {s.slot_number}
                       </span>
                     </td>
@@ -251,7 +251,7 @@ export default function BulkSlotUploadModal({ date, slots, onClose, onCompleted 
               type="button"
               onClick={runBulkUpload}
               disabled={uploading || !totalSelected}
-              className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+              className="px-4 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
             >
               {uploading ? 'アップロード中…' : '一括アップロード'}
             </button>
@@ -293,7 +293,7 @@ function ContentSlot({ content, onPick, onClear, disabled }) {
   }
   return (
     <button type="button" onClick={onPick} disabled={disabled}
-            className={`block w-full px-3 py-1.5 text-xs text-center rounded border bg-indigo-50 border-indigo-300 text-indigo-700 hover:bg-indigo-100 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            className={`block w-full px-3 py-1.5 text-xs text-center rounded border bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
       + 原稿を選択 (原稿管理から)
     </button>
   );

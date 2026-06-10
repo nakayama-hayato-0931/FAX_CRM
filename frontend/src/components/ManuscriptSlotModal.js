@@ -4,7 +4,7 @@ import { api } from '@/utils/api';
 import ManuscriptContentPicker from './ManuscriptContentPicker';
 
 const KIND_LABEL = {
-  manuscript: { label: '原稿',       cls: 'bg-indigo-100 text-indigo-700' },
+  manuscript: { label: '原稿',       cls: 'bg-emerald-100 text-emerald-700' },
   excel:      { label: 'Excelリスト', cls: 'bg-emerald-100 text-emerald-700' },
   other:      { label: 'その他',     cls: 'bg-zinc-100 text-zinc-700' },
 };
@@ -151,7 +151,7 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
                         className={`px-3 py-1.5 text-xs text-center rounded border ${
                           uploading === 'manuscript'
                             ? 'opacity-50 cursor-wait'
-                            : 'bg-indigo-50 border-indigo-300 text-indigo-700 hover:bg-indigo-100'}`}>
+                            : 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'}`}>
                   {uploading === 'manuscript' ? '紐づけ中…' : '+ 原稿を選択 (原稿管理から)'}
                 </button>
                 <label className={`px-3 py-1.5 text-xs text-center rounded border cursor-pointer ${
@@ -165,7 +165,7 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
                 </label>
               </div>
               <p className="text-[10px] text-zinc-500 mb-3">
-                原稿は事前に <a href="/scripts" target="_blank" rel="noreferrer" className="text-indigo-700 underline">原稿管理</a> で登録した PDF から選択してください。
+                原稿は事前に <a href="/scripts" target="_blank" rel="noreferrer" className="text-emerald-700 underline">原稿管理</a> で登録した PDF から選択してください。
               </p>
 
               {loadingFiles && <div className="text-xs text-zinc-400 text-center py-2">読み込み中…</div>}
@@ -181,7 +181,7 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
                         <span className={`px-1.5 py-0.5 rounded text-[10px] ${kindMeta.cls}`}>{kindMeta.label}</span>
                         <div className="flex-1 min-w-0">
                           <a href={f.drive_url} target="_blank" rel="noreferrer"
-                             className="text-indigo-700 hover:underline truncate block" title={f.original_name}>
+                             className="text-emerald-700 hover:underline truncate block" title={f.original_name}>
                             {f.content_title || f.original_name}
                           </a>
                           {f.manuscript_content_id && (
@@ -206,7 +206,7 @@ export default function ManuscriptSlotModal({ slot, onClose, onSaved, isDemo }) 
             <button type="button" onClick={onClose} disabled={busy}
                     className="px-4 py-1.5 text-sm bg-white border border-zinc-300 rounded hover:bg-zinc-50">キャンセル</button>
             <button type="submit" disabled={busy}
-                    className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                    className="px-4 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
               {busy ? '保存中…' : '保存'}
             </button>
           </div>

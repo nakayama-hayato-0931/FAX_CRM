@@ -12,7 +12,28 @@ function Shell({ Component, pageProps }) {
     return (
       <>
         <Component {...pageProps} />
-        <Toaster position="top-right" />
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: '#fff',
+              color: '#18181b',
+              border: '1px solid #e4e4e7',
+              borderRadius: '8px',
+              fontSize: '13px',
+              padding: '10px 14px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+            },
+            success: {
+              iconTheme: { primary: '#059669', secondary: '#fff' },
+              style: { borderLeft: '3px solid #059669' },
+            },
+            error: {
+              iconTheme: { primary: '#dc2626', secondary: '#fff' },
+              style: { borderLeft: '3px solid #dc2626' },
+            },
+          }}
+        />
       </>
     );
   }
@@ -35,7 +56,28 @@ function Shell({ Component, pageProps }) {
   return (
     <Layout>
       <Component {...pageProps} />
-      <Toaster position="top-right" />
+      <Toaster
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: '#fff',
+              color: '#18181b',
+              border: '1px solid #e4e4e7',
+              borderRadius: '8px',
+              fontSize: '13px',
+              padding: '10px 14px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+            },
+            success: {
+              iconTheme: { primary: '#059669', secondary: '#fff' },
+              style: { borderLeft: '3px solid #059669' },
+            },
+            error: {
+              iconTheme: { primary: '#dc2626', secondary: '#fff' },
+              style: { borderLeft: '3px solid #dc2626' },
+            },
+          }}
+        />
     </Layout>
   );
 }

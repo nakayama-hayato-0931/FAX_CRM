@@ -119,7 +119,7 @@ export default function OutsourcedFaxSection({ isDemo, onChanged }) {
           </p>
         </div>
         <button onClick={openNew}
-                className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700">
           + 新規追加
         </button>
       </div>
@@ -153,7 +153,7 @@ export default function OutsourcedFaxSection({ isDemo, onChanged }) {
                 <td className="px-4 py-2 text-right tabular-nums">{yen(r.cost)}</td>
                 <td className="px-4 py-2 text-xs text-zinc-600 max-w-[200px] truncate">{r.memo || '—'}</td>
                 <td className="px-4 py-2 text-right">
-                  <button onClick={() => openEdit(r)} className="text-xs text-indigo-600 hover:underline mr-2">編集</button>
+                  <button onClick={() => openEdit(r)} className="text-xs text-emerald-600 hover:underline mr-2">編集</button>
                   <button onClick={() => remove(r)} className="text-xs text-red-600 hover:underline">削除</button>
                 </td>
               </tr>
@@ -206,7 +206,7 @@ export default function OutsourcedFaxSection({ isDemo, onChanged }) {
               <button onClick={() => setShowForm(false)}
                       className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md">キャンセル</button>
               <button onClick={save}
-                      className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                      className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700">
                 保存
               </button>
             </div>

@@ -25,7 +25,7 @@ const DEMO_TIMELINE = [
 ];
 
 const CHANNEL_META = {
-  fax:     { label: 'FAX',     color: 'bg-indigo-100 text-indigo-700 border-indigo-300' },
+  fax:     { label: 'FAX',     color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
   call:    { label: 'コール',  color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
   email:   { label: 'メール',  color: 'bg-sky-100 text-sky-700 border-sky-300' },
   sns:     { label: 'SNS',     color: 'bg-pink-100 text-pink-700 border-pink-300' },
@@ -42,7 +42,7 @@ const EVENT_TYPE_LABEL = {
 };
 
 const SOURCE_BADGE = {
-  'fax-crm': 'bg-indigo-50 text-indigo-700',
+  'fax-crm': 'bg-emerald-50 text-emerald-700',
   'callcenter-ai': 'bg-emerald-50 text-emerald-700',
   'manual': 'bg-zinc-50 text-zinc-700',
 };
@@ -103,7 +103,7 @@ export default function CustomerDetailPage() {
   if (!customer) return (
     <div>
       <Link href={`/customers${isDemo ? '?demo=1' : ''}`}
-            className="text-sm text-indigo-700 hover:underline">← 顧客一覧へ</Link>
+            className="text-sm text-emerald-700 hover:underline">← 顧客一覧へ</Link>
       <div className="text-zinc-400 py-12 text-center">顧客が見つかりません</div>
     </div>
   );
@@ -111,7 +111,7 @@ export default function CustomerDetailPage() {
   return (
     <div>
       <Link href={`/customers${isDemo ? '?demo=1' : ''}`}
-            className="text-sm text-indigo-700 hover:underline">← 顧客一覧へ</Link>
+            className="text-sm text-emerald-700 hover:underline">← 顧客一覧へ</Link>
 
       <div className="mt-3 flex items-end justify-between mb-6">
         <div>
@@ -144,7 +144,7 @@ export default function CustomerDetailPage() {
                   className={[
                     'pb-2 -mb-px border-b-2 transition',
                     activeTab === t.key
-                      ? 'border-indigo-600 text-indigo-700 font-medium'
+                      ? 'border-emerald-600 text-emerald-700 font-medium'
                       : 'border-transparent text-zinc-500 hover:text-zinc-700',
                   ].join(' ')}>
             {t.label}

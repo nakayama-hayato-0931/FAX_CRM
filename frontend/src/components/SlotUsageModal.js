@@ -121,7 +121,7 @@ export default function SlotUsageModal({ slot, isDemo, onClose }) {
                     className={[
                       'pb-2 -mb-px border-b-2 transition',
                       tab === t.key
-                        ? 'border-indigo-600 text-indigo-700 font-medium'
+                        ? 'border-emerald-600 text-emerald-700 font-medium'
                         : 'border-transparent text-zinc-500 hover:text-zinc-700',
                     ].join(' ')}>
               {t.label}

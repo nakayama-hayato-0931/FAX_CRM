@@ -49,7 +49,7 @@ export default function FaxStatsImportModal({ onClose, onCompleted }) {
             <div className="flex justify-end gap-2">
               <button type="button" className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md"
                       onClick={onClose} disabled={busy}>キャンセル</button>
-              <button type="submit" className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+              <button type="submit" className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50"
                       disabled={busy || !file}>
                 {busy ? 'アップロード中…' : 'インポート実行'}
               </button>
@@ -75,7 +75,7 @@ export default function FaxStatsImportModal({ onClose, onCompleted }) {
               </dl>
             </div>
             <div className="flex justify-end">
-              <button className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md" onClick={onCompleted}>閉じる</button>
+              <button className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-md" onClick={onCompleted}>閉じる</button>
             </div>
           </div>
         )}

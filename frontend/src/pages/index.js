@@ -45,42 +45,51 @@ const PENDING = [
 
 export default function HomePage() {
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-zinc-900">Hitokiwa-FAX-CRM-System</h1>
-      <p className="text-zinc-500 mt-1">FAX リードCRMシステム</p>
+    <div className="max-w-6xl">
+      {/* Hero */}
+      <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-700 px-8 py-7 shadow-sm">
+        <div className="absolute -right-10 -top-10 w-48 h-48 bg-emerald-400/20 rounded-full blur-3xl" />
+        <div className="absolute -left-10 -bottom-16 w-56 h-56 bg-teal-300/20 rounded-full blur-3xl" />
+        <div className="relative">
+          <div className="text-[11px] font-medium text-emerald-100 tracking-widest uppercase">Hitokiwa</div>
+          <h1 className="text-2xl font-bold text-white mt-1">FAX CRM System</h1>
+          <p className="text-emerald-50/80 text-sm mt-2">FAX 配信から 受電 / 案件化 / 売上 までを 1 つの動線で。</p>
+        </div>
+      </div>
 
-      <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mt-8 mb-3">実装済み</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <h2 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest mt-8 mb-3 flex items-center gap-2">
+        <span className="w-1 h-3 bg-emerald-500 rounded-sm" />
+        実装済み
+      </h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {DONE.map((d) => (
           <Link key={d.href} href={d.href}
-                className="block p-5 bg-white border border-zinc-200 rounded-lg hover:border-indigo-300 hover:shadow-sm transition">
-            <div className="text-xs text-indigo-600 font-medium">実装済み</div>
-            <div className="text-lg font-semibold text-zinc-900 mt-1">{d.title}</div>
-            <div className="text-sm text-zinc-500 mt-2">{d.desc}</div>
+                className="group block p-5 bg-white border border-zinc-200 rounded-lg hover:border-emerald-400 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150">
+            <div className="flex items-center gap-2 text-[10px] text-emerald-700 font-semibold tracking-wider uppercase">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              Active
+            </div>
+            <div className="text-base font-semibold text-zinc-900 mt-1.5 group-hover:text-emerald-800 transition-colors">{d.title}</div>
+            <div className="text-xs text-zinc-500 mt-1.5 leading-relaxed">{d.desc}</div>
           </Link>
         ))}
       </div>
 
-      <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mt-8 mb-3">これから実装</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <h2 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest mt-8 mb-3 flex items-center gap-2">
+        <span className="w-1 h-3 bg-zinc-400 rounded-sm" />
+        これから実装
+      </h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {PENDING.map((p) => (
-          <div key={p.title} className="block p-5 bg-zinc-50 border border-zinc-200 rounded-lg">
-            <div className="text-xs text-zinc-500 font-medium">未着手</div>
-            <div className="text-lg font-semibold text-zinc-700 mt-1">{p.title}</div>
-            <div className="text-sm text-zinc-500 mt-2">{p.desc}</div>
+          <div key={p.title} className="block p-5 bg-zinc-50/60 border border-dashed border-zinc-300 rounded-lg">
+            <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-semibold tracking-wider uppercase">
+              <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
+              Planned
+            </div>
+            <div className="text-base font-semibold text-zinc-700 mt-1.5">{p.title}</div>
+            <div className="text-xs text-zinc-500 mt-1.5 leading-relaxed">{p.desc}</div>
           </div>
         ))}
-      </div>
-
-      <div className="mt-8 p-5 bg-white border border-zinc-200 rounded-lg">
-        <h2 className="font-semibold text-zinc-800 mb-2 text-sm">セットアップ</h2>
-        <ol className="list-decimal pl-5 text-sm text-zinc-600 space-y-1">
-          <li><code>backend/.env</code> を作成し MySQL 情報を設定</li>
-          <li><code>npm --prefix backend run migrate</code> でテーブル作成</li>
-          <li><code>npm --prefix backend run dev</code> で API 起動 (4001)</li>
-          <li><code>npm --prefix frontend run dev</code> で UI 起動 (3001)</li>
-          <li>DB未設定でも <code>?demo=1</code> でサンプルデータ表示可能</li>
-        </ol>
       </div>
     </div>
   );

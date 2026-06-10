@@ -78,7 +78,7 @@ export default function ReportsIndex() {
                     if (isDemo) { toast('デモ表示中は入力できません'); return; }
                     setShowManual(true);
                   }}
-                  className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                  className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700">
             + 手動入力
           </button>
         </div>
@@ -139,7 +139,7 @@ export default function ReportsIndex() {
                       onClick={() => setDetail(r)}>
                     <td className="px-4 py-2.5 text-xs">{r.send_date}</td>
                     <td className="px-4 py-2.5">
-                      <span className="text-indigo-700 hover:underline">{r.company_name}</span>
+                      <span className="text-emerald-700 hover:underline">{r.company_name}</span>
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs">{r.fax_number || '—'}</td>
                     <td className="px-4 py-2.5 font-mono text-xs">{r.pc_number}</td>
@@ -193,7 +193,7 @@ function ReportDetailModal({ report, onClose, isDemo }) {
         <div className="p-6 space-y-2 text-sm">
           <Row k="顧客">
             <Link href={`/customers/${report.customer_id}${isDemo ? '?demo=1' : ''}`}
-                  className="text-indigo-700 hover:underline font-medium">{report.company_name}</Link>
+                  className="text-emerald-700 hover:underline font-medium">{report.company_name}</Link>
             <span className="text-zinc-500 ml-2">ID: {report.customer_id}</span>
           </Row>
           <Row k="FAX番号" v={report.fax_number} mono />

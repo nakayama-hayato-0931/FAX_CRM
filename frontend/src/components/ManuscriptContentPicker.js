@@ -106,7 +106,7 @@ export default function ManuscriptContentPicker({ onClose, onSelect, excludeCont
             <div className="px-4 py-16 text-center text-zinc-400 text-sm">読み込み中…</div>
           ) : items.length === 0 ? (
             <div className="px-4 py-16 text-center text-zinc-400 text-sm">
-              該当する原稿がありません。先に <a href="/scripts" className="text-indigo-700 underline">原稿管理</a> で登録してください。
+              該当する原稿がありません。先に <a href="/scripts" className="text-emerald-700 underline">原稿管理</a> で登録してください。
             </div>
           ) : (
             <table className="w-full text-sm">
@@ -125,7 +125,7 @@ export default function ManuscriptContentPicker({ onClose, onSelect, excludeCont
                   const isExcluded = excluded.has(r.id);
                   const hasPdf = !!(r.pdf_drive_file_id || r.pdf_file_path);
                   return (
-                    <tr key={r.id} className={`border-t border-zinc-100 ${isExcluded ? 'bg-zinc-50/80' : 'hover:bg-indigo-50/40'}`}>
+                    <tr key={r.id} className={`border-t border-zinc-100 ${isExcluded ? 'bg-zinc-50/80' : 'hover:bg-emerald-50/40'}`}>
                       <td className="px-3 py-2">
                         <div className={`text-sm ${r.title ? 'text-zinc-900 font-medium' : 'text-zinc-400'}`}>
                           {r.title || `原稿 #${r.id}`}
@@ -149,7 +149,7 @@ export default function ManuscriptContentPicker({ onClose, onSelect, excludeCont
                           <button type="button"
                                   disabled={!hasPdf}
                                   onClick={() => { onSelect(r); onClose(); }}
-                                  className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-40">
+                                  className="px-2 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-40">
                             選択
                           </button>
                         )}

@@ -249,13 +249,13 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                 <button type="button"
                         onClick={() => { setMode('search'); setCustomer(null); }}
                         className={['px-3 py-1.5 text-xs transition',
-                          mode === 'search' ? 'bg-indigo-600 text-white' : 'bg-white text-zinc-700 hover:bg-zinc-50'].join(' ')}>
+                          mode === 'search' ? 'bg-emerald-600 text-white' : 'bg-white text-zinc-700 hover:bg-zinc-50'].join(' ')}>
                   既存顧客を検索
                 </button>
                 <button type="button"
                         onClick={() => { setMode('direct'); setCustomer(null); }}
                         className={['px-3 py-1.5 text-xs transition border-l border-zinc-300',
-                          mode === 'direct' ? 'bg-indigo-600 text-white' : 'bg-white text-zinc-700 hover:bg-zinc-50'].join(' ')}>
+                          mode === 'direct' ? 'bg-emerald-600 text-white' : 'bg-white text-zinc-700 hover:bg-zinc-50'].join(' ')}>
                   直接入力
                 </button>
               </div>
@@ -285,7 +285,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                           <li key={c.id}>
                             <button type="button"
                                     onClick={() => { setCustomer(c); setQuery(''); setCandidates([]); }}
-                                    className="block w-full text-left px-3 py-1.5 text-sm hover:bg-indigo-50">
+                                    className="block w-full text-left px-3 py-1.5 text-sm hover:bg-emerald-50">
                               <div className="font-medium">{c.company_name}</div>
                               <div className="text-xs text-zinc-500">
                                 {c.fax_number ? `FAX: ${c.fax_number}` : ''}
@@ -372,7 +372,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                             className={[
                               'px-3 py-1.5 text-sm rounded border transition',
                               selected
-                                ? 'bg-indigo-600 text-white border-indigo-600 font-medium'
+                                ? 'bg-emerald-600 text-white border-emerald-600 font-medium'
                                 : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
                             ].join(' ')}>
                       {o.name}
@@ -382,7 +382,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                 {/* 自動補完された値が マスタに無い場合も 選択中として表示 */}
                 {form.salesOwner && !salesOwners.some((o) => o.name === form.salesOwner) && (
                   <button type="button"
-                          className="px-3 py-1.5 text-sm rounded border bg-indigo-600 text-white border-indigo-600 font-medium">
+                          className="px-3 py-1.5 text-sm rounded border bg-emerald-600 text-white border-emerald-600 font-medium">
                     {form.salesOwner}
                   </button>
                 )}
@@ -401,7 +401,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                            autoFocus disabled={addingOwner}
                            className="border border-zinc-300 rounded px-2 py-1.5 text-sm w-32" />
                     <button type="button" onClick={addSalesOwner} disabled={addingOwner}
-                            className="px-2 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                            className="px-2 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
                       追加
                     </button>
                     <button type="button" onClick={() => { setShowNewOwner(false); setNewOwnerName(''); }}
@@ -425,7 +425,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                           className={[
                             'px-3 py-1.5 text-sm rounded border transition',
                             form.result === r.v
-                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              ? 'bg-emerald-600 text-white border-emerald-600'
                               : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
                           ].join(' ')}>
                     {r.l}
@@ -452,7 +452,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                               || !form.salesOwner || !form.salesOwner.trim()
                               || (mode === 'search' && !customer)
                               || (mode === 'direct' && !direct.company_name.trim() && !direct.fax_number && !direct.phone_number)}
-                    className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                    className="px-4 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
               {busy ? '保存中…' : '保存'}
             </button>
           </div>
@@ -490,9 +490,9 @@ function SelectedCustomerPanel({ customer, detail, timeline, timelineExpanded, o
   const faxEventCount = (timeline || []).filter((e) => e.channel === 'fax').length;
 
   return (
-    <div className="bg-indigo-50/60 border border-indigo-200 rounded">
+    <div className="bg-emerald-50/60 border border-emerald-200 rounded">
       {/* ヘッダ: 会社名 + 変更ボタン */}
-      <div className="flex items-start justify-between px-3 py-2 border-b border-indigo-100">
+      <div className="flex items-start justify-between px-3 py-2 border-b border-emerald-100">
         <div className="min-w-0 flex-1">
           <div className="font-medium text-zinc-900 truncate">{d.company_name}</div>
           <div className="text-xs text-zinc-600 mt-0.5">
@@ -507,7 +507,7 @@ function SelectedCustomerPanel({ customer, detail, timeline, timelineExpanded, o
             </span>
           )}
           <button type="button" onClick={onChange}
-                  className="text-xs text-indigo-700 hover:underline">変更</button>
+                  className="text-xs text-emerald-700 hover:underline">変更</button>
         </div>
       </div>
 
@@ -532,12 +532,12 @@ function SelectedCustomerPanel({ customer, detail, timeline, timelineExpanded, o
       {d.url && (
         <div className="px-3 pb-2 text-[11px]">
           <span className="text-zinc-500">URL:</span>{' '}
-          <a href={d.url} target="_blank" rel="noreferrer" className="text-indigo-700 hover:underline break-all">{d.url}</a>
+          <a href={d.url} target="_blank" rel="noreferrer" className="text-emerald-700 hover:underline break-all">{d.url}</a>
         </div>
       )}
 
       {/* KPI バー */}
-      <div className="px-3 py-2 border-t border-indigo-100 grid grid-cols-4 gap-2 text-[11px]">
+      <div className="px-3 py-2 border-t border-emerald-100 grid grid-cols-4 gap-2 text-[11px]">
         <Kpi k="累計送信回数" v={sendCount.toLocaleString()} />
         <Kpi k="架電イベント" v={callCount} />
         <Kpi k="反応回数" v={responseCount} highlight={responseCount > 0} />
@@ -551,9 +551,9 @@ function SelectedCustomerPanel({ customer, detail, timeline, timelineExpanded, o
       </div>
 
       {/* タイムライン (折りたたみ) */}
-      <div className="border-t border-indigo-100">
+      <div className="border-t border-emerald-100">
         <button type="button" onClick={onToggleTimeline}
-                className="w-full text-left px-3 py-1.5 text-xs text-zinc-700 hover:bg-indigo-100/60 flex items-center justify-between">
+                className="w-full text-left px-3 py-1.5 text-xs text-zinc-700 hover:bg-emerald-100/60 flex items-center justify-between">
           <span>
             <span className="font-medium">過去アクション履歴</span>
             {!loading && <span className="ml-1 text-zinc-500">({(timeline || []).length} 件)</span>}

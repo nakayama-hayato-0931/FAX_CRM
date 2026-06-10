@@ -9,6 +9,37 @@
 
 ---
 
+## [2026-06-09] UI: 緑ベースに統一 + ブランドアクセントでスタイリッシュに
+
+**要望**: もっとスタイリッシュに。 callcenter は青なので fax-crm は緑ベース。 絵文字禁止 (継続)。
+
+**変更**:
+- **一括カラー置換** (31 ファイル): プライマリ `indigo` / `violet` / `fuchsia` / `purple` → **`emerald`** に統一
+  - `bg-indigo-600` (96 箇所) → `bg-emerald-600` 等、 すべての prefix (text/bg/border/ring/from/to/via/fill/stroke 等) 一括 sed
+  - 残存ゼロ確認 (`bg-emerald-*` のみに正規化)
+- **Layout**:
+  - sidebar に 上部ブランドアクセント (深緑→緑→ティールのグラデーション帯)
+  - ロゴ部分に 緑バー + 「FAX CRM」 サブラベル (uppercase tracking-widest)
+  - nav active 項目: 左に 2px の緑インセットボーダー (`shadow-[inset_2px_0_0_0]`) + 文字色強調
+  - hover に スムーズトランジション (`transition-all duration-150`)
+  - ユーザー枠を `bg-zinc-50/50` に分離、 ロール表示を色分け
+  - 全体 bg を `bg-zinc-50` でほんのり階調
+- **ホーム**:
+  - Hero セクション 新設 — 深緑→ティールのグラデーション + ぼかしブロブ装飾
+  - カードに hover translateY + shadow + 色付き Active バッジ
+  - 「これから実装」 を dashed border で 視覚的に分離
+- **ログイン**:
+  - 背景を緑系の柔らかいグラデーションに
+  - カードに 上部アクセント帯 + emerald shadow + uppercase ブランドラベル
+- **Toaster** (react-hot-toast):
+  - 白背景 + 細い緑/赤の左ボーダー
+  - 成功: emerald-600 / 失敗: red-600 アイコンテーマ
+  - 角丸 + 控えめ shadow
+
+**運用**: callcenter の青系 (`indigo`/`blue`) と視覚的に明確に区別。 絵文字ゼロ確認済 (grep で 0 件)。
+
+---
+
 ## [2026-06-09] Layout: max-width 1500px 制限を撤廃 (ワイドモニタ対応)
 
 **要望**: CPA 画面など 横長テーブルが ワイドモニタで全部見れるようにしたい。

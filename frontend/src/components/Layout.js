@@ -43,25 +43,35 @@ export default function Layout({ children }) {
         <title>Hitokiwa-FAX-CRM-System</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
-      <div className="flex h-screen overflow-hidden">
-        <aside className="w-56 flex-shrink-0 bg-white border-r border-zinc-200 flex flex-col">
-          <div className="px-5 py-4 border-b border-zinc-200">
-            <div className="text-[13px] font-bold text-zinc-900 tracking-tight leading-tight">Hitokiwa-FAX-CRM-System</div>
-            <div className="text-[11px] text-zinc-500 mt-0.5">FAX リードCRM</div>
+      <div className="flex h-screen overflow-hidden bg-zinc-50">
+        <aside className="w-60 flex-shrink-0 bg-white border-r border-zinc-200 flex flex-col relative">
+          {/* 上部 ブランドアクセント (深緑→緑のグラデーション) */}
+          <div className="h-1 bg-gradient-to-r from-emerald-700 via-emerald-500 to-teal-400" />
+
+          <div className="px-5 py-5">
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-2 h-6 bg-gradient-to-b from-emerald-500 to-emerald-700 rounded-sm" />
+              <div>
+                <div className="text-[13px] font-bold text-zinc-900 tracking-tight leading-tight">Hitokiwa</div>
+                <div className="text-[10px] text-emerald-700 font-medium tracking-widest uppercase mt-0.5">FAX CRM</div>
+              </div>
+            </div>
           </div>
 
-          <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
+          <nav className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5">
             {nav.map((n) => {
               const active = isActive(pathname, n.href);
               return (
                 <Link key={n.href} href={n.href}
                       className={[
-                        'block px-3 py-2 rounded-md text-sm transition',
-                        active ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-zinc-700 hover:bg-zinc-50',
+                        'group relative flex items-center px-3 py-2 rounded-md text-sm transition-all duration-150',
+                        active
+                          ? 'bg-emerald-50 text-emerald-800 font-medium shadow-[inset_2px_0_0_0_theme(colors.emerald.600)]'
+                          : 'text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900',
                       ].join(' ')}>
-                  {n.label}
+                  <span className="flex-1">{n.label}</span>
                   {n.adminOnly && (
-                    <span className="ml-1 text-[9px] text-amber-600 bg-amber-50 px-1 rounded align-middle">管理者</span>
+                    <span className="ml-2 text-[9px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">管理者</span>
                   )}
                 </Link>
               );
@@ -69,23 +79,26 @@ export default function Layout({ children }) {
           </nav>
 
           {/* ユーザー情報 + ログアウト */}
-          <div className="px-3 py-3 border-t border-zinc-200">
+          <div className="px-3 py-3 border-t border-zinc-200 bg-zinc-50/50">
             {user && (
               <div className="text-xs text-zinc-600 mb-2 px-2">
                 <div className="font-medium text-zinc-800 truncate">
                   {user.display_name || user.username}
                 </div>
-                <div className="text-[10px] text-zinc-500">
-                  {user.role === 'admin' ? '管理者' : '営業'} ({user.username})
+                <div className="text-[10px] text-zinc-500 mt-0.5">
+                  <span className={user.role === 'admin' ? 'text-amber-700' : 'text-emerald-700'}>
+                    {user.role === 'admin' ? '管理者' : '営業'}
+                  </span>
+                  <span className="ml-1 text-zinc-400">({user.username})</span>
                 </div>
               </div>
             )}
             <button onClick={() => setShowPwModal(true)}
-                    className="w-full text-left text-xs text-zinc-600 hover:text-indigo-700 px-2 py-1 rounded">
+                    className="w-full text-left text-xs text-zinc-600 hover:text-emerald-700 hover:bg-white px-2 py-1.5 rounded transition">
               パスワード変更
             </button>
             <button onClick={logout}
-                    className="w-full text-left text-xs text-zinc-600 hover:text-red-700 px-2 py-1 rounded">
+                    className="w-full text-left text-xs text-zinc-600 hover:text-rose-700 hover:bg-white px-2 py-1.5 rounded transition">
               ログアウト
             </button>
             <div className="px-2 pt-2 text-[10px] text-zinc-400">v0.1.0</div>
@@ -94,8 +107,7 @@ export default function Layout({ children }) {
 
         <main className="flex-1 overflow-y-auto">
           {/* max-width 制限を撤廃 — CPA/FAX送信実績 等 横長テーブル系で
-              ワイドモニタの幅を活かせるように。 文章中心ページは内部の
-              レイアウト (max-w-3xl 等) で調整する */}
+              ワイドモニタの幅を活かせるように */}
           <div className="px-8 py-6">{children}</div>
         </main>
       </div>

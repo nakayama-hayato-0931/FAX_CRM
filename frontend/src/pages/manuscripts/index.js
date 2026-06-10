@@ -95,7 +95,7 @@ export default function ManuscriptsIndex() {
                    value={newDate} onChange={(e) => setNewDate(e.target.value)} />
           </div>
           <button onClick={createDate} disabled={creating}
-                  className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
+                  className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50">
             {creating ? '作成中…' : `${newDate} に 23スロット作成`}
           </button>
           <span className="text-xs text-zinc-500 ml-2">既存スロットはそのまま、不足分のみ追加</span>
@@ -124,7 +124,7 @@ export default function ManuscriptsIndex() {
               return (
                 <Link key={d.folder_date}
                       href={`/manuscripts/${d.folder_date}${isDemo ? '?demo=1' : ''}`}
-                      className="block bg-white border border-zinc-200 rounded-lg p-4 hover:border-indigo-300 hover:shadow-sm transition">
+                      className="block bg-white border border-zinc-200 rounded-lg p-4 hover:border-emerald-300 hover:shadow-sm transition">
                   <div className="flex items-center justify-between">
                     <div className="text-lg font-semibold text-zinc-900">
                       {d.folder_date}
@@ -141,7 +141,7 @@ export default function ManuscriptsIndex() {
                   </div>
                   {/* 進捗バー */}
                   <div className="mt-2 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-indigo-500 transition-all"
+                    <div className="h-full bg-emerald-500 transition-all"
                          style={{ width: `${(filled / slot) * 100}%` }} />
                   </div>
                 </Link>

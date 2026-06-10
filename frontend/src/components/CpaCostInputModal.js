@@ -195,7 +195,7 @@ export default function CpaCostInputModal({ month, monthLabel, row, costPerFax, 
                 概算に戻す
               </button>
               <button type="button" onClick={saveInHouse} disabled={busy}
-                      className="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                      className="px-3 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
                 自社FAX を保存
               </button>
             </div>
@@ -256,7 +256,7 @@ export default function CpaCostInputModal({ month, monthLabel, row, costPerFax, 
           </section>
 
           {/* === 合計プレビュー === */}
-          <section className="bg-indigo-50 border border-indigo-200 rounded p-3 text-xs space-y-1">
+          <section className="bg-emerald-50 border border-emerald-200 rounded p-3 text-xs space-y-1">
             <div className="flex justify-between">
               <span className="text-zinc-600">自社FAX:</span>
               <span className="tabular-nums">{yen(effectiveInHouse)}
@@ -264,7 +264,7 @@ export default function CpaCostInputModal({ month, monthLabel, row, costPerFax, 
               </span>
             </div>
             <div className="flex justify-between"><span className="text-zinc-600">外注費:</span><span className="tabular-nums">{yen(effectiveOutsourced)}</span></div>
-            <div className="flex justify-between border-t border-indigo-200 pt-1 mt-1 font-semibold text-indigo-900">
+            <div className="flex justify-between border-t border-emerald-200 pt-1 mt-1 font-semibold text-emerald-900">
               <span>合計コスト (CPA 表に反映):</span>
               <span className="tabular-nums">{yen(total)}</span>
             </div>

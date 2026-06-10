@@ -148,7 +148,7 @@ export default function ManuscriptDatePage() {
   return (
     <div>
       <Link href={`/manuscripts${isDemo ? '?demo=1' : ''}`}
-            className="text-sm text-indigo-700 hover:underline">← 原稿一覧へ</Link>
+            className="text-sm text-emerald-700 hover:underline">← 原稿一覧へ</Link>
 
       <div className="mt-3 flex items-end justify-between mb-6">
         <div>
@@ -170,12 +170,12 @@ export default function ManuscriptDatePage() {
                       if (isDemo) { toast('デモ表示中は格納できません'); return; }
                       setShowBulkUpload(true);
                     }}
-                    className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                    className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700">
               一斉格納
             </button>
           ) : (
             <button onClick={ensureDrive}
-                    className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                    className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700">
               Drive 23フォルダ作成
             </button>
           )}
@@ -203,13 +203,13 @@ export default function ManuscriptDatePage() {
                 className={[
                   'rounded-lg border p-3 transition flex flex-col',
                   hasTitle
-                    ? 'bg-white border-zinc-200 hover:border-indigo-300 hover:shadow-sm'
+                    ? 'bg-white border-zinc-200 hover:border-emerald-300 hover:shadow-sm'
                     : 'bg-zinc-50 border-dashed border-zinc-300 hover:bg-white hover:border-zinc-400',
                 ].join(' ')}
               >
                 <button type="button" onClick={() => setEditing(s)} className="text-left flex-1">
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">
+                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
                       {s.slot_number}
                     </span>
                     <div className="flex gap-1">
@@ -235,11 +235,11 @@ export default function ManuscriptDatePage() {
                           使用 <span className="font-bold text-zinc-800 tabular-nums">{usageCount.toLocaleString()}</span> 件
                         </span>
                         <button type="button" onClick={() => setUsageSlot(s)}
-                                className="text-indigo-700 hover:underline">履歴 →</button>
+                                className="text-emerald-700 hover:underline">履歴 →</button>
                       </div>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {pcs.map((pc) => (
-                          <span key={pc} className="px-1.5 py-0.5 text-[10px] bg-indigo-50 text-indigo-700 rounded font-mono">{pc}</span>
+                          <span key={pc} className="px-1.5 py-0.5 text-[10px] bg-emerald-50 text-emerald-700 rounded font-mono">{pc}</span>
                         ))}
                       </div>
                       {(industries.length > 0 || prefectures.length > 0) && (

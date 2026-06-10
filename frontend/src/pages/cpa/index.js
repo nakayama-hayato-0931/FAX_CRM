@@ -201,7 +201,7 @@ export default function CpaPage() {
                 className={[
                   'px-3 py-1.5 transition',
                   basis === 'acquired'
-                    ? 'bg-indigo-600 text-white font-medium'
+                    ? 'bg-emerald-600 text-white font-medium'
                     : 'text-zinc-600 hover:bg-zinc-50',
                 ].join(' ')}
                 title="シート BK列「案件取得日」を基準に月集計"
@@ -214,7 +214,7 @@ export default function CpaPage() {
                 className={[
                   'px-3 py-1.5 transition border-l border-zinc-300',
                   basis === 'offer'
-                    ? 'bg-indigo-600 text-white font-medium'
+                    ? 'bg-emerald-600 text-white font-medium'
                     : 'text-zinc-600 hover:bg-zinc-50',
                 ].join(' ')}
                 title="シート A列「内定日」を基準に月集計"
@@ -257,7 +257,7 @@ export default function CpaPage() {
           </button>
           <button
             onClick={() => setShowImport(true)}
-            className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+            className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
           >
             CSVインポート
           </button>
@@ -271,7 +271,7 @@ export default function CpaPage() {
           <span>実数(CSV取込)</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded bg-indigo-100 border border-indigo-200" />
+          <span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-200" />
           <span>算出(自動計算)</span>
         </div>
       </div>
@@ -292,8 +292,8 @@ export default function CpaPage() {
                       className={[
                         'px-3 py-2.5 text-xs font-medium uppercase tracking-wider whitespace-nowrap',
                         c.align === 'right' ? 'text-right' : 'text-left',
-                        c.kind === 'derived' ? 'text-indigo-700 bg-indigo-50/60' : 'text-zinc-600',
-                        isIncomingToggle ? 'cursor-pointer hover:bg-indigo-100/50 select-none' : '',
+                        c.kind === 'derived' ? 'text-emerald-700 bg-emerald-50/60' : 'text-zinc-600',
+                        isIncomingToggle ? 'cursor-pointer hover:bg-emerald-100/50 select-none' : '',
                       ].join(' ')}
                     >
                       {c.label}
@@ -322,7 +322,7 @@ export default function CpaPage() {
                     const cellClass = [
                       'px-3 py-2.5 whitespace-nowrap tabular-nums',
                       c.align === 'right' ? 'text-right' : 'text-left',
-                      c.kind === 'derived' ? 'bg-indigo-50/40 text-indigo-900 font-medium' : 'text-zinc-800',
+                      c.kind === 'derived' ? 'bg-emerald-50/40 text-emerald-900 font-medium' : 'text-zinc-800',
                     ].join(' ');
                     const onClickHandler = () => {
                       if (c.clickable === 'offers') {
@@ -398,7 +398,7 @@ export default function CpaPage() {
                           <button
                             type="button"
                             onClick={onClickHandler}
-                            className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2 font-medium"
+                            className="text-emerald-600 hover:text-emerald-800 underline underline-offset-2 font-medium"
                             title={titleText}
                           >
                             {c.format(value)}
