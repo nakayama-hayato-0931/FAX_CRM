@@ -55,6 +55,27 @@ export default function CustomersPage() {
   const [syncStatus, setSyncStatus] = useState(null);
   const [recategorizing, setRecategorizing] = useState(false);
   const [normalizingPref, setNormalizingPref] = useState(false);
+  const [normalizingPhoneFax, setNormalizingPhoneFax] = useState(false);
+
+  const normalizePhoneFax = async () => {
+    if (isDemo) { toast('デモ表示中は実行できません'); return; }
+    if (!window.confirm('全顧客の phone_number / fax_number から ハイフン (-) / 全角ダッシュ (ー) / 空白 / カッコ等を一括除去し 数字のみに揃えます。 進めますか？')) return;
+    setNormalizingPhoneFax(true);
+    try {
+      const { data } = await api.post('/api/customers/normalize-phone-fax', null, { timeout: 30 * 60 * 1000 });
+      const r = data.data || {};
+      const lines = [
+        `fax-crm: phone=${r.faxCrm?.phone ?? 0} / fax=${r.faxCrm?.fax ?? 0}`,
+        `callcenter: phone=${r.callcenter?.phone ?? 0} / fax=${r.callcenter?.fax ?? 0}`,
+      ];
+      toast.success(`電話/FAX 正規化完了\n${lines.join('\n')}`, { duration: 10000 });
+      reload();
+    } catch (e) {
+      toast.error(e.userMessage || '正規化失敗');
+    } finally {
+      setNormalizingPhoneFax(false);
+    }
+  };
 
   const normalizePref = async (mode) => {
     if (isDemo) { toast('デモ表示中は実行できません', { icon: 'ℹ' }); return; }
@@ -537,6 +558,17 @@ export default function CustomersPage() {
                 title="全顧客を address から県名再抽出 (現値も上書き)"
               >
                 {normalizingPref ? '実行中…' : '全件 強制再抽出'}
+              </button>
+
+              <hr className="border-zinc-200 my-1" />
+              <div className="px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">電話 / FAX</div>
+              <button
+                onClick={normalizePhoneFax}
+                disabled={normalizingPhoneFax}
+                className="px-3 py-1.5 text-xs bg-white border border-emerald-200 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap"
+                title="既に保存されている phone_number / fax_number から ハイフン (-) / 全角ダッシュ (ー) / 空白 / カッコ等を一括除去して 数字のみに揃える"
+              >
+                {normalizingPhoneFax ? '実行中…' : 'ハイフン等の一括除去'}
               </button>
             </div>
           </details>

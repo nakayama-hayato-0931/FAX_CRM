@@ -134,15 +134,14 @@ async function listCustomers(query = {}) {
  */
 function _normalizeDigit(s) {
   if (!s) return null;
-  // 全角数字を半角に
-  // 全角数字 (U+FF10〜U+FF19) を半角に変換
+  // 全角数字 (U+FF10〜U+FF19) を半角に
   let t = String(s).replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
-  // 全角ハイフン類を半角に
-  t = t.replace(/[‐‑‒–—―−ー－]/g, '-');
-  // 全角(+) を半角に
+  // 全角(+) を半角に (国際表記 +81 などのため + は保持)
   t = t.replace(/[+]/g, '+');
-  // 数字 / + / - 以外を除去 + 32文字 clip
-  t = t.replace(/[^0-9+\-]/g, '').slice(0, 32);
+  // 数字 / + 以外は全て除去 — ハイフン (-) / 全角ダッシュ (ー‐‑‒–—―−－)
+  //   / カッコ / 空白 / その他記号は すべて落とす
+  //   → DB には数字のみで保存される
+  t = t.replace(/[^0-9+]/g, '').slice(0, 32);
   return t || null;
 }
 
@@ -587,6 +586,63 @@ async function findByPhoneNormalized(rawPhone, { limit = 10 } = {}) {
   return rows;
 }
 
+/**
+ * customers.phone_number / fax_number の ハイフン・全角ダッシュ・空白・カッコ等を
+ * 一括除去して 数字 + プラス のみに正規化する。 tier3 モードなら callcenter.companies
+ * 側も処理。
+ *
+ * MySQL の REGEXP_REPLACE で 一発置換。 値が変わる行のみ UPDATE。
+ */
+async function normalizePhoneFax() {
+  const pool = getPool();
+  if (!pool) { const e = new Error('DB未設定'); e.status = 500; throw e; }
+  const result = { faxCrm: { phone: 0, fax: 0 }, callcenter: { phone: 0, fax: 0 } };
+
+  const cleanPhoneSQL = `REGEXP_REPLACE(phone_number, '[^0-9+]', '')`;
+  const cleanFaxSQL   = `REGEXP_REPLACE(fax_number,   '[^0-9+]', '')`;
+
+  // fax-crm.customers
+  const [r1] = await pool.query(
+    `UPDATE customers
+        SET phone_number = ${cleanPhoneSQL}
+      WHERE phone_number IS NOT NULL AND phone_number <> ${cleanPhoneSQL}`
+  );
+  result.faxCrm.phone = r1.affectedRows || 0;
+  const [r2] = await pool.query(
+    `UPDATE customers
+        SET fax_number = ${cleanFaxSQL}
+      WHERE fax_number IS NOT NULL AND fax_number <> ${cleanFaxSQL}`
+  );
+  result.faxCrm.fax = r2.affectedRows || 0;
+
+  // callcenter.companies (tier3 モード時のみ)
+  try {
+    const repo = require('./customerRepo');
+    if (repo.shouldReadFromCallcenter(3)) {
+      const ccDb = require('../../config/callcenterDb');
+      const ccPool = ccDb.getPool();
+      if (ccPool) {
+        const [c1] = await ccPool.query(
+          `UPDATE companies
+              SET phone_number = ${cleanPhoneSQL}
+            WHERE phone_number IS NOT NULL AND phone_number <> ${cleanPhoneSQL}`
+        );
+        result.callcenter.phone = c1.affectedRows || 0;
+        const [c2] = await ccPool.query(
+          `UPDATE companies
+              SET fax_number = ${cleanFaxSQL}
+            WHERE fax_number IS NOT NULL AND fax_number <> ${cleanFaxSQL}`
+        );
+        result.callcenter.fax = c2.affectedRows || 0;
+      }
+    }
+  } catch (e) {
+    console.warn('[normalizePhoneFax] callcenter side skipped:', e.message);
+  }
+
+  return result;
+}
+
 module.exports = {
   listCustomers,
   getById,
@@ -596,5 +652,6 @@ module.exports = {
   setBlacklist,
   recategorizeIndustries,
   normalizePrefectures,
+  normalizePhoneFax,
   findByPhoneNormalized,
 };

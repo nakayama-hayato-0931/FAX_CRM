@@ -119,6 +119,18 @@ router.post('/normalize-prefecture', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/customers/normalize-phone-fax
+//   customers.phone_number / fax_number の ハイフン (-) や 全角ダッシュ (ー‐‑‒–—―−－)、
+//   空白、 カッコ等の 「数字 + プラス」 以外の文字を一括除去するメンテナンス操作。
+//   既に保存された 「03-1234-5678」 等を 「0312345678」 に正規化する。
+//   tier3 モードなら callcenter.companies 側も同時処理。
+router.post('/normalize-phone-fax', async (_req, res, next) => {
+  try {
+    const result = await customerService.normalizePhoneFax();
+    return ok(res, result);
+  } catch (e) { next(e); }
+});
+
 // ============================================================
 // 大規模 Import (60万行クラス) を background job 化
 //   Railway proxy timeout (約 5 分) を超えるので 同期返答は不可能。

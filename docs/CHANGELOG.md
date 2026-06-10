@@ -104,6 +104,29 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-10] 電話 / FAX: 保存時にハイフン除去 + 既存 DB の一括正規化
+
+**要望**:
+1. 受電報告 手動入力で 会社名・電話・FAX を部分一致で検索したい
+2. 電話 / FAX の ハイフン (-) / 全角ダッシュ (ー) は不要、 間違えて保存した時に自動で削除してほしい
+
+**確認**: backend の `q=` 検索は すでに 部分一致 + 数字のみ比較 (REGEXP_REPLACE) で動作。 fax-crm / callcenter 両モードで対応済み。
+
+**変更 (1) 保存パスのハイフン除去**:
+- `customerService._normalizeDigit`: 「数字 / + / -」 のうち **`-` を除外** → 「数字 + プラスのみ」 を残す
+- quick-create (受電報告 手動入力の 直接入力モード) や 顧客マスタ直接登録 で 「03-1234-5678」 を渡しても `0312345678` で保存される
+- import path (`customerImportService.normalizeFax`) は元から数字のみだったので 変更不要
+
+**変更 (2) 既存 DB の一括正規化**:
+- `customerService.normalizePhoneFax`: MySQL `REGEXP_REPLACE(col, '[^0-9+]', '')` で `customers.phone_number` / `fax_number` から 数字以外を一括除去
+  - tier3 モードでは `callcenter.companies` も同時処理
+  - 変更が必要な行のみ UPDATE
+- API: `POST /api/customers/normalize-phone-fax`
+- 顧客マスタ ▼メンテナンス に **「ハイフン等の一括除去」** ボタンを追加 (緑 outlined)
+  - 結果: fax-crm: phone=N / fax=N、 callcenter: phone=N / fax=N
+
+---
+
 ## [2026-06-10] 定時同期: 直列 for-loop → 個別 setTimeout に分離 + 手動 trigger API
 
 **問題**: 朝 7 時 batch を直列 for-loop で実装していたため、 fax-stats が 45 分かかった日に 後続 3 ジョブ (sales-projects / job-postings / interviews) が押し出されて 翌日に走らなかった。 DB を見たら fax-stats だけ今朝 07:45 で更新、 他 3 つは前日のまま。
