@@ -94,6 +94,9 @@ app.use('/api/manuscript-contents', requireAuth, manuscriptContentsRouter);
 app.use('/api/ng-words', requireAuth, ngWordsRouter);
 app.use('/api/sales-owners', requireAuth, salesOwnersRouter);
 
+// scheduler 手動 trigger ルート (notFound より前に登録)
+registerSchedulerRoutes(app);
+
 app.use(notFound);
 app.use(errorHandler);
 
@@ -149,6 +152,73 @@ const server = app.listen(PORT, async () => {
 //     DAILY_SYNC_ENABLED=0   — 全体無効化
 //     FAX_STATS_DAILY_SYNC_DAYS (default 7) — FAX 同期の直近日数
 //     旧 FAX_STATS_DAILY_SYNC_HOUR/MINUTE/ENABLED も後方互換で読む
+// 個別 job ランナー (手動 trigger 用にも export)。 ここで取得した jobs は
+//   個別に setTimeout で予約され、 1 ジョブの長時間化 / 例外で他が止まらない
+const SCHEDULER_JOBS = (() => {
+  const faxStatsDays = Number(process.env.FAX_STATS_DAILY_SYNC_DAYS ?? 7);
+  return [
+    {
+      name: 'fax-stats',
+      fn: async () => {
+        const svc = require('./services/faxStatsService');
+        return svc.syncFromSheets({ recentOnly: true, recentDays: faxStatsDays });
+      },
+    },
+    {
+      name: 'sales-projects',
+      fn: async () => {
+        const svc = require('./services/salesProjectService');
+        return svc.syncFromSheets();
+      },
+    },
+    {
+      name: 'job-postings',
+      fn: async () => {
+        const svc = require('./services/jobPostingService');
+        return svc.syncFromSheets();
+      },
+    },
+    {
+      name: 'interviews',
+      fn: async () => {
+        const svc = require('./services/interviewService');
+        return svc.syncFromSheets();
+      },
+    },
+  ];
+})();
+
+// 進行中ステータス (手動 trigger / status 確認用)
+const SCHEDULER_STATE = {};
+for (const j of SCHEDULER_JOBS) {
+  SCHEDULER_STATE[j.name] = { state: 'idle', startedAt: null, finishedAt: null, elapsedSec: null, result: null, error: null };
+}
+
+async function runJob(name) {
+  const job = SCHEDULER_JOBS.find((j) => j.name === name);
+  if (!job) throw new Error(`unknown job: ${name}`);
+  const st = SCHEDULER_STATE[name];
+  if (st.state === 'running') {
+    console.log(`[scheduler] ${name}: skip (already running)`);
+    return { skipped: true, reason: 'already_running' };
+  }
+  st.state = 'running'; st.startedAt = new Date().toISOString(); st.finishedAt = null; st.error = null; st.result = null;
+  const t0 = Date.now();
+  console.log(`[scheduler] ${name} sync: START`);
+  try {
+    const result = await job.fn();
+    const elapsed = Math.round((Date.now() - t0) / 1000);
+    st.state = 'done'; st.finishedAt = new Date().toISOString(); st.elapsedSec = elapsed; st.result = result;
+    console.log(`[scheduler] ${name} sync: DONE elapsed=${elapsed}s result=${JSON.stringify(result)}`);
+    return result;
+  } catch (e) {
+    const elapsed = Math.round((Date.now() - t0) / 1000);
+    st.state = 'failed'; st.finishedAt = new Date().toISOString(); st.elapsedSec = elapsed; st.error = e.message;
+    console.error(`[scheduler] ${name} sync: FAILED elapsed=${elapsed}s err=${e.message}\n${e.stack}`);
+    throw e;
+  }
+}
+
 function startDailyScheduler() {
   // 後方互換: FAX_STATS_DAILY_SYNC_ENABLED=0 でも全体無効化扱い
   if (process.env.DAILY_SYNC_ENABLED === '0' || process.env.FAX_STATS_DAILY_SYNC_ENABLED === '0') {
@@ -157,19 +227,6 @@ function startDailyScheduler() {
   }
   const hour = Number(process.env.DAILY_SYNC_HOUR ?? process.env.FAX_STATS_DAILY_SYNC_HOUR ?? 7);
   const minute = Number(process.env.DAILY_SYNC_MINUTE ?? process.env.FAX_STATS_DAILY_SYNC_MINUTE ?? 0);
-  const faxStatsDays = Number(process.env.FAX_STATS_DAILY_SYNC_DAYS ?? 7);
-
-  const faxStatsSvc      = require('./services/faxStatsService');
-  const salesProjectsSvc = require('./services/salesProjectService');
-  const jobPostingsSvc   = require('./services/jobPostingService');
-  const interviewsSvc    = require('./services/interviewService');
-
-  const jobs = [
-    { name: 'fax-stats',      fn: () => faxStatsSvc.syncFromSheets({ recentOnly: true, recentDays: faxStatsDays }) },
-    { name: 'sales-projects', fn: () => salesProjectsSvc.syncFromSheets() },
-    { name: 'job-postings',   fn: () => jobPostingsSvc.syncFromSheets() },
-    { name: 'interviews',     fn: () => interviewsSvc.syncFromSheets() },
-  ];
 
   function nextRunMs() {
     // JST = UTC + 9h。 「JST の今日 hour:minute」 が過ぎていれば翌日に
@@ -182,32 +239,49 @@ function startDailyScheduler() {
     return targetUtcMs - now.getTime();
   }
 
-  async function runAll() {
-    const batchStartedAt = Date.now();
-    console.log(`[scheduler] daily sync batch: START (${jobs.length} jobs)`);
-    for (const job of jobs) {
-      const jobStartedAt = Date.now();
-      try {
-        const result = await job.fn();
-        const elapsed = Math.round((Date.now() - jobStartedAt) / 1000);
-        console.log(`[scheduler] ${job.name} sync: DONE elapsed=${elapsed}s result=${JSON.stringify(result)}`);
-      } catch (e) {
-        const elapsed = Math.round((Date.now() - jobStartedAt) / 1000);
-        console.error(`[scheduler] ${job.name} sync: FAILED elapsed=${elapsed}s err=${e.message}`);
-        // 1 ジョブの失敗で他を止めない (fail-soft)
-      }
-    }
-    const totalElapsed = Math.round((Date.now() - batchStartedAt) / 1000);
-    console.log(`[scheduler] daily sync batch: COMPLETE elapsed=${totalElapsed}s`);
-    // 次回 (24h 後) も予約
-    const delay = nextRunMs();
-    console.log(`[scheduler] daily sync next batch in ${Math.round(delay / 1000 / 60)} min`);
-    setTimeout(runAll, delay);
+  // 各ジョブを 個別 setTimeout チェーンで予約
+  //   理由: 旧実装 (for-loop) では fax-stats が 45 分かかった日に
+  //   後続 3 ジョブが押し出されて 翌日に走らなかった事例があった。
+  //   個別 setTimeout なら 1 ジョブが長くても他は時刻通りに発火する。
+  //   ※ 同時刻だと Google Sheets API rate limit のリスクがあるため、
+  //   2 番目以降は 5 秒 ずつずらして 直列に近い順次起動 (上の jobs 配列の順)。
+  for (let i = 0; i < SCHEDULER_JOBS.length; i++) {
+    const job = SCHEDULER_JOBS[i];
+    const stagger = i * 5_000; // 5 秒ずつずらす
+    const scheduleNext = () => {
+      const delay = nextRunMs() + stagger;
+      console.log(`[scheduler] ${job.name}: next run in ${Math.round(delay / 1000 / 60)} min`);
+      setTimeout(async () => {
+        try { await runJob(job.name); } catch (_e) { /* logged in runJob */ }
+        scheduleNext();
+      }, delay);
+    };
+    scheduleNext();
   }
 
-  const initialDelay = nextRunMs();
-  console.log(`[scheduler] daily sync: enabled at JST ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (jobs: ${jobs.map((j) => j.name).join(', ')}). First batch in ${Math.round(initialDelay / 1000 / 60)} min`);
-  setTimeout(runAll, initialDelay);
+  console.log(`[scheduler] daily sync: enabled at JST ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (jobs: ${SCHEDULER_JOBS.map((j) => j.name).join(', ')}, 5s staggered)`);
+}
+
+// 手動 trigger ルートは notFound より前に登録する必要があるので
+//   このスコープではなく app.use('/api/...') 群と一緒に server.js 上部で
+//   定義済み (registerSchedulerRoutes 経由)。 ここでは関数だけ用意し、
+//   ファイル先頭で呼び出される
+function registerSchedulerRoutes(app) {
+  app.get('/api/admin/scheduler/status', requireAuth, (_req, res) => {
+    res.json({ success: true, data: SCHEDULER_STATE });
+  });
+  app.post('/api/admin/scheduler/run-now', requireAuth, async (req, res) => {
+    const which = (req.query.job || req.body?.job || 'all').toString();
+    if (which !== 'all' && !SCHEDULER_JOBS.find((j) => j.name === which)) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: `unknown job: ${which}` } });
+    }
+    const targets = which === 'all' ? SCHEDULER_JOBS.map((j) => j.name) : [which];
+    // 即時 202 で返却 → バックグラウンドで順次実行 (fail-soft)
+    res.status(202).json({ success: true, data: { accepted: true, targets } });
+    for (const name of targets) {
+      try { await runJob(name); } catch (_e) { /* logged */ }
+    }
+  });
 }
 
 // 大規模インポート (60万行クラス) 対応: HTTP server の各種 timeout を緩める

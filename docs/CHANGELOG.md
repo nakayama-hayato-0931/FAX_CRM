@@ -104,6 +104,24 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-10] 定時同期: 直列 for-loop → 個別 setTimeout に分離 + 手動 trigger API
+
+**問題**: 朝 7 時 batch を直列 for-loop で実装していたため、 fax-stats が 45 分かかった日に 後続 3 ジョブ (sales-projects / job-postings / interviews) が押し出されて 翌日に走らなかった。 DB を見たら fax-stats だけ今朝 07:45 で更新、 他 3 つは前日のまま。
+
+**対策**:
+- batch の for-loop を廃止し、 **各ジョブを個別 setTimeout チェーン** で予約
+  - 1 ジョブが長時間化 / 例外で落ちても他に影響しない
+  - 起動順は 5 秒ずつ stagger で Google Sheets API rate limit を回避
+- `runJob(name)` を共通化 (進行状況を `SCHEDULER_STATE` に記録)
+- 手動 trigger API 追加:
+  - `POST /api/admin/scheduler/run-now?job=all|fax-stats|sales-projects|job-postings|interviews` — 即時 202 でバックグラウンド実行
+  - `GET /api/admin/scheduler/status` — 各ジョブの state / startedAt / finishedAt / elapsedSec / result / error
+- 詳細ログ: 各ジョブの START / DONE / FAILED と stack trace を console に出力
+
+**運用**: 定時が外れた時は 手動で再実行できる。 朝 7 時を待たずにすぐ CPA データを最新化したい時にも便利。
+
+---
+
 ## [2026-06-09] 定時同期に CPA 関連シート 3 種 (売上 / 案件 / 面接) を追加
 
 **要望**: CPA にまつわる同期も朝 7 時に走らせたい。
