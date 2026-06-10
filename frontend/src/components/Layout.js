@@ -104,10 +104,10 @@ export default function Layout({ children }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
       <div className="flex h-screen overflow-hidden bg-zinc-50">
-        {/* ダーク基調の sidebar — 黒→緑のグラデーションで深みを出す */}
+        {/* ダーク基調の sidebar — 黒→緑のグラデーション (緑がハッキリ見える配色) */}
         <aside className="w-60 flex-shrink-0 flex flex-col text-zinc-200
-                          bg-gradient-to-b from-black via-slate-950 to-emerald-950
-                          border-r border-slate-800/70">
+                          bg-gradient-to-b from-black via-emerald-900 to-emerald-600
+                          border-r border-emerald-900/60">
           {/* 上部 ブランドヘッダ — ロゴなし テキストのみ */}
           <div className="px-5 pt-6 pb-5 border-b border-white/5">
             <div className="leading-tight">
