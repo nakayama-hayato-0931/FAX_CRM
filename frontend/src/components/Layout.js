@@ -104,22 +104,23 @@ export default function Layout({ children }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
       <div className="flex h-screen overflow-hidden bg-zinc-50">
-        {/* ダーク基調の sidebar — 黒→緑のグラデーション (緑がハッキリ見える配色) */}
-        <aside className="w-60 flex-shrink-0 flex flex-col text-zinc-200
-                          bg-gradient-to-b from-black via-emerald-900 to-emerald-600
+        {/* ダーク基調の sidebar — 黒→緑のグラデーション (緑のニュアンスは残しつつ
+            文字コントラスト確保のため 下端を emerald-700 に抑制) */}
+        <aside className="w-60 flex-shrink-0 flex flex-col text-zinc-100
+                          bg-gradient-to-b from-black via-emerald-900 to-emerald-700
                           border-r border-emerald-900/60">
           {/* 上部 ブランドヘッダ — ロゴなし テキストのみ */}
-          <div className="px-5 pt-6 pb-5 border-b border-white/5">
+          <div className="px-5 pt-6 pb-5 border-b border-white/10">
             <div className="leading-tight">
               <div className="text-[15px] font-bold text-white tracking-tight">Hitokiwa</div>
-              <div className="text-[9.5px] text-emerald-400 font-semibold tracking-[0.22em] uppercase mt-1">FAX CRM</div>
+              <div className="text-[9.5px] text-emerald-300 font-semibold tracking-[0.22em] uppercase mt-1">FAX CRM</div>
             </div>
           </div>
 
           <nav className="flex-1 overflow-y-auto py-3 px-2.5 space-y-4 custom-scrollbar">
             {visibleGroups.map((g) => (
               <div key={g.title}>
-                <div className="px-2.5 mb-1.5 text-[9.5px] font-semibold text-slate-500 tracking-[0.18em] uppercase">
+                <div className="px-2.5 mb-1.5 text-[9.5px] font-semibold text-emerald-200/70 tracking-[0.18em] uppercase">
                   {g.title}
                 </div>
                 <div className="space-y-0.5">
@@ -130,21 +131,21 @@ export default function Layout({ children }) {
                             className={[
                               'group relative flex items-center gap-2.5 pl-3 pr-2.5 py-2 rounded-md text-[13px] transition-all duration-150',
                               active
-                                ? 'bg-gradient-to-r from-emerald-600/20 to-emerald-600/5 text-white font-medium'
-                                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-100',
+                                ? 'bg-black/30 text-white font-medium'
+                                : 'text-emerald-50/90 hover:bg-black/20 hover:text-white',
                             ].join(' ')}>
                         {active && (
-                          <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-gradient-to-b from-emerald-400 to-emerald-600" />
+                          <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-gradient-to-b from-emerald-300 to-emerald-500" />
                         )}
                         <span className={[
                           'flex-shrink-0 transition-colors',
-                          active ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-300',
+                          active ? 'text-emerald-300' : 'text-emerald-100/70 group-hover:text-emerald-200',
                         ].join(' ')}>
                           <Icon path={n.icon} />
                         </span>
                         <span className="flex-1 truncate">{n.label}</span>
                         {n.adminOnly && (
-                          <span className="text-[8.5px] text-amber-400/90 bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded">ADMIN</span>
+                          <span className="text-[8.5px] text-amber-200 bg-amber-400/15 border border-amber-300/40 px-1.5 py-0.5 rounded">ADMIN</span>
                         )}
                       </Link>
                     );
@@ -154,27 +155,27 @@ export default function Layout({ children }) {
             ))}
           </nav>
 
-          {/* ユーザー情報 + アクション */}
-          <div className="px-2.5 py-3 border-t border-slate-800/80">
+          {/* ユーザー情報 + アクション (緑グラデ背景上で読みやすい配色) */}
+          <div className="px-2.5 py-3 border-t border-black/30 bg-black/20">
             {user && (
               <div className="flex items-center gap-2.5 px-2 pb-2.5">
-                <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white text-[12px] font-bold shadow shadow-emerald-900/50">
+                <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-emerald-300 to-emerald-600 flex items-center justify-center text-emerald-950 text-[12px] font-bold shadow shadow-black/40 ring-2 ring-white/20">
                   {userInitial}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[12px] font-medium text-slate-100 truncate">
+                  <div className="text-[12px] font-semibold text-white truncate">
                     {user.display_name || user.username}
                   </div>
                   <div className="text-[9.5px] mt-0.5">
                     <span className={[
-                      'inline-block px-1.5 py-0.5 rounded',
+                      'inline-block px-1.5 py-0.5 rounded font-medium',
                       user.role === 'admin'
-                        ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
-                        : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30',
+                        ? 'bg-amber-400/15 text-amber-200 border border-amber-300/40'
+                        : 'bg-white/15 text-white border border-white/30',
                     ].join(' ')}>
                       {user.role === 'admin' ? '管理者' : '営業'}
                     </span>
-                    <span className="ml-1.5 text-slate-500">{user.username}</span>
+                    <span className="ml-1.5 text-emerald-100/70">{user.username}</span>
                   </div>
                 </div>
               </div>
@@ -182,16 +183,16 @@ export default function Layout({ children }) {
             <div className="flex gap-1 px-1">
               <button onClick={() => setShowPwModal(true)}
                       title="パスワード変更"
-                      className="flex-1 text-center text-[10.5px] text-slate-400 hover:text-emerald-300 hover:bg-slate-800/60 px-2 py-1.5 rounded transition">
+                      className="flex-1 text-center text-[10.5px] text-emerald-50/90 hover:text-white hover:bg-black/30 px-2 py-1.5 rounded transition">
                 パスワード
               </button>
               <button onClick={logout}
                       title="ログアウト"
-                      className="flex-1 text-center text-[10.5px] text-slate-400 hover:text-rose-300 hover:bg-slate-800/60 px-2 py-1.5 rounded transition">
+                      className="flex-1 text-center text-[10.5px] text-emerald-50/90 hover:text-rose-200 hover:bg-black/30 px-2 py-1.5 rounded transition">
                 ログアウト
               </button>
             </div>
-            <div className="text-center pt-2 text-[9px] text-slate-600 tracking-widest">v0.1.0</div>
+            <div className="text-center pt-2 text-[9px] text-emerald-100/50 tracking-widest">v0.1.0</div>
           </div>
         </aside>
 
