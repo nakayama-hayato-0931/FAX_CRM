@@ -104,21 +104,15 @@ export default function Layout({ children }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
       <div className="flex h-screen overflow-hidden bg-zinc-50">
-        {/* ダーク基調の sidebar — slate-900 ベースに緑アクセント */}
+        {/* ダーク基調の sidebar — 黒→緑のグラデーションで深みを出す */}
         <aside className="w-60 flex-shrink-0 flex flex-col text-zinc-200
-                          bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950
-                          border-r border-slate-800">
-          {/* 上部 ブランドヘッダ */}
-          <div className="px-4 pt-5 pb-4 border-b border-slate-800/80">
-            <div className="flex items-center gap-2.5">
-              <div className="relative w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-900/40">
-                <span className="absolute inset-0 rounded-lg bg-gradient-to-br from-white/20 to-transparent" />
-                <span className="relative text-white font-black text-sm tracking-tight">H</span>
-              </div>
-              <div className="leading-tight">
-                <div className="text-[13px] font-bold text-white tracking-tight">Hitokiwa</div>
-                <div className="text-[9px] text-emerald-400 font-semibold tracking-[0.2em] uppercase">FAX CRM</div>
-              </div>
+                          bg-gradient-to-b from-black via-slate-950 to-emerald-950
+                          border-r border-slate-800/70">
+          {/* 上部 ブランドヘッダ — ロゴなし テキストのみ */}
+          <div className="px-5 pt-6 pb-5 border-b border-white/5">
+            <div className="leading-tight">
+              <div className="text-[15px] font-bold text-white tracking-tight">Hitokiwa</div>
+              <div className="text-[9.5px] text-emerald-400 font-semibold tracking-[0.22em] uppercase mt-1">FAX CRM</div>
             </div>
           </div>
 
