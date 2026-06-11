@@ -258,6 +258,24 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-10] fax-stats: 1 時間ごとに 直近 3 日同期する保険スケジューラ追加
+
+**要望**: 朝 7 時の定時で送信数取得が動いていないことがある。 直近 3 日分だけでも確実に動くようにしたい。
+
+**対策**: `server.js` に `startFaxStatsHourlyScheduler` を追加
+- backend 起動 90 秒後に初回、 以降 **60 分間隔** で `syncFromSheets({ recentOnly: true, recentDays: 3 })` を実行
+- 同期中の重複起動防止 (`running` フラグ)
+- 1 ジョブ失敗で次回は動く (例外を呑んで継続)
+- env で柔軟に上書き可:
+  - `FAX_STATS_HOURLY_SYNC_DAYS` (default 3)
+  - `FAX_STATS_HOURLY_SYNC_INTERVAL_MIN` (default 60)
+  - `FAX_STATS_HOURLY_SYNC_INITIAL_DELAY_SEC` (default 90)
+  - `FAX_STATS_HOURLY_SYNC_ENABLED=0` で無効化
+
+**運用**: 朝 7 時のフル同期が失敗しても、 1 時間以内に直近 3 日分は確実に最新化される。 シートが小範囲なので 通常 5-10 秒で完了、 Railway / DB / Sheets API への負荷は無視できる。
+
+---
+
 ## [2026-06-10] 定時同期: 直列 for-loop → 個別 setTimeout に分離 + 手動 trigger API
 
 **問題**: 朝 7 時 batch を直列 for-loop で実装していたため、 fax-stats が 45 分かかった日に 後続 3 ジョブ (sales-projects / job-postings / interviews) が押し出されて 翌日に走らなかった。 DB を見たら fax-stats だけ今朝 07:45 で更新、 他 3 つは前日のまま。

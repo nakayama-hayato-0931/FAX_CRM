@@ -132,6 +132,11 @@ const server = app.listen(PORT, async () => {
   // 定時スケジューラ: 毎朝 JST 7:00 に 各種シート同期を直列実行
   //   FAX 送信実績 → 売上 → 案件 → 面接 の順
   startDailyScheduler();
+
+  // 短周期ヘルススケジューラ: FAX 送信実績だけは 直近 N 日 を 1 時間ごとに sync
+  //   理由: 朝 7:00 の定時バッチが何らかの理由で 取りこぼした場合の保険。
+  //   小範囲 (直近 3 日) なので コスト低 + 確実性高。
+  startFaxStatsHourlyScheduler();
 });
 
 // ============================================================
@@ -260,6 +265,53 @@ function startDailyScheduler() {
   }
 
   console.log(`[scheduler] daily sync: enabled at JST ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (jobs: ${SCHEDULER_JOBS.map((j) => j.name).join(', ')}, 5s staggered)`);
+}
+
+// ============================================================
+// 短周期ヘルススケジューラ — FAX 送信実績の直近 N 日だけを 短い間隔で 確実同期
+// ============================================================
+//   背景: 朝 7:00 のフル定時バッチが Railway 再起動や 1 ジョブ長時間化等で
+//        取りこぼした際、 送信数が当日中ずっと古いままになり 業務影響大。
+//   策:  fax-stats sync (直近 3 日) を 1 時間ごとに setInterval で回す。
+//        範囲が小さいので 通常 5-10 秒 で完了、 失敗しても 次回 1h 以内にリカバリ。
+//   env:
+//     FAX_STATS_HOURLY_SYNC_ENABLED   default 1, 0 で無効
+//     FAX_STATS_HOURLY_SYNC_DAYS      default 3 (直近 N 日)
+//     FAX_STATS_HOURLY_SYNC_INTERVAL_MIN default 60 (分)
+//     FAX_STATS_HOURLY_SYNC_INITIAL_DELAY_SEC default 90 (起動後何秒で初回)
+function startFaxStatsHourlyScheduler() {
+  if (process.env.FAX_STATS_HOURLY_SYNC_ENABLED === '0') {
+    console.log('[scheduler] fax-stats hourly sync: DISABLED (env)');
+    return;
+  }
+  const days = Number(process.env.FAX_STATS_HOURLY_SYNC_DAYS ?? 3);
+  const intervalMin = Number(process.env.FAX_STATS_HOURLY_SYNC_INTERVAL_MIN ?? 60);
+  const initialDelaySec = Number(process.env.FAX_STATS_HOURLY_SYNC_INITIAL_DELAY_SEC ?? 90);
+  const faxStatsSvc = require('./services/faxStatsService');
+
+  let running = false;
+  async function tick() {
+    if (running) {
+      console.log('[scheduler] fax-stats hourly sync: skip (already running)');
+      return;
+    }
+    running = true;
+    const t0 = Date.now();
+    try {
+      const result = await faxStatsSvc.syncFromSheets({ recentOnly: true, recentDays: days });
+      const elapsed = Math.round((Date.now() - t0) / 1000);
+      console.log(`[scheduler] fax-stats hourly sync: DONE elapsed=${elapsed}s recentDays=${days} result=${JSON.stringify(result)}`);
+    } catch (e) {
+      const elapsed = Math.round((Date.now() - t0) / 1000);
+      console.error(`[scheduler] fax-stats hourly sync: FAILED elapsed=${elapsed}s err=${e.message}`);
+    } finally {
+      running = false;
+    }
+  }
+
+  setTimeout(tick, initialDelaySec * 1000);          // 起動 90 秒後 に初回
+  setInterval(tick, intervalMin * 60 * 1000);        // 以降 60 分ごと
+  console.log(`[scheduler] fax-stats hourly sync: enabled (recentDays=${days}, interval=${intervalMin}min, first run in ${initialDelaySec}s)`);
 }
 
 // 手動 trigger ルートは notFound より前に登録する必要があるので
