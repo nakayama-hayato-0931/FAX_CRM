@@ -272,11 +272,25 @@ async function getById(id) {
  * 業種カテゴリ (6種固定) の件数を返す
  *   旧仕様の「industry 詳細を全件 distinct」 から、 6カテゴリ集約に変更
  */
+// tier3 (callcenter DB を主読み) モードでは customers ではなく callcenter.companies で
+// 集計しないと、 顧客マスタ一覧の件数とドロップダウンの数字が食い違う。
+//   - 一覧: callcenter.companies の COUNT (listFromCallcenter)
+//   - facets: 同じ callcenter.companies で集計 → 件数一致
+function _pickPool() {
+  const repo = require('./customerRepo');
+  if (repo.shouldReadFromCallcenter(1)) {
+    const ccDb = require('../../config/callcenterDb');
+    const ccPool = ccDb.getPool && ccDb.getPool();
+    if (ccPool) return { pool: ccPool, table: 'companies' };
+  }
+  return { pool: getPool(), table: 'customers' };
+}
+
 async function getDistinctIndustries() {
-  const pool = getPool();
+  const { pool, table } = _pickPool();
   if (!pool) return [];
   const [rows] = await pool.query(
-    `SELECT industry_category AS industry, COUNT(*) AS cnt FROM customers
+    `SELECT industry_category AS industry, COUNT(*) AS cnt FROM ${table}
       WHERE industry_category IS NOT NULL AND industry_category <> ''
       GROUP BY industry_category
       ORDER BY FIELD(industry_category, '飲食','製造','小売','宿泊','建設','清掃','農業','介護','運送','その他')`
@@ -285,10 +299,10 @@ async function getDistinctIndustries() {
 }
 
 async function getDistinctPrefectures() {
-  const pool = getPool();
+  const { pool, table } = _pickPool();
   if (!pool) return [];
   const [rows] = await pool.query(
-    `SELECT prefecture, COUNT(*) AS cnt FROM customers
+    `SELECT prefecture, COUNT(*) AS cnt FROM ${table}
       WHERE prefecture IS NOT NULL AND prefecture <> ''
       GROUP BY prefecture ORDER BY cnt DESC`
   );
