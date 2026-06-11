@@ -258,21 +258,20 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
-## [2026-06-10] fax-stats: 1 時間ごとに 直近 3 日同期する保険スケジューラ追加
+## [2026-06-10] fax-stats: 起動時 1 回キャッチアップ (1 時間ごと案は撤回)
 
-**要望**: 朝 7 時の定時で送信数取得が動いていないことがある。 直近 3 日分だけでも確実に動くようにしたい。
+**要望**: 朝 7 時に 1 回だけ確実に同期してくれれば OK。 1 時間ごとは過剰。
 
-**対策**: `server.js` に `startFaxStatsHourlyScheduler` を追加
-- backend 起動 90 秒後に初回、 以降 **60 分間隔** で `syncFromSheets({ recentOnly: true, recentDays: 3 })` を実行
-- 同期中の重複起動防止 (`running` フラグ)
-- 1 ジョブ失敗で次回は動く (例外を呑んで継続)
-- env で柔軟に上書き可:
-  - `FAX_STATS_HOURLY_SYNC_DAYS` (default 3)
-  - `FAX_STATS_HOURLY_SYNC_INTERVAL_MIN` (default 60)
-  - `FAX_STATS_HOURLY_SYNC_INITIAL_DELAY_SEC` (default 90)
-  - `FAX_STATS_HOURLY_SYNC_ENABLED=0` で無効化
+**対策**: 1 時間ごとスケジューラを **撤回** し、 「起動時 1 回キャッチアップ」 に置き換え。
+- `scheduleStartupFaxStatsCatchup`: backend 起動 60 秒後に **1 回だけ** `syncFromSheets({ recentOnly: true, recentDays: 3 })` を実行
+- 通常運用 (再起動なし): 1 日 1 回 (朝 7:00) のまま
+- 再起動した日: +1 回キャッチアップ (Railway 再起動が朝 7:00 をまたいだ日の「今日の同期が走らない」 を防ぐ保険)
+- env:
+  - `FAX_STATS_STARTUP_CATCHUP_DAYS` (default 3)
+  - `FAX_STATS_STARTUP_CATCHUP_DELAY_SEC` (default 60)
+  - `FAX_STATS_STARTUP_CATCHUP_ENABLED=0` で無効化
 
-**運用**: 朝 7 時のフル同期が失敗しても、 1 時間以内に直近 3 日分は確実に最新化される。 シートが小範囲なので 通常 5-10 秒で完了、 Railway / DB / Sheets API への負荷は無視できる。
+**運用**: 朝 7 時の定時が失敗しても、 次の デプロイ / 再起動 時に自動でキャッチアップ。 通常は静か。
 
 ---
 

@@ -133,10 +133,9 @@ const server = app.listen(PORT, async () => {
   //   FAX 送信実績 → 売上 → 案件 → 面接 の順
   startDailyScheduler();
 
-  // 短周期ヘルススケジューラ: FAX 送信実績だけは 直近 N 日 を 1 時間ごとに sync
-  //   理由: 朝 7:00 の定時バッチが何らかの理由で 取りこぼした場合の保険。
-  //   小範囲 (直近 3 日) なので コスト低 + 確実性高。
-  startFaxStatsHourlyScheduler();
+  // 起動時 1 回 だけ fax-stats を直近 3 日同期 (Railway 再起動が朝 7:00 を
+  // またいだ日に「今日の同期が走らない」 を防ぐ保険)。
+  scheduleStartupFaxStatsCatchup();
 });
 
 // ============================================================
@@ -268,50 +267,41 @@ function startDailyScheduler() {
 }
 
 // ============================================================
-// 短周期ヘルススケジューラ — FAX 送信実績の直近 N 日だけを 短い間隔で 確実同期
+// 起動時キャッチアップ — backend が朝 7:00 をまたいで再起動した日の保険
 // ============================================================
-//   背景: 朝 7:00 のフル定時バッチが Railway 再起動や 1 ジョブ長時間化等で
-//        取りこぼした際、 送信数が当日中ずっと古いままになり 業務影響大。
-//   策:  fax-stats sync (直近 3 日) を 1 時間ごとに setInterval で回す。
-//        範囲が小さいので 通常 5-10 秒 で完了、 失敗しても 次回 1h 以内にリカバリ。
+//   背景: setTimeout(nextRun7am) は Railway 再起動で破棄される。
+//        朝 7:00 以降に再起動すると 「次の 7:00 = 翌朝」 として予約されるため、
+//        その日の同期が走らないまま 24h 経過する。
+//   策:  起動 60 秒後に 1 回だけ fax-stats を 直近 3 日同期。
+//        通常運用 (再起動なし) では 1 日 1 回 (朝 7:00) のまま、
+//        再起動した日だけ +1 回キャッチアップが走る。
 //   env:
-//     FAX_STATS_HOURLY_SYNC_ENABLED   default 1, 0 で無効
-//     FAX_STATS_HOURLY_SYNC_DAYS      default 3 (直近 N 日)
-//     FAX_STATS_HOURLY_SYNC_INTERVAL_MIN default 60 (分)
-//     FAX_STATS_HOURLY_SYNC_INITIAL_DELAY_SEC default 90 (起動後何秒で初回)
-function startFaxStatsHourlyScheduler() {
-  if (process.env.FAX_STATS_HOURLY_SYNC_ENABLED === '0') {
-    console.log('[scheduler] fax-stats hourly sync: DISABLED (env)');
+//     FAX_STATS_STARTUP_CATCHUP_ENABLED   default 1, 0 で無効
+//     FAX_STATS_STARTUP_CATCHUP_DAYS      default 3 (直近 N 日)
+//     FAX_STATS_STARTUP_CATCHUP_DELAY_SEC default 60 (起動後何秒)
+function scheduleStartupFaxStatsCatchup() {
+  if (process.env.FAX_STATS_STARTUP_CATCHUP_ENABLED === '0') {
+    console.log('[scheduler] fax-stats startup catchup: DISABLED (env)');
     return;
   }
-  const days = Number(process.env.FAX_STATS_HOURLY_SYNC_DAYS ?? 3);
-  const intervalMin = Number(process.env.FAX_STATS_HOURLY_SYNC_INTERVAL_MIN ?? 60);
-  const initialDelaySec = Number(process.env.FAX_STATS_HOURLY_SYNC_INITIAL_DELAY_SEC ?? 90);
-  const faxStatsSvc = require('./services/faxStatsService');
+  const days = Number(process.env.FAX_STATS_STARTUP_CATCHUP_DAYS ?? 3);
+  const delaySec = Number(process.env.FAX_STATS_STARTUP_CATCHUP_DELAY_SEC ?? 60);
 
-  let running = false;
-  async function tick() {
-    if (running) {
-      console.log('[scheduler] fax-stats hourly sync: skip (already running)');
-      return;
-    }
-    running = true;
+  setTimeout(async () => {
     const t0 = Date.now();
+    console.log(`[scheduler] fax-stats startup catchup: START (recentDays=${days})`);
     try {
+      const faxStatsSvc = require('./services/faxStatsService');
       const result = await faxStatsSvc.syncFromSheets({ recentOnly: true, recentDays: days });
       const elapsed = Math.round((Date.now() - t0) / 1000);
-      console.log(`[scheduler] fax-stats hourly sync: DONE elapsed=${elapsed}s recentDays=${days} result=${JSON.stringify(result)}`);
+      console.log(`[scheduler] fax-stats startup catchup: DONE elapsed=${elapsed}s result=${JSON.stringify(result)}`);
     } catch (e) {
       const elapsed = Math.round((Date.now() - t0) / 1000);
-      console.error(`[scheduler] fax-stats hourly sync: FAILED elapsed=${elapsed}s err=${e.message}`);
-    } finally {
-      running = false;
+      console.error(`[scheduler] fax-stats startup catchup: FAILED elapsed=${elapsed}s err=${e.message}`);
     }
-  }
+  }, delaySec * 1000);
 
-  setTimeout(tick, initialDelaySec * 1000);          // 起動 90 秒後 に初回
-  setInterval(tick, intervalMin * 60 * 1000);        // 以降 60 分ごと
-  console.log(`[scheduler] fax-stats hourly sync: enabled (recentDays=${days}, interval=${intervalMin}min, first run in ${initialDelaySec}s)`);
+  console.log(`[scheduler] fax-stats startup catchup: scheduled (recentDays=${days}, in ${delaySec}s)`);
 }
 
 // 手動 trigger ルートは notFound より前に登録する必要があるので
