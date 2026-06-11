@@ -140,6 +140,22 @@ async function runStartupMigrations() {
     failed.push({ name: 'cpa_monthly_costs.incoming_*_manual', error: e.message });
   }
 
+  // ⑤z customers.extract_count 列 (抽出履歴カウンタ)
+  try {
+    if (await colExists(pool, 'customers', 'id')
+        && !(await colExists(pool, 'customers', 'extract_count'))) {
+      await pool.query(
+        `ALTER TABLE customers
+           ADD COLUMN extract_count INT NOT NULL DEFAULT 0
+             COMMENT 'リスト抽出された累計回数 (少ない方が優先抽出)',
+           ADD INDEX idx_customers_extract_count (extract_count)`
+      );
+      applied.push('customers.extract_count 追加');
+    }
+  } catch (e) {
+    failed.push({ name: 'customers.extract_count', error: e.message });
+  }
+
   // ⑤a incoming_call_reports.sales_owner 列 (担当営業)
   try {
     if (await colExists(pool, 'incoming_call_reports', 'customer_id')
