@@ -61,6 +61,7 @@ export default function NewBatchPage() {
     recentDays: 30,
     recentCallDays: 0,        // N 日以内架電 除外 (0 = 除外しない)
     excludeProjects: true,    // 既存案件 (sales_projects/job_postings と社名一致) を除外
+    maxExtractCount: 0,       // N 回以上抽出済みを除外 (0 = 除外しない)
     testMode: false,          // テストモード: 顧客マスタの送信履歴を更新しない
     manuscript: null,         // { id, title, registration_no, ... } 選択中の原稿 (null=添付しない)
   });
@@ -126,6 +127,7 @@ export default function NewBatchPage() {
           recentDays: form.recentDays || undefined,
           recentCallDays: form.recentCallDays || undefined,
           excludeProjects: form.excludeProjects ? 'true' : undefined,
+          maxExtractCount: form.maxExtractCount || undefined,
         },
       });
       setPreviewCount(data.data.matchCount);
@@ -185,6 +187,7 @@ export default function NewBatchPage() {
         recentDays: Number(form.recentDays) || null,
         recentCallDays: Number(form.recentCallDays) || 0,
         excludeProjects: !!form.excludeProjects,
+        maxExtractCount: Number(form.maxExtractCount) || 0,
         testMode: !!form.testMode,
         targetCount: Number(form.targetCount),
         pcNumbers: form.pcNumbers,
@@ -405,16 +408,22 @@ export default function NewBatchPage() {
                    value={form.recentCallDays}
                    onChange={(e) => { setForm({ ...form, recentCallDays: e.target.value }); setPreviewCount(null); }} />
           </Field>
-          <Field label="既存案件を除外" hint="案件マスタ (sales_projects / job_postings) と社名一致する顧客を除外">
-            <label className="flex items-center gap-2 mt-1 cursor-pointer select-none">
-              <input type="checkbox"
-                     checked={form.excludeProjects}
-                     onChange={(e) => { setForm({ ...form, excludeProjects: e.target.checked }); setPreviewCount(null); }}
-                     className="w-4 h-4 text-emerald-600 rounded" />
-              <span className="text-sm text-zinc-700">既に案件化済みの会社名を除外</span>
-            </label>
+          <Field label="N回以上抽出済みを除外" hint="extract_count >= N の顧客を除外 (抽出履歴が N 回に達した顧客はもう選ばれない)。 0 = 除外しない">
+            <input type="number" className="input" min="0" max="999"
+                   value={form.maxExtractCount}
+                   onChange={(e) => { setForm({ ...form, maxExtractCount: e.target.value }); setPreviewCount(null); }} />
           </Field>
         </div>
+
+        <Field label="既存案件を除外" hint="案件マスタ (sales_projects / job_postings) と社名一致する顧客を除外">
+          <label className="flex items-center gap-2 mt-1 cursor-pointer select-none">
+            <input type="checkbox"
+                   checked={form.excludeProjects}
+                   onChange={(e) => { setForm({ ...form, excludeProjects: e.target.checked }); setPreviewCount(null); }}
+                   className="w-4 h-4 text-emerald-600 rounded" />
+            <span className="text-sm text-zinc-700">既に案件化済みの会社名を除外</span>
+          </label>
+        </Field>
 
         {/* 原稿 同時格納 */}
         <Field label="原稿を同時にスロットへ格納 (任意)"

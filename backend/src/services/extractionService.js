@@ -54,7 +54,7 @@ async function ensureExtractCountColumn(pool) {
   }
 }
 
-function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects, ngWordClause }) {
+function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects, maxExtractCount, ngWordClause }) {
   // 抽出条件:
   //   - ブラックリスト除外
   //   - FAX 番号必須 (callcenter由来等のFAX無し顧客は対象外)
@@ -111,6 +111,12 @@ function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeP
        WHERE company_name IS NOT NULL AND company_name <> ''
     )`);
   }
+  // 抽出履歴が N 回以上の顧客を除外 (0 = 除外しない)
+  //   extract_count >= N の行を除く
+  if (maxExtractCount && Number(maxExtractCount) > 0) {
+    where.push('COALESCE(extract_count, 0) < ?');
+    params.push(Number(maxExtractCount));
+  }
   // NGワード (会社名/業種/住所/備考/URL/代表者 の部分一致でヒットしたら除外)
   if (ngWordClause && ngWordClause.sql) {
     where.push(`(${ngWordClause.sql})`);
@@ -143,6 +149,7 @@ async function previewCount(filters = {}) {
   const normalized = {
     ...filters,
     excludeProjects: filters.excludeProjects === true || filters.excludeProjects === 'true' || filters.excludeProjects === '1',
+    maxExtractCount: Number(filters.maxExtractCount) || 0,  // 0 = 除外しない
     ngWordClause,
   };
   const { whereSql, params } = buildWhere(normalized);
@@ -162,7 +169,7 @@ async function previewCount(filters = {}) {
  *   4. customers の send_count++, last_sent_at, last_pc_number を更新
  *   5. batch.actual_count を更新
  */
-async function createBatch({ name, industry, prefecture, recentDays, recentCallDays, excludeProjects, targetCount, pcNumber, testMode }) {
+async function createBatch({ name, industry, prefecture, recentDays, recentCallDays, excludeProjects, maxExtractCount, targetCount, pcNumber, testMode }) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です。.env の DB_HOST 等を設定してください');
     err.status = 500; err.code = 'DB_NOT_CONFIGURED';
@@ -193,7 +200,7 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
 
     // 2. 該当顧客を選定 (FOR UPDATE で同時実行時の二重取得を防止)
     const ngWordClause = await ngWordService.buildNgWordWhereClause();
-    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects, ngWordClause });
+    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects, maxExtractCount, ngWordClause });
     const [customers] = await conn.query(
       `SELECT id FROM customers ${whereSql} ${PRIORITY_ORDER} LIMIT ? FOR UPDATE`,
       [...params, Number(targetCount)]
@@ -255,7 +262,7 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
  *   返り値: [{ pcNumber, batchId, actualCount, status }, ...] (pcNumbers と同順)
  */
 async function createBatchesPerPc({
-  baseName, date, industry, prefecture, recentDays, recentCallDays, excludeProjects, targetCount, pcNumbers, testMode,
+  baseName, date, industry, prefecture, recentDays, recentCallDays, excludeProjects, maxExtractCount, targetCount, pcNumbers, testMode,
 }) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です'); err.status = 500; err.code = 'DB_NOT_CONFIGURED';
@@ -281,7 +288,7 @@ async function createBatchesPerPc({
     // 1. 全 PC 分の顧客を 一括取得
     const totalWant = Number(targetCount) * pcNumbers.length;
     const ngWordClause = await ngWordService.buildNgWordWhereClause();
-    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects, ngWordClause });
+    const { whereSql, params } = buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects, maxExtractCount, ngWordClause });
     const [customers] = await conn.query(
       `SELECT id FROM customers ${whereSql} ${PRIORITY_ORDER} LIMIT ? FOR UPDATE`,
       [...params, totalWant]

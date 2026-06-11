@@ -29,11 +29,12 @@ router.get('/preview', async (req, res, next) => {
 // POST /api/batches - 抽出実行
 router.post('/', async (req, res, next) => {
   try {
-    const { name, industry, prefecture, recentDays, recentCallDays, excludeProjects, testMode, targetCount, pcNumber } = req.body || {};
+    const { name, industry, prefecture, recentDays, recentCallDays, excludeProjects, maxExtractCount, testMode, targetCount, pcNumber } = req.body || {};
     const result = await extraction.createBatch({
       name, industry, prefecture, recentDays,
       recentCallDays: Number(recentCallDays) || 0,
       excludeProjects: !!excludeProjects,
+      maxExtractCount: Number(maxExtractCount) || 0,
       testMode: !!testMode,
       targetCount: Number(targetCount),
       pcNumber,
@@ -134,6 +135,7 @@ router.post('/extract-and-upload', async (req, res, next) => {
       recentDays: Number(body.recentDays) || null,
       recentCallDays: Number(body.recentCallDays) || 0,
       excludeProjects: !!body.excludeProjects,
+      maxExtractCount: Number(body.maxExtractCount) || 0,
       testMode: !!body.testMode,
       targetCount: Number(body.targetCount),
       pcNumbers: body.pcNumbers.map(Number),

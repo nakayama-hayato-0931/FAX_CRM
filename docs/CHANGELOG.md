@@ -104,6 +104,23 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-10] リスト抽出: 「N回以上抽出済みを除外」 フィルタを追加
+
+**要望**: 抽出条件に 「N回以上抽出を除外」 を追加。 デフォルトは 0 (= 除外しない)。
+
+**変更**:
+- backend `buildWhere` に `maxExtractCount` パラメータ追加 — `COALESCE(extract_count, 0) < ?` で WHERE フィルタ
+- `previewCount` / `createBatch` / `createBatchesPerPc` / routes (POST `/api/batches` と `/api/batches/extract-and-upload`) 全部で受け渡し
+- frontend `lists/new.js`: 入力欄を 「N日以内架電を除外」 の隣に追加
+  - default 0 (除外しない)、 0-999 で指定可能
+  - 「既存案件を除外」 チェックボックスは別行にレイアウト変更
+
+**運用**:
+- `0` (default): 制限なし — 何回抽出されてても候補に
+- `3` 等: extract_count が 3 以上の顧客は完全除外。 抽出履歴が積み上がってる古参顧客に上限を設ける用途
+
+---
+
 ## [2026-06-10] リスト抽出: 抽出履歴 (extract_count) を最優先のソート条件に
 
 **要望**: 抽出履歴が少ない企業を優先したい。 多ければ多いほど 選ばれにくくする。
