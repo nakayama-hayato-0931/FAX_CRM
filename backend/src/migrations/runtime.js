@@ -141,15 +141,18 @@ async function runStartupMigrations() {
   }
 
   // ⑤z customers.extract_count 列 (抽出履歴カウンタ)
+  //   大規模 customers (40万件超) の ALTER は 既定 timeout を超える可能性があるため
+  //   { sql, timeout: 0 } 形式で query timeout を無効化
   try {
     if (await colExists(pool, 'customers', 'id')
         && !(await colExists(pool, 'customers', 'extract_count'))) {
-      await pool.query(
-        `ALTER TABLE customers
-           ADD COLUMN extract_count INT NOT NULL DEFAULT 0
-             COMMENT 'リスト抽出された累計回数 (少ない方が優先抽出)',
-           ADD INDEX idx_customers_extract_count (extract_count)`
-      );
+      await pool.query({
+        sql: `ALTER TABLE customers
+                ADD COLUMN extract_count INT NOT NULL DEFAULT 0
+                  COMMENT 'リスト抽出された累計回数 (少ない方が優先抽出)',
+                ADD INDEX idx_customers_extract_count (extract_count)`,
+        timeout: 0,
+      });
       applied.push('customers.extract_count 追加');
     }
   } catch (e) {
