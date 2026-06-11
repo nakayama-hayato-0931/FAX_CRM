@@ -258,20 +258,27 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
-## [2026-06-10] fax-stats: 起動時 1 回キャッチアップ (1 時間ごと案は撤回)
+## [2026-06-10] 定時同期: setInterval 毎分チェック方式に変更 (起動時実行は廃止)
 
-**要望**: 朝 7 時に 1 回だけ確実に同期してくれれば OK。 1 時間ごとは過剰。
+**要望**: 朝 7 時に 1 日 1 回だけ確実に同期してくれれば OK。 起動時に走るのも不要。
 
-**対策**: 1 時間ごとスケジューラを **撤回** し、 「起動時 1 回キャッチアップ」 に置き換え。
-- `scheduleStartupFaxStatsCatchup`: backend 起動 60 秒後に **1 回だけ** `syncFromSheets({ recentOnly: true, recentDays: 3 })` を実行
-- 通常運用 (再起動なし): 1 日 1 回 (朝 7:00) のまま
-- 再起動した日: +1 回キャッチアップ (Railway 再起動が朝 7:00 をまたいだ日の「今日の同期が走らない」 を防ぐ保険)
-- env:
-  - `FAX_STATS_STARTUP_CATCHUP_DAYS` (default 3)
-  - `FAX_STATS_STARTUP_CATCHUP_DELAY_SEC` (default 60)
-  - `FAX_STATS_STARTUP_CATCHUP_ENABLED=0` で無効化
+**対策**: `startDailyScheduler` を 「次の 7:00 を setTimeout 予約」 から **「毎分 setInterval でチェック」** 方式に置き換え。
+- 1 分間隔の `tick()`:
+  - JST 現在時刻が 7:00 以降 かつ そのジョブの `_lastRunDate ≠ 今日` の時のみ実行
+  - 先に `_lastRunDate = 今日` をセットしてから起動 (二重起動防止)
+  - 5 秒 stagger で順次起動 (Sheets API rate limit 回避)
+- 起動時の即時実行は廃止 (純粋に 7:00 のみで動く)
+- `scheduleStartupFaxStatsCatchup` 関数も削除
 
-**運用**: 朝 7 時の定時が失敗しても、 次の デプロイ / 再起動 時に自動でキャッチアップ。 通常は静か。
+**運用**:
+- 通常: 1 日 1 回 (朝 7:00:00-7:00:59 のいずれかの分でチェックヒット) で起動
+- Railway 再起動が朝 7:01 以降に発生しても、 起動から最大 60 秒以内に tick が走り 「今日まだ動いてない」 を検知して即同期 (= 1 日 1 回は保証)
+- 7:00 前に再起動した場合は通常通り 7:00 に 1 回
+
+env (互換性のためそのまま):
+- `DAILY_SYNC_HOUR` (default 7) / `DAILY_SYNC_MINUTE` (default 0)
+- `DAILY_SYNC_ENABLED=0` で全体無効化
+- `FAX_STATS_DAILY_SYNC_*` も後方互換で読む
 
 ---
 

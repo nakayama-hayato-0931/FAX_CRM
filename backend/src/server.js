@@ -131,11 +131,9 @@ const server = app.listen(PORT, async () => {
 
   // 定時スケジューラ: 毎朝 JST 7:00 に 各種シート同期を直列実行
   //   FAX 送信実績 → 売上 → 案件 → 面接 の順
+  //   setInterval で毎分チェック方式 (Railway 再起動に耐性あり、
+  //   1 日 1 回しか走らない lastRunDate ガード付き)
   startDailyScheduler();
-
-  // 起動時 1 回 だけ fax-stats を直近 3 日同期 (Railway 再起動が朝 7:00 を
-  // またいだ日に「今日の同期が走らない」 を防ぐ保険)。
-  scheduleStartupFaxStatsCatchup();
 });
 
 // ============================================================
@@ -232,76 +230,40 @@ function startDailyScheduler() {
   const hour = Number(process.env.DAILY_SYNC_HOUR ?? process.env.FAX_STATS_DAILY_SYNC_HOUR ?? 7);
   const minute = Number(process.env.DAILY_SYNC_MINUTE ?? process.env.FAX_STATS_DAILY_SYNC_MINUTE ?? 0);
 
-  function nextRunMs() {
-    // JST = UTC + 9h。 「JST の今日 hour:minute」 が過ぎていれば翌日に
-    const now = new Date();
-    const jstMs = now.getTime() + 9 * 60 * 60 * 1000;
-    const jst = new Date(jstMs);
-    jst.setUTCHours(hour, minute, 0, 0);
-    let targetUtcMs = jst.getTime() - 9 * 60 * 60 * 1000;
-    if (targetUtcMs <= now.getTime()) targetUtcMs += 24 * 60 * 60 * 1000;
-    return targetUtcMs - now.getTime();
+  // JST の今日の日付 (YYYY-MM-DD)
+  function jstToday() {
+    const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    return jst.toISOString().slice(0, 10);
+  }
+  // JST 現在時刻が hour:minute 以降か
+  function jstPastTarget() {
+    const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const h = jst.getUTCHours();
+    const m = jst.getUTCMinutes();
+    return h > hour || (h === hour && m >= minute);
   }
 
-  // 各ジョブを 個別 setTimeout チェーンで予約
-  //   理由: 旧実装 (for-loop) では fax-stats が 45 分かかった日に
-  //   後続 3 ジョブが押し出されて 翌日に走らなかった事例があった。
-  //   個別 setTimeout なら 1 ジョブが長くても他は時刻通りに発火する。
-  //   ※ 同時刻だと Google Sheets API rate limit のリスクがあるため、
-  //   2 番目以降は 5 秒 ずつずらして 直列に近い順次起動 (上の jobs 配列の順)。
-  for (let i = 0; i < SCHEDULER_JOBS.length; i++) {
-    const job = SCHEDULER_JOBS[i];
-    const stagger = i * 5_000; // 5 秒ずつずらす
-    const scheduleNext = () => {
-      const delay = nextRunMs() + stagger;
-      console.log(`[scheduler] ${job.name}: next run in ${Math.round(delay / 1000 / 60)} min`);
-      setTimeout(async () => {
-        try { await runJob(job.name); } catch (_e) { /* logged in runJob */ }
-        scheduleNext();
-      }, delay);
-    };
-    scheduleNext();
-  }
+  // 各ジョブの最終実行日 (YYYY-MM-DD) を 1 日 1 回ガード
+  //   process メモリ上のみ保持 (再起動でリセット)。
+  //   Railway 再起動が朝 7:00 をまたいでも、 起動後 60 秒以内に
+  //   tick() が走り 「今日まだ動いてない」 を検知して 1 回だけ実行する。
+  for (const j of SCHEDULER_JOBS) j._lastRunDate = null;
 
-  console.log(`[scheduler] daily sync: enabled at JST ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (jobs: ${SCHEDULER_JOBS.map((j) => j.name).join(', ')}, 5s staggered)`);
-}
-
-// ============================================================
-// 起動時キャッチアップ — backend が朝 7:00 をまたいで再起動した日の保険
-// ============================================================
-//   背景: setTimeout(nextRun7am) は Railway 再起動で破棄される。
-//        朝 7:00 以降に再起動すると 「次の 7:00 = 翌朝」 として予約されるため、
-//        その日の同期が走らないまま 24h 経過する。
-//   策:  起動 60 秒後に 1 回だけ fax-stats を 直近 3 日同期。
-//        通常運用 (再起動なし) では 1 日 1 回 (朝 7:00) のまま、
-//        再起動した日だけ +1 回キャッチアップが走る。
-//   env:
-//     FAX_STATS_STARTUP_CATCHUP_ENABLED   default 1, 0 で無効
-//     FAX_STATS_STARTUP_CATCHUP_DAYS      default 3 (直近 N 日)
-//     FAX_STATS_STARTUP_CATCHUP_DELAY_SEC default 60 (起動後何秒)
-function scheduleStartupFaxStatsCatchup() {
-  if (process.env.FAX_STATS_STARTUP_CATCHUP_ENABLED === '0') {
-    console.log('[scheduler] fax-stats startup catchup: DISABLED (env)');
-    return;
-  }
-  const days = Number(process.env.FAX_STATS_STARTUP_CATCHUP_DAYS ?? 3);
-  const delaySec = Number(process.env.FAX_STATS_STARTUP_CATCHUP_DELAY_SEC ?? 60);
-
-  setTimeout(async () => {
-    const t0 = Date.now();
-    console.log(`[scheduler] fax-stats startup catchup: START (recentDays=${days})`);
-    try {
-      const faxStatsSvc = require('./services/faxStatsService');
-      const result = await faxStatsSvc.syncFromSheets({ recentOnly: true, recentDays: days });
-      const elapsed = Math.round((Date.now() - t0) / 1000);
-      console.log(`[scheduler] fax-stats startup catchup: DONE elapsed=${elapsed}s result=${JSON.stringify(result)}`);
-    } catch (e) {
-      const elapsed = Math.round((Date.now() - t0) / 1000);
-      console.error(`[scheduler] fax-stats startup catchup: FAILED elapsed=${elapsed}s err=${e.message}`);
+  async function tick() {
+    if (!jstPastTarget()) return;       // まだ朝 7:00 前 → 何もしない
+    const today = jstToday();
+    for (let i = 0; i < SCHEDULER_JOBS.length; i++) {
+      const job = SCHEDULER_JOBS[i];
+      if (job._lastRunDate === today) continue;  // 今日もう走った
+      job._lastRunDate = today;                  // 先にマーク (二重起動防止)
+      // Google Sheets API rate limit 回避のため 5 秒 stagger で順次起動
+      setTimeout(() => { runJob(job.name).catch(() => {}); }, i * 5_000);
     }
-  }, delaySec * 1000);
+  }
 
-  console.log(`[scheduler] fax-stats startup catchup: scheduled (recentDays=${days}, in ${delaySec}s)`);
+  // 毎分 1 回チェック (1 日 1 回しか走らない、 失敗してもリトライしない、 起動時の即時実行もしない)
+  setInterval(tick, 60 * 1000);
+  console.log(`[scheduler] daily sync: enabled at JST ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (poll every 60s, lastRunDate guard, jobs: ${SCHEDULER_JOBS.map((j) => j.name).join(', ')})`);
 }
 
 // 手動 trigger ルートは notFound より前に登録する必要があるので
