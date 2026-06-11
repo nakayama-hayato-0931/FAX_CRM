@@ -104,6 +104,16 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-10] fix: 架電/抽出 N 回フィルタ で ER_NO_SUCH_TABLE → tier3 で fax-crm にフォールバック
+
+**問題**: 「架電 1 回〜」 を入れて検索すると 500 で「Table 'railway.contact_events' doesn't exist」 が返る。 tier3 モードで `listFromCallcenter` が走り、 callcenter DB には `contact_events` テーブルが無いため。
+
+**対策**: `customerRepo.listCustomers` で **`minCallCount` / `minExtractCount` が指定された時は tier3 でも `listFromFaxCrm` に強制フォールバック**。 これらフィルタは fax-crm DB の `contact_events` / `customers.extract_count` を参照するため、 fax-crm read pool が必要。
+
+**運用注意**: tier3 (callcenter DB を主に読む) モードでも、 N 回フィルタを指定すると fax-crm DB から読むので、 callcenter 側にしか居ない顧客 (external_faxcrm_id が紐付いてない 顧客) は結果に出ない。 callcenter 由来のみの顧客に対するこのフィルタは現状未対応。
+
+---
+
 ## [2026-06-10] 顧客マスタ: ページ切替ボタン + 架電/抽出 N 回以上フィルタ
 
 **要望**:

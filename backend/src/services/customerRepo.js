@@ -343,6 +343,14 @@ async function getById(id) {
 // Public API
 // ============================================
 async function listCustomers(query) {
+  // 架電回数 / 抽出回数 フィルタは contact_events / customers.extract_count を
+  // 参照する必要があるが、 callcenter DB にはそれらが無い。
+  // → これらフィルタが指定された時は tier3 でも fax-crm 側 read に強制フォールバック
+  const needsFaxCrmTables =
+    (Number(query.minCallCount) > 0) || (Number(query.minExtractCount) > 0);
+  if (needsFaxCrmTables) {
+    return listFromFaxCrm(query);
+  }
   if (shouldReadFromCallcenter(1)) {
     return listFromCallcenter(query);
   }
