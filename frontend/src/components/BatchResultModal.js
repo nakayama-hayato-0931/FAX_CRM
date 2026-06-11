@@ -134,6 +134,7 @@ export default function BatchResultModal({ batchId, onClose }) {
                   <th className="text-left px-3 py-2 text-xs font-medium text-zinc-600 w-20">業種</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-zinc-600 w-20">都道府県</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-zinc-600">住所</th>
+                  <th className="text-right px-2 py-2 text-xs font-medium text-zinc-600 w-14" title="抽出された累計回数 (少ない方が優先)">抽出</th>
                   <th className="text-right px-2 py-2 text-xs font-medium text-zinc-600 w-14">送信</th>
                 </tr>
               </thead>
@@ -157,6 +158,7 @@ export default function BatchResultModal({ batchId, onClose }) {
                     <td className="px-3 py-1.5 text-zinc-600 text-xs">
                       {[c.city, c.address].filter(Boolean).join(' ') || '—'}
                     </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-emerald-700 text-xs font-medium">{c.extract_count ?? 0}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-zinc-500 text-xs">{c.send_count ?? 0}</td>
                   </tr>
                 ))}

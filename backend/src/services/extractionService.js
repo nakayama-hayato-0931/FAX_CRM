@@ -28,6 +28,32 @@ async function ensureIsTestColumn(pool) {
   }
 }
 
+// 抽出履歴カウント (extract_count) 列の自動追加 — リスト抽出時の優先度算出に使用
+let _extractCountEnsured = false;
+async function ensureExtractCountColumn(pool) {
+  if (_extractCountEnsured) return;
+  try {
+    const [rows] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'customers'
+          AND COLUMN_NAME = 'extract_count'`
+    );
+    if (rows.length === 0) {
+      await pool.query(
+        `ALTER TABLE customers
+           ADD COLUMN extract_count INT NOT NULL DEFAULT 0
+             COMMENT 'リスト抽出された累計回数。 少ない方が優先抽出される',
+           ADD INDEX idx_customers_extract_count (extract_count)`
+      );
+      console.log('[extractionService] customers.extract_count 列 + index 自動追加 完了');
+    }
+    _extractCountEnsured = true;
+  } catch (e) {
+    console.error('[extractionService] extract_count 列 ensure 失敗:', e.message);
+  }
+}
+
 function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeProjects, ngWordClause }) {
   // 抽出条件:
   //   - ブラックリスト除外
@@ -93,8 +119,14 @@ function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeP
   return { whereSql: 'WHERE ' + where.join(' AND '), params };
 }
 
+// 抽出優先順位 — 「抽出履歴が少ない企業ほど優先」 ルール
+//   1. extract_count ASC  — 過去に抽出された回数が少ない (= 0回 → 1回 → 2回 ...)
+//   2. send_count   ASC  — 同点なら 送信回数が少ない方
+//   3. last_sent_at      — 同点なら 未送信 (NULL) → 最古順
+//   4. id ASC            — 完全タイブレーク
 const PRIORITY_ORDER = `
-  ORDER BY send_count ASC,
+  ORDER BY extract_count ASC,
+           send_count ASC,
            last_sent_at IS NULL DESC,
            last_sent_at ASC,
            id ASC
@@ -144,6 +176,7 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
 
   const pool = getPool();
   await ensureIsTestColumn(pool);
+  await ensureExtractCountColumn(pool);
   const isTest = !!testMode;
   const conn = await pool.getConnection();
   try {
@@ -189,6 +222,7 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
       await conn.query(
         `UPDATE customers
             SET send_count = send_count + 1,
+                extract_count = COALESCE(extract_count, 0) + 1,
                 last_sent_at = NOW(),
                 last_pc_number = ?
           WHERE id IN (?)`,
@@ -238,6 +272,7 @@ async function createBatchesPerPc({
 
   const pool = getPool();
   await ensureIsTestColumn(pool);
+  await ensureExtractCountColumn(pool);
   const isTest = !!testMode;
   const conn = await pool.getConnection();
   try {
@@ -314,6 +349,7 @@ async function listBatches({ page = 1, pageSize = 50 } = {}) {
   const pool = getPool();
   if (!pool) return { items: [], pagination: { page: 1, pageSize: 50, total: 0, totalPages: 0 } };
   await ensureIsTestColumn(pool);
+  await ensureExtractCountColumn(pool);
   const limit = Math.min(Number(pageSize) || 50, 200);
   const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
   const [rows] = await pool.query(
@@ -340,7 +376,8 @@ async function getBatchWithCustomers(id) {
   const [cRows] = await pool.query(
     `SELECT er.row_index, c.id, c.company_name, c.fax_number, c.phone_number,
             c.industry, c.prefecture, c.city, c.address,
-            c.url, c.send_count, c.note, c.is_blacklisted
+            c.url, c.send_count, COALESCE(c.extract_count, 0) AS extract_count,
+            c.note, c.is_blacklisted
        FROM extraction_records er
        JOIN customers c ON c.id = er.customer_id
       WHERE er.batch_id = ?
@@ -370,6 +407,7 @@ async function generateExcelBuffer(id) {
     { header: '市区町村',   key: 'city',         width: 16, align: 'left'   },
     { header: '住所',       key: 'address',      width: 40, align: 'left'   },
     { header: 'URL',        key: 'url',          width: 24, align: 'left',   link: true },
+    { header: '抽出履歴',   key: 'extract_count', width:  8, align: 'right'  },
     { header: '送信履歴',   key: 'send_count',   width:  8, align: 'right'  },
     { header: '備考',       key: 'note',         width: 24, align: 'left'   },
   ];

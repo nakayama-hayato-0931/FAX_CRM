@@ -104,6 +104,31 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-10] リスト抽出: 抽出履歴 (extract_count) を最優先のソート条件に
+
+**要望**: 抽出履歴が少ない企業を優先したい。 多ければ多いほど 選ばれにくくする。
+
+**変更**:
+- `customers.extract_count` 列を新設 (INT NOT NULL DEFAULT 0 + index)
+  - inline ensure migration で 既存環境にも自動追加
+- 抽出 SQL の `PRIORITY_ORDER` を改修:
+  ```
+  ORDER BY extract_count ASC,    -- 1. 過去に抽出された回数が少ない順 (0 → 1 → 2 ...)
+           send_count ASC,        -- 2. 同点なら 送信回数が少ない順
+           last_sent_at IS NULL DESC,
+           last_sent_at ASC,
+           id ASC
+  ```
+- 抽出 commit 時の UPDATE で `extract_count = COALESCE(extract_count, 0) + 1` を加算
+  - 単 PC / 複数 PC どちらも対応
+  - **テストモードでは加算しない** (顧客マスタに履歴を残さないルールを継承)
+- 結果モーダル (`BatchResultModal`) に **「抽出」** 列を新設 (emerald で目立たせる)
+- 出力 Excel に **「抽出履歴」** 列を追加 (「送信履歴」 の左)
+
+**運用**: 0 回 → 1 回 → 2 回 ... と機械的に回されるので、 全顧客に偏りなく FAX が回るようになる。 既に send_count が積み上がってる顧客が極端に避けられる現状から、 純粋に 「抽出機会の少ない順」 に修正。
+
+---
+
 ## [2026-06-10] 電話 / FAX: 保存時にハイフン除去 + 既存 DB の一括正規化
 
 **要望**:
