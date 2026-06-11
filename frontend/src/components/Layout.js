@@ -166,7 +166,7 @@ export default function Layout({ children }) {
                   <div className="text-[12px] font-semibold text-white truncate">
                     {user.display_name || user.username}
                   </div>
-                  <div className="text-[9.5px] mt-0.5">
+                  <div className="text-[9.5px] mt-0.5 flex items-center gap-1.5">
                     <span className={[
                       'inline-block px-1.5 py-0.5 rounded font-medium',
                       user.role === 'admin'
@@ -175,7 +175,10 @@ export default function Layout({ children }) {
                     ].join(' ')}>
                       {user.role === 'admin' ? '管理者' : '営業'}
                     </span>
-                    <span className="ml-1.5 text-emerald-100/70">{user.username}</span>
+                    {/* display_name と username が異なる時だけ username を補助表示 (admin/admin の二重表示を避ける) */}
+                    {user.display_name && user.display_name !== user.username && (
+                      <span className="text-emerald-100/70">{user.username}</span>
+                    )}
                   </div>
                 </div>
               </div>

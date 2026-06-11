@@ -30,8 +30,8 @@ async function create({ username, password, display_name, role }) {
   if (!username || !String(username).trim()) {
     const e = new Error('ユーザー名は必須'); e.status = 400; throw e;
   }
-  if (!password || String(password).length < 6) {
-    const e = new Error('パスワードは6文字以上'); e.status = 400; throw e;
+  if (!password || String(password).length < 5) {
+    const e = new Error('パスワードは5文字以上'); e.status = 400; throw e;
   }
   const r = role || 'sales';
   auth.assertRole(r);
@@ -66,8 +66,8 @@ async function update(id, { display_name, role, is_active }) {
 }
 
 async function changePassword(id, newPassword) {
-  if (!newPassword || String(newPassword).length < 6) {
-    const e = new Error('新しいパスワードは6文字以上'); e.status = 400; throw e;
+  if (!newPassword || String(newPassword).length < 5) {
+    const e = new Error('新しいパスワードは5文字以上'); e.status = 400; throw e;
   }
   const pool = getPool();
   const hash = await auth.hashPassword(newPassword);

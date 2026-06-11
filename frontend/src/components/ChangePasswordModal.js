@@ -17,7 +17,7 @@ export default function ChangePasswordModal({ onClose }) {
   const submit = async (e) => {
     e.preventDefault();
     if (!current || !next1) { toast.error('現在/新パスワードを入力'); return; }
-    if (next1.length < 6) { toast.error('新パスワードは6文字以上'); return; }
+    if (next1.length < 5) { toast.error('新パスワードは5文字以上'); return; }
     if (next1 !== next2) { toast.error('新パスワードが一致しません'); return; }
     setBusy(true);
     try {
@@ -42,7 +42,7 @@ export default function ChangePasswordModal({ onClose }) {
                    disabled={busy} className="w-full border border-zinc-300 rounded-md px-3 py-2" />
           </div>
           <div>
-            <label className="block text-xs text-zinc-600 mb-1">新しいパスワード (6文字以上)</label>
+            <label className="block text-xs text-zinc-600 mb-1">新しいパスワード (5文字以上)</label>
             <input type="password" required value={next1} onChange={(e) => setNext1(e.target.value)}
                    disabled={busy} className="w-full border border-zinc-300 rounded-md px-3 py-2" />
           </div>

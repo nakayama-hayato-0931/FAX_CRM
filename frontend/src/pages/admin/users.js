@@ -156,7 +156,7 @@ function CreateUserModal({ onClose, onCompleted }) {
   const submit = async (e) => {
     e.preventDefault();
     if (!form.username || !form.password) { toast.error('ユーザー名とパスワード必須'); return; }
-    if (form.password.length < 6) { toast.error('パスワードは6文字以上'); return; }
+    if (form.password.length < 5) { toast.error('パスワードは5文字以上'); return; }
     setBusy(true);
     try {
       await api.post('/api/users', form);
@@ -181,7 +181,7 @@ function CreateUserModal({ onClose, onCompleted }) {
                    disabled={busy} className="w-full border border-zinc-300 rounded-md px-3 py-2" />
           </div>
           <div>
-            <label className="block text-xs text-zinc-600 mb-1">パスワード * (6文字以上)</label>
+            <label className="block text-xs text-zinc-600 mb-1">パスワード * (5文字以上)</label>
             <input type="text" required value={form.password}
                    onChange={(e) => setForm({ ...form, password: e.target.value })}
                    disabled={busy} className="w-full border border-zinc-300 rounded-md px-3 py-2" />
@@ -224,7 +224,7 @@ function ResetPasswordModal({ user, onClose }) {
   }, [onClose, busy]);
   const submit = async (e) => {
     e.preventDefault();
-    if (pw.length < 6) { toast.error('6文字以上'); return; }
+    if (pw.length < 5) { toast.error('5文字以上'); return; }
     setBusy(true);
     try {
       await api.put(`/api/users/${user.id}/password`, { new_password: pw });
@@ -243,7 +243,7 @@ function ResetPasswordModal({ user, onClose }) {
         <p className="text-xs text-zinc-500 mb-3">対象: <span className="font-mono">{user.username}</span></p>
         <form onSubmit={submit} className="space-y-3 text-sm">
           <input type="text" required value={pw} onChange={(e) => setPw(e.target.value)}
-                 placeholder="新しいパスワード (6文字以上)"
+                 placeholder="新しいパスワード (5文字以上)"
                  disabled={busy} className="w-full border border-zinc-300 rounded-md px-3 py-2" />
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} disabled={busy}
