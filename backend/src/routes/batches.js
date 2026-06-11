@@ -38,6 +38,7 @@ router.post('/', async (req, res, next) => {
       testMode: !!testMode,
       targetCount: Number(targetCount),
       pcNumber,
+      operatorName: req.user?.display_name || req.user?.username || null,
     });
     return created(res, result);
   } catch (e) { next(e); }
@@ -139,6 +140,7 @@ router.post('/extract-and-upload', async (req, res, next) => {
       testMode: !!body.testMode,
       targetCount: Number(body.targetCount),
       pcNumbers: body.pcNumbers.map(Number),
+      operatorName: req.user?.display_name || req.user?.username || null,
     });
   } catch (e) { return next(e); }
 

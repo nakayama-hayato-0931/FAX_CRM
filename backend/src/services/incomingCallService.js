@@ -237,6 +237,8 @@ async function bulkSave({ batchId, sendDate, pcNumber, manuscriptDate, manuscrip
           // 手動入力 (batchId=null) は null → dedup スキップ で常に新規 insert
           source_event_id: batchId ? batchId * 10000000 + Number(it.customerId) : null,
           pc_number: pcNumber,
+          // 担当営業 を operator_name に保存 (タイムラインに 「担当: 山田」 と表示)
+          operator_name: it.sales_owner || null,
           manuscript_id: manuscriptId || null,
           manuscript_folder_date: manuscriptDate || null,
           manuscript_slot: manuscriptSlot || null,

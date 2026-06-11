@@ -4,7 +4,7 @@ import { api } from '@/utils/api';
 
 const CHANNEL_META = {
   fax:     { label: 'FAX',     color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
-  call:    { label: 'コール',  color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  call:    { label: '架電',    color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
   email:   { label: 'メール',  color: 'bg-sky-100 text-sky-700 border-sky-300' },
   sns:     { label: 'SNS',     color: 'bg-pink-100 text-pink-700 border-pink-300' },
   meeting: { label: '面談',    color: 'bg-amber-100 text-amber-700 border-amber-300' },
@@ -261,13 +261,17 @@ function Timeline({ events }) {
               <div className="flex items-start gap-2 flex-wrap">
                 <span className={`px-2 py-0.5 text-xs rounded border ${meta.color} font-medium`}>{meta.label}</span>
                 <span className="text-sm font-medium text-zinc-900">{evLabel}</span>
-                <span className={`px-1.5 py-0.5 text-[10px] rounded ${sourceBadge}`}>{ev.source_system}</span>
+                {/* 担当者の名前を主バッジに。 無ければ source_system を表示 */}
+                {ev.operator_name ? (
+                  <span className={`px-1.5 py-0.5 text-[10px] rounded ${sourceBadge}`}>{ev.operator_name}</span>
+                ) : (
+                  <span className={`px-1.5 py-0.5 text-[10px] rounded ${sourceBadge}`}>{ev.source_system}</span>
+                )}
                 <span className="text-xs text-zinc-500 ml-auto">{new Date(ev.occurred_at).toLocaleString('ja-JP', { hour12: false })}</span>
               </div>
               <div className="mt-1 text-xs text-zinc-600 flex flex-wrap gap-3 pl-1">
                 {ev.pc_number && <span>PC: <span className="font-mono">{ev.pc_number}</span></span>}
                 {ev.manuscript_slot != null && <span>原稿: {ev.manuscript_folder_date} / {ev.manuscript_slot}</span>}
-                {ev.operator_name && <span>担当: {ev.operator_name}</span>}
                 {ev.result_label && ev.result_label !== ev.event_type && <span>結果: {ev.result_label}</span>}
               </div>
               {ev.memo && <div className="mt-1 text-xs text-zinc-700 bg-zinc-50 rounded px-2 py-1">{ev.memo}</div>}

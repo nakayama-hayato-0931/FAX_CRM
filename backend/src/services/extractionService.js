@@ -28,6 +28,40 @@ async function ensureIsTestColumn(pool) {
   }
 }
 
+/**
+ * FAX 抽出 commit 時に 顧客タイムライン用 contact_events を一括 INSERT する。
+ *   - channel='fax', event_type='send', source_system='fax-crm'
+ *   - operator_name に 実行ユーザー (display_name or username) を入れる
+ *     → 顧客マスタ詳細モーダルの タイムラインに 「FAX 送信 / 担当: 山田」 と表示される
+ *   - source_event_id は batchId * 1e7 + customer_id で 一意 (再実行時の重複 INSERT を回避)
+ *   - 失敗しても抽出本体は止めない (個別に try/catch で警告)
+ */
+async function insertExtractionContactEvents(conn, customers, batchId, pcNumber, operatorName) {
+  if (!customers || !customers.length) return;
+  try {
+    const now = new Date();
+    const rows = customers.map((c) => [
+      c.id,                          // customer_id
+      'fax',                         // channel
+      'send',                        // event_type
+      now,                           // occurred_at
+      'fax-crm',                     // source_system
+      batchId * 10000000 + Number(c.id),  // source_event_id (一意)
+      operatorName || null,          // operator_name
+      pcNumber || null,              // pc_number
+    ]);
+    await conn.query(
+      `INSERT IGNORE INTO contact_events
+         (customer_id, channel, event_type, occurred_at, source_system, source_event_id,
+          operator_name, pc_number)
+       VALUES ?`,
+      [rows]
+    );
+  } catch (e) {
+    console.warn('[extractionService] contact_events insert failed:', e.message);
+  }
+}
+
 // 抽出履歴カウント (extract_count) 列の自動追加 — リスト抽出時の優先度算出に使用
 let _extractCountEnsured = false;
 async function ensureExtractCountColumn(pool) {
@@ -169,7 +203,7 @@ async function previewCount(filters = {}) {
  *   4. customers の send_count++, last_sent_at, last_pc_number を更新
  *   5. batch.actual_count を更新
  */
-async function createBatch({ name, industry, prefecture, recentDays, recentCallDays, excludeProjects, maxExtractCount, targetCount, pcNumber, testMode }) {
+async function createBatch({ name, industry, prefecture, recentDays, recentCallDays, excludeProjects, maxExtractCount, targetCount, pcNumber, testMode, operatorName }) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です。.env の DB_HOST 等を設定してください');
     err.status = 500; err.code = 'DB_NOT_CONFIGURED';
@@ -235,6 +269,9 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
           WHERE id IN (?)`,
         [pcNumber || null, ids]
       );
+      // 4b. 顧客タイムラインに FAX 送信イベントを記録 (operator_name = 実行ユーザー)
+      //     source_event_id は batchId * 1e7 + customer_id で 衝突回避
+      await insertExtractionContactEvents(conn, customers, batchId, pcNumber || null, operatorName);
     }
 
     // 5. batch.actual_count を更新
@@ -262,7 +299,7 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
  *   返り値: [{ pcNumber, batchId, actualCount, status }, ...] (pcNumbers と同順)
  */
 async function createBatchesPerPc({
-  baseName, date, industry, prefecture, recentDays, recentCallDays, excludeProjects, maxExtractCount, targetCount, pcNumbers, testMode,
+  baseName, date, industry, prefecture, recentDays, recentCallDays, excludeProjects, maxExtractCount, targetCount, pcNumbers, testMode, operatorName,
 }) {
   if (!isConfigured()) {
     const err = new Error('DBが未設定です'); err.status = 500; err.code = 'DB_NOT_CONFIGURED';
@@ -325,11 +362,15 @@ async function createBatchesPerPc({
           await conn.query(
             `UPDATE customers
                 SET send_count = send_count + 1,
+                    extract_count = COALESCE(extract_count, 0) + 1,
                     last_sent_at = NOW(),
                     last_pc_number = ?
               WHERE id IN (?)`,
             [`NO.${pcNum}`, slice]
           );
+          // 顧客タイムラインに FAX 送信イベントを記録 (operator_name = 実行ユーザー)
+          const sliceCustomers = slice.map((id) => ({ id }));
+          await insertExtractionContactEvents(conn, sliceCustomers, batchId, `NO.${pcNum}`, operatorName);
         }
       }
 

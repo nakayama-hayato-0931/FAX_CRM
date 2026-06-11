@@ -104,6 +104,36 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-10] タイムライン: 「コール」 → 「架電」 + 担当者名表示 + FAX抽出時の operator 記録
+
+**要望**:
+1. タイムラインの 「コール」 を 「架電」 に
+2. source_system バッジ (「callcenter-ai」 等) を 架電担当者名 に
+3. FAX 抽出時も ログインしている担当者名をタイムラインに
+
+**変更 (1)(2) frontend**:
+- `CustomerDetailModal`: `CHANNEL_META.call.label` を 「コール」 → 「架電」
+- タイムライン行のバッジを `operator_name` 優先表示に変更
+  - `operator_name` があれば 担当者名を表示 (例: 「山田」 「中田 倫哉」)
+  - 無ければ従来通り `source_system` を表示 (例: 「callcenter-ai」 「fax-crm」)
+- 下段の 「担当: 山田」 は重複表示を避けるため削除 (バッジに統合)
+
+**変更 (3) backend 受電報告**:
+- `incomingCallService.createEvent` 呼び出しに `operator_name: it.sales_owner` を追加
+  - 受電報告で選択した担当営業がそのままタイムラインに反映
+
+**変更 (4) backend FAX 抽出**:
+- `extractionService` に `insertExtractionContactEvents(conn, customers, batchId, pcNumber, operatorName)` ヘルパー追加
+  - channel='fax', event_type='send', source_system='fax-crm'
+  - `source_event_id = batchId * 1e7 + customer_id` で一意 + INSERT IGNORE で再実行時の重複回避
+  - 抽出 commit 時に呼び出し (テストモード時は呼ばない)
+- `createBatch` / `createBatchesPerPc` に `operatorName` 引数追加
+- `routes/batches.js` POST / extract-and-upload で `req.user.display_name || username` を渡す
+
+**運用**: これで顧客マスタ → タイムラインを開くと、 callcenter からの架電も FAX-crm からの抽出 (FAX送信) も、 担当者の名前が一目で分かるようになる。 callcenter 側からの架電は callcenter のオペレーター名が出る前提 (callcenter 側で operator_name に作業者名を保存している場合)。
+
+---
+
 ## [2026-06-10] パスワード最低 6 → 5 文字 + サイドバー アカウント表示の冗長性解消
 
 **要望**:
