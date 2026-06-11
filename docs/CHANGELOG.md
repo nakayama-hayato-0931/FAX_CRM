@@ -104,6 +104,36 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-10] 顧客マスタ: ページ切替ボタン + 架電/抽出 N 回以上フィルタ
+
+**要望**:
+1. ページ切替ボタン (現状は 「ページ 1/9851」 表示のみ)
+2. フィルタに 「架電回数 N 回以上」 「抽出回数 N 回以上」 を追加
+
+**変更 (1) ページネーション UI** (frontend):
+- 「« 最初」 「‹ 前へ」 「[N] / 9851」 「次へ ›」 「最後 »」 ボタンを追加
+- ページ番号は input で直接入力可
+- 現在ページ + 全件数を表示
+- 範囲外/loading 中はボタン disabled
+- フィルタ変更時は page=1 にリセット
+
+**変更 (2) フィルタ追加**:
+- frontend: 「FAX」 セレクトの隣に **「架電 N 回〜」** **「抽出 N 回〜」** 入力欄
+  - 空 or 0 = 制限なし、 1 以上で該当顧客に絞る
+- backend `customerRepo.listFromFaxCrm`:
+  - `minExtractCount`: `COALESCE(c.extract_count, 0) >= ?`
+  - `minCallCount`: `(SELECT COUNT(*) FROM contact_events WHERE customer_id=c.id AND channel='call') >= ?`
+  - SELECT に `extract_count` も含めて 一覧に返す
+- backend `listFromCallcenter` (tier3 モード) も同等に対応
+  - `external_faxcrm_id` 経由で fax-crm.customers / contact_events を JOIN
+- 条件クリア時に新フィルタもリセット
+
+**運用例**:
+- 「架電 3 回〜」 → 一度も売れてないが営業候補から外れない 「成約見込みの薄い」 顧客の確認
+- 「抽出 5 回〜」 → 何度もリストに入ってる古参顧客の確認 / 除外候補抽出
+
+---
+
 ## [2026-06-10] タイムライン: 「コール」 → 「架電」 + 担当者名表示 + FAX抽出時の operator 記録
 
 **要望**:

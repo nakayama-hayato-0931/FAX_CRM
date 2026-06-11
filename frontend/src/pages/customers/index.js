@@ -40,8 +40,9 @@ export default function CustomersPage() {
   const isDemo = router.query.demo === '1';
   const [items, setItems] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 50, total: 0, totalPages: 0 });
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({ q: '', industry: '', prefectures: [], blacklisted: '', has_fax: '' });
+  const [filters, setFilters] = useState({ q: '', industry: '', prefectures: [], blacklisted: '', has_fax: '', minCallCount: '', minExtractCount: '' });
   const [showPrefPanel, setShowPrefPanel] = useState(false);
   const [industries, setIndustries] = useState([]);
   const [prefectures, setPrefectures] = useState([]);
@@ -364,12 +365,14 @@ export default function CustomersPage() {
       }
       setLoading(true);
       try {
-        const params = { page: 1, pageSize: 50 };
+        const params = { page, pageSize: 50 };
         if (filters.q) params.q = filters.q;
         if (filters.industry) params.industry = filters.industry;
         if (filters.prefectures?.length) params.prefecture = filters.prefectures.join(',');
         if (filters.blacklisted !== '') params.blacklisted = filters.blacklisted;
         if (filters.has_fax !== '') params.has_fax = filters.has_fax;
+        if (filters.minCallCount && Number(filters.minCallCount) > 0) params.minCallCount = Number(filters.minCallCount);
+        if (filters.minExtractCount && Number(filters.minExtractCount) > 0) params.minExtractCount = Number(filters.minExtractCount);
         const [list, ind, pref] = await Promise.all([
           api.get('/api/customers', { params }),
           api.get('/api/customers/facets/industries'),
@@ -390,7 +393,13 @@ export default function CustomersPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [isDemo, reloadKey, filters.industry, JSON.stringify(filters.prefectures), filters.blacklisted, filters.has_fax]);
+  }, [isDemo, reloadKey, page, filters.industry, JSON.stringify(filters.prefectures), filters.blacklisted, filters.has_fax, filters.minCallCount, filters.minExtractCount]);
+
+  // フィルタ変更時に page=1 にリセット (検索 q 以外、 q は Enter で発火するので別ハンドリング)
+  useEffect(() => {
+    setPage(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.industry, JSON.stringify(filters.prefectures), filters.blacklisted, filters.has_fax, filters.minCallCount, filters.minExtractCount]);
 
   return (
     <div>
@@ -699,13 +708,31 @@ export default function CustomersPage() {
             <option value="true">FAX番号あり</option>
             <option value="false">FAX番号なし</option>
           </select>
+          <div className="flex items-center gap-1 border border-zinc-300 rounded-md px-2 py-1 bg-white"
+               title="架電回数 (contact_events channel=call) が N 回以上の顧客に絞る">
+            <span className="text-xs text-zinc-500 whitespace-nowrap">架電</span>
+            <input type="number" min="0" max="999" placeholder="0"
+                   value={filters.minCallCount}
+                   onChange={(e) => setFilters({ ...filters, minCallCount: e.target.value })}
+                   className="w-12 text-sm border-0 outline-none tabular-nums text-right" />
+            <span className="text-xs text-zinc-500 whitespace-nowrap">回〜</span>
+          </div>
+          <div className="flex items-center gap-1 border border-zinc-300 rounded-md px-2 py-1 bg-white"
+               title="抽出履歴 (extract_count) が N 回以上の顧客に絞る">
+            <span className="text-xs text-zinc-500 whitespace-nowrap">抽出</span>
+            <input type="number" min="0" max="999" placeholder="0"
+                   value={filters.minExtractCount}
+                   onChange={(e) => setFilters({ ...filters, minExtractCount: e.target.value })}
+                   className="w-12 text-sm border-0 outline-none tabular-nums text-right" />
+            <span className="text-xs text-zinc-500 whitespace-nowrap">回〜</span>
+          </div>
         </div>
         <div className="mt-3 flex gap-2">
           <button className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
                   onClick={reload}>検索</button>
           <button className="px-3 py-1.5 text-sm bg-white border border-zinc-300 rounded-md"
                   onClick={() => {
-                    setFilters({ q: '', industry: '', prefectures: [], blacklisted: '', has_fax: '' });
+                    setFilters({ q: '', industry: '', prefectures: [], blacklisted: '', has_fax: '', minCallCount: '', minExtractCount: '' });
                     setTimeout(reload, 0);
                   }}>条件クリア</button>
         </div>
@@ -788,9 +815,56 @@ export default function CustomersPage() {
         </div>
 
         {pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-200 text-sm">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-zinc-200 text-sm flex-wrap">
             <div className="text-zinc-500">
-              ページ {pagination.page} / {pagination.totalPages}
+              ページ <span className="font-medium text-zinc-700">{pagination.page}</span> / {pagination.totalPages.toLocaleString()}
+              <span className="ml-3 text-xs text-zinc-400">({pagination.total.toLocaleString()} 件)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(1)}
+                disabled={pagination.page <= 1 || loading}
+                className="px-2.5 py-1 text-xs border border-zinc-300 rounded hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="最初のページ"
+              >
+                « 最初
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={pagination.page <= 1 || loading}
+                className="px-2.5 py-1 text-xs border border-zinc-300 rounded hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ‹ 前へ
+              </button>
+              <div className="flex items-center gap-1 mx-1">
+                <input
+                  type="number"
+                  min="1"
+                  max={pagination.totalPages}
+                  value={page}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (Number.isInteger(v) && v >= 1 && v <= pagination.totalPages) setPage(v);
+                  }}
+                  className="w-16 text-center px-1.5 py-1 text-xs border border-zinc-300 rounded tabular-nums"
+                />
+                <span className="text-xs text-zinc-400">/ {pagination.totalPages.toLocaleString()}</span>
+              </div>
+              <button
+                onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
+                disabled={pagination.page >= pagination.totalPages || loading}
+                className="px-2.5 py-1 text-xs border border-zinc-300 rounded hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                次へ ›
+              </button>
+              <button
+                onClick={() => setPage(pagination.totalPages)}
+                disabled={pagination.page >= pagination.totalPages || loading}
+                className="px-2.5 py-1 text-xs border border-zinc-300 rounded hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="最後のページ"
+              >
+                最後 »
+              </button>
             </div>
           </div>
         )}

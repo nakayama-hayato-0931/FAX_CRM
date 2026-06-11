@@ -106,6 +106,19 @@ async function listFromFaxCrm(query) {
   if (query.has_fax === 'false') {
     where.push(`(c.fax_number IS NULL OR c.fax_number = '' OR REGEXP_REPLACE(c.fax_number, '[^0-9]', '') = '')`);
   }
+  // 抽出履歴 N 回以上で絞る
+  if (query.minExtractCount && Number(query.minExtractCount) > 0) {
+    where.push('COALESCE(c.extract_count, 0) >= ?');
+    params.push(Number(query.minExtractCount));
+  }
+  // 架電回数 N 回以上で絞る (相関サブクエリ で contact_events を集計)
+  if (query.minCallCount && Number(query.minCallCount) > 0) {
+    where.push(`(
+      SELECT COUNT(*) FROM contact_events
+       WHERE customer_id = c.id AND channel = 'call'
+    ) >= ?`);
+    params.push(Number(query.minCallCount));
+  }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const sortCol = SORT_MAP[query.sortBy] || 'updated_at';
@@ -119,6 +132,7 @@ async function listFromFaxCrm(query) {
             c.industry, c.industry_category, c.prefecture, c.city,
             c.send_count, c.last_sent_at, c.last_pc_number, c.last_result, c.response_count,
             c.is_blacklisted, c.updated_at, c.external_callcenter_id,
+            COALESCE(c.extract_count, 0) AS extract_count,
             COALESCE(cc.call_count, 0) AS call_count
        FROM customers c
        LEFT JOIN (
@@ -172,6 +186,22 @@ async function listFromCallcenter(query) {
   }
   if (query.has_fax === 'false') {
     where.push(`(c.fax_number IS NULL OR c.fax_number = '' OR REGEXP_REPLACE(c.fax_number, '[^0-9]', '') = '')`);
+  }
+  // 抽出履歴 N 回以上で絞る — customers.extract_count を JOIN で参照
+  // (callcenter DB と同じ MySQL に fax-crm customers があるので database 名で限定)
+  if (query.minExtractCount && Number(query.minExtractCount) > 0) {
+    where.push(`COALESCE((
+      SELECT extract_count FROM customers WHERE customers.id = c.external_faxcrm_id LIMIT 1
+    ), 0) >= ?`);
+    params.push(Number(query.minExtractCount));
+  }
+  // 架電回数 N 回以上で絞る — contact_events の集計
+  if (query.minCallCount && Number(query.minCallCount) > 0) {
+    where.push(`(
+      SELECT COUNT(*) FROM contact_events
+       WHERE contact_events.customer_id = c.external_faxcrm_id AND channel = 'call'
+    ) >= ?`);
+    params.push(Number(query.minCallCount));
   }
 
   // callcenter 固有: 除外フラグ立ってる行は除く (デフォルト)
