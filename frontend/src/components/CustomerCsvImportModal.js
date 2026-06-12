@@ -29,13 +29,16 @@ const MODE_OPTIONS = [
 ];
 
 export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMode = 'new' }) {
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);              // 複数ファイル対応 (順次インポート)
   const [mode, setMode] = useState(defaultMode);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);   // ファイル送信中
   const [progress, setProgress] = useState(null);      // backend job 進捗
   const [result, setResult] = useState(null);
+  const [batchResults, setBatchResults] = useState([]); // 複数ファイル時の各結果
+  const [batchIndex, setBatchIndex] = useState(0);     // 現在処理中のファイル番号 (1-based)
   const pollRef = useRef(null);
+  const cancelledRef = useRef(false);
 
   // 既存ジョブの自動レジューム: モーダル open 時に status を確認 → running のみ resume
   // done/failed はクリアして 新しいインポートを開始できるようにする
@@ -68,9 +71,11 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
     try { await api.delete('/api/customers/import/status'); } catch (_e) {}
     setResult(null);
     setProgress(null);
+    setBatchResults([]);
+    setBatchIndex(0);
     setBusy(false);
     setUploading(false);
-    setFile(null);
+    setFiles([]);
   };
 
   const stopPolling = () => {
@@ -84,47 +89,83 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
         const { data } = await api.get('/api/customers/import/status');
         const job = data.data || {};
         setProgress(job);
-        if (job.state === 'done') {
+        if (job.state === 'done' || job.state === 'failed') {
           stopPolling();
-          setBusy(false);
-          const r = job.result || {};
-          setResult(r);
-          const modeMeta = MODE_OPTIONS.find((m) => m.key === r.mode) || MODE_OPTIONS[0];
-          if (r.mode === 'ng' || r.mode === 'existing') {
-            toast.success(`${modeMeta.label} 取込: NG化 ${r.blacklisted || 0} / 新規(NG付) ${r.inserted || 0} / スキップ ${r.skipped || 0}`);
-          } else {
-            toast.success(`${modeMeta.label} 取込: 新規 ${r.inserted || 0} / 肉付け ${r.updated || 0} / スキップ ${r.skipped || 0}`);
-          }
-        } else if (job.state === 'failed') {
-          stopPolling();
-          setBusy(false);
-          toast.error(`取込失敗: ${job.error?.message || 'unknown'}`);
         }
       } catch (_e) {}
     }, 3000);  // 3 秒ごとに polling
   };
 
+  // 単一ファイルを アップロード + 完了まで待つ。 done/failed の result を返す
+  async function importOne(file) {
+    setUploading(true); setProgress(null);
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('mode', mode);
+    const { data } = await api.post('/api/customers/import', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 30 * 60 * 1000,
+    });
+    setUploading(false);
+    startPolling();
+    // backend job の done/failed を待つ
+    return await new Promise((resolve) => {
+      const check = setInterval(async () => {
+        try {
+          const { data: s } = await api.get('/api/customers/import/status');
+          const job = s.data || {};
+          if (job.state === 'done') {
+            clearInterval(check);
+            resolve({ ok: true, result: job.result || {} });
+          } else if (job.state === 'failed') {
+            clearInterval(check);
+            resolve({ ok: false, error: job.error?.message || 'unknown' });
+          }
+        } catch (_e) {}
+      }, 2000);
+    }).finally(async () => {
+      // 次のファイルのために job 状態をクリア
+      try { await api.delete('/api/customers/import/status'); } catch (_e) {}
+    });
+  }
+
   const submit = async (e) => {
     e.preventDefault();
-    if (!file) { toast.error('ファイルを選択してください'); return; }
-    setBusy(true); setUploading(true); setResult(null); setProgress(null);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('mode', mode);
-      // 即時 202 (バックグラウンド処理開始) を受け取り、 polling で進捗を追う
-      const { data } = await api.post('/api/customers/import', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 30 * 60 * 1000,  // アップロード自体は 30分以内 (108MB なら数十秒)
-      });
-      setUploading(false);
-      toast.success(`バックグラウンドで取込開始: ${data.data.jobId}`);
-      startPolling();
-    } catch (err) {
-      setUploading(false);
-      setBusy(false);
-      toast.error(err.userMessage || 'アップロード失敗');
+    if (!files.length) { toast.error('ファイルを選択してください'); return; }
+    setBusy(true); setResult(null); setProgress(null); setBatchResults([]); setBatchIndex(0);
+    cancelledRef.current = false;
+    const total = files.length;
+    const aggregated = { mode, totalRows: 0, validRows: 0, inserted: 0, updated: 0, skipped: 0, blacklisted: 0, dupInFile: 0 };
+    const perFile = [];
+    for (let i = 0; i < total; i++) {
+      if (cancelledRef.current) break;
+      setBatchIndex(i + 1);
+      const f = files[i];
+      try {
+        const out = await importOne(f);
+        perFile.push({ name: f.name, ...out });
+        if (out.ok) {
+          const r = out.result;
+          aggregated.totalRows += r.totalRows || 0;
+          aggregated.validRows += r.validRows || 0;
+          aggregated.inserted += r.inserted || 0;
+          aggregated.updated += r.updated || 0;
+          aggregated.skipped += r.skipped || 0;
+          aggregated.blacklisted += r.blacklisted || 0;
+          aggregated.dupInFile += r.dupInFile || 0;
+        }
+      } catch (err) {
+        perFile.push({ name: f.name, ok: false, error: err.userMessage || err.message || 'unknown' });
+        toast.error(`${f.name}: ${err.userMessage || 'アップロード失敗'}`);
+      }
+      setBatchResults([...perFile]);
     }
+    setBusy(false);
+    setResult(aggregated);
+    const okCount = perFile.filter((p) => p.ok).length;
+    const ngCount = perFile.length - okCount;
+    if (ngCount === 0) toast.success(`${okCount} ファイル すべて取込完了`);
+    else toast.error(`${total} ファイル中 ${okCount} 成功 / ${ngCount} 失敗`);
   };
 
   const activeMode = MODE_OPTIONS.find((m) => m.key === mode) || MODE_OPTIONS[0];
@@ -142,7 +183,12 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
           <div className="bg-sky-50 border border-sky-200 rounded-md p-4 mb-4 text-sm">
             <div className="font-semibold text-sky-800 mb-2 flex items-center gap-2">
               <span className="inline-block w-2 h-2 rounded-full bg-sky-500 animate-pulse"></span>
-              バックグラウンドで取込処理中… (job: {progress.id})
+              バックグラウンドで取込処理中…
+              {files.length > 1 && (
+                <span className="ml-1 text-xs font-medium bg-sky-200 text-sky-800 px-2 py-0.5 rounded">
+                  {batchIndex} / {files.length} ファイル目
+                </span>
+              )}
             </div>
             <div className="text-xs text-sky-700 mb-2">
               {progress.name} ({Math.round((progress.size || 0) / 1024 / 1024)}MB) / モード: {progress.mode}
@@ -225,16 +271,44 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
             <input
               type="file"
               accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-              className="block w-full text-sm border border-zinc-300 rounded-md px-3 py-2 mb-4"
+              multiple
+              onChange={(e) => setFiles(Array.from(e.target.files || []))}
+              className="block w-full text-sm border border-zinc-300 rounded-md px-3 py-2 mb-2"
               disabled={busy}
             />
+            {/* 選択ファイル一覧 */}
+            {files.length > 0 && (
+              <div className="mb-4 max-h-32 overflow-auto border border-zinc-200 rounded-md bg-zinc-50/50">
+                <div className="px-2.5 py-1.5 text-[11px] text-zinc-600 border-b border-zinc-200 bg-white sticky top-0">
+                  選択中: <span className="font-medium text-zinc-900">{files.length}</span> ファイル
+                  ({Math.round(files.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toLocaleString()} MB)
+                </div>
+                <ul className="text-[11px] divide-y divide-zinc-200">
+                  {files.map((f, i) => (
+                    <li key={i} className="px-2.5 py-1 flex items-center gap-2">
+                      <span className="text-zinc-400 tabular-nums w-6 text-right">{i + 1}.</span>
+                      <span className="flex-1 truncate text-zinc-700" title={f.name}>{f.name}</span>
+                      <span className="text-zinc-400 tabular-nums">{Math.round(f.size / 1024).toLocaleString()} KB</span>
+                      <button type="button"
+                              onClick={() => setFiles(files.filter((_, j) => j !== i))}
+                              className="text-zinc-400 hover:text-rose-600 text-xs px-1" title="削除">×</button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <button type="button" className="px-4 py-2 text-sm bg-white border border-zinc-300 rounded-md"
                       onClick={onClose} disabled={busy}>キャンセル</button>
               <button type="submit" className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50"
-                      disabled={busy || !file}>
-                {uploading ? 'アップロード中…' : busy ? '処理中…' : `${activeMode.label} として取込`}
+                      disabled={busy || !files.length}>
+                {uploading
+                  ? `アップロード中… (${batchIndex}/${files.length})`
+                  : busy
+                    ? `処理中… (${batchIndex}/${files.length})`
+                    : files.length <= 1
+                      ? `${activeMode.label} として取込`
+                      : `${files.length} ファイルを ${activeMode.label} として順次取込`}
               </button>
             </div>
           </form>
@@ -245,7 +319,31 @@ export default function CustomerCsvImportModal({ onClose, onCompleted, defaultMo
             <div className="bg-emerald-50 border border-emerald-200 rounded-md p-4 mb-4 text-sm">
               <div className="font-semibold text-emerald-800 mb-2">
                 {(MODE_OPTIONS.find((m) => m.key === result.mode) || MODE_OPTIONS[0]).label} 取込 完了
+                {batchResults.length > 1 && (
+                  <span className="ml-2 text-xs font-medium bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded">
+                    {batchResults.filter((r) => r.ok).length} / {batchResults.length} ファイル
+                  </span>
+                )}
               </div>
+              {batchResults.length > 1 && (
+                <div className="mb-3 max-h-32 overflow-auto border border-emerald-200 rounded bg-white">
+                  <ul className="text-[11px] divide-y divide-zinc-100">
+                    {batchResults.map((b, i) => (
+                      <li key={i} className="px-2.5 py-1 flex items-center gap-2">
+                        <span className={b.ok ? 'text-emerald-600' : 'text-rose-600'}>{b.ok ? '✓' : '✗'}</span>
+                        <span className="flex-1 truncate text-zinc-700" title={b.name}>{b.name}</span>
+                        {b.ok ? (
+                          <span className="text-zinc-500 tabular-nums">
+                            新{(b.result?.inserted || 0).toLocaleString()} / 肉{(b.result?.updated || 0).toLocaleString()} / SK{(b.result?.skipped || 0).toLocaleString()}
+                          </span>
+                        ) : (
+                          <span className="text-rose-600 truncate" title={b.error}>{b.error}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <dl className="grid grid-cols-2 gap-y-1">
                 <dt className="text-zinc-600">読み込み行数:</dt>
                 <dd className="text-right tabular-nums">{result.totalRows.toLocaleString()}</dd>
