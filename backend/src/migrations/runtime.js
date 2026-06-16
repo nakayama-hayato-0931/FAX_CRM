@@ -272,6 +272,47 @@ async function runStartupMigrations() {
     failed.push({ name: 'extraction_batches.is_test', error: e.message });
   }
 
+  // ⑤c extraction_batches.filter_prefecture / filter_industry の桁拡張
+  //    都道府県を複数選択した時に CSV ("東京都,神奈川県,...") で 20 字を超えて
+  //    Data too long for column 'filter_prefecture' が出ていたため、 共に 255 に拡張
+  try {
+    if (await colExists(pool, 'extraction_batches', 'filter_prefecture')) {
+      const [rows] = await pool.query(
+        `SELECT CHARACTER_MAXIMUM_LENGTH AS len
+           FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'extraction_batches'
+            AND COLUMN_NAME = 'filter_prefecture'`
+      );
+      if (rows.length && rows[0].len !== null && Number(rows[0].len) < 255) {
+        await pool.query(
+          `ALTER TABLE extraction_batches
+             MODIFY COLUMN filter_prefecture VARCHAR(255) DEFAULT NULL
+               COMMENT '複数選択時は CSV (例: 東京都,神奈川県)'`
+        );
+        applied.push('extraction_batches.filter_prefecture を VARCHAR(255) に拡張');
+      }
+    }
+    if (await colExists(pool, 'extraction_batches', 'filter_industry')) {
+      const [rows] = await pool.query(
+        `SELECT CHARACTER_MAXIMUM_LENGTH AS len
+           FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'extraction_batches'
+            AND COLUMN_NAME = 'filter_industry'`
+      );
+      if (rows.length && rows[0].len !== null && Number(rows[0].len) < 255) {
+        await pool.query(
+          `ALTER TABLE extraction_batches
+             MODIFY COLUMN filter_industry VARCHAR(255) DEFAULT NULL`
+        );
+        applied.push('extraction_batches.filter_industry を VARCHAR(255) に拡張');
+      }
+    }
+  } catch (e) {
+    failed.push({ name: 'extraction_batches.filter_* 桁拡張', error: e.message });
+  }
+
   // ⑤ users テーブル (ログイン認証)
   try {
     const [tbls] = await pool.query(

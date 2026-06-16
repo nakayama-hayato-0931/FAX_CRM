@@ -247,8 +247,8 @@ CREATE TABLE IF NOT EXISTS ng_words (
 CREATE TABLE IF NOT EXISTS extraction_batches (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
-  filter_industry VARCHAR(100) DEFAULT NULL,
-  filter_prefecture VARCHAR(20) DEFAULT NULL,
+  filter_industry VARCHAR(255) DEFAULT NULL,
+  filter_prefecture VARCHAR(255) DEFAULT NULL COMMENT '複数選択時は CSV (例: 東京都,神奈川県)',
   filter_recent_days INT DEFAULT NULL COMMENT '直近N日以内に送信した顧客は除外する設定',
   target_count INT NOT NULL,
   actual_count INT NOT NULL DEFAULT 0,

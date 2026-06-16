@@ -28,6 +28,34 @@ async function ensureIsTestColumn(pool) {
   }
 }
 
+// extraction_batches.filter_prefecture / filter_industry の桁が VARCHAR(20)/(100) のままだと
+// 都道府県 複数選択時の CSV ("東京都,神奈川県,...") で Data too long エラーになるため、
+// 起動時 migration が走っていない環境でも 抽出 INSERT 直前に確実に拡張する。
+let _filterColsWidened = false;
+async function ensureFilterCols(pool) {
+  if (_filterColsWidened) return;
+  try {
+    const [rows] = await pool.query(
+      `SELECT COLUMN_NAME, CHARACTER_MAXIMUM_LENGTH AS len
+         FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'extraction_batches'
+          AND COLUMN_NAME IN ('filter_prefecture', 'filter_industry')`
+    );
+    for (const r of rows) {
+      if (r.len !== null && Number(r.len) < 255) {
+        await pool.query(
+          `ALTER TABLE extraction_batches MODIFY COLUMN ${r.COLUMN_NAME} VARCHAR(255) DEFAULT NULL`
+        );
+        console.log(`[extractionService] extraction_batches.${r.COLUMN_NAME} を VARCHAR(255) に拡張`);
+      }
+    }
+    _filterColsWidened = true;
+  } catch (e) {
+    console.error('[extractionService] filter_* 桁拡張 ensure 失敗:', e.message);
+  }
+}
+
 /**
  * FAX 抽出 commit 時に 顧客タイムライン用 contact_events を一括 INSERT する。
  *   - channel='fax', event_type='send', source_system='fax-crm'
@@ -222,6 +250,7 @@ async function createBatch({ name, industry, prefecture, recentDays, recentCallD
 
   const pool = getPool();
   await ensureIsTestColumn(pool);
+  await ensureFilterCols(pool);
   await ensureExtractCountColumn(pool);
   const isTest = !!testMode;
   const conn = await pool.getConnection();
@@ -321,6 +350,7 @@ async function createBatchesPerPc({
 
   const pool = getPool();
   await ensureIsTestColumn(pool);
+  await ensureFilterCols(pool);
   await ensureExtractCountColumn(pool);
   const isTest = !!testMode;
   const conn = await pool.getConnection();
@@ -402,6 +432,7 @@ async function listBatches({ page = 1, pageSize = 50 } = {}) {
   const pool = getPool();
   if (!pool) return { items: [], pagination: { page: 1, pageSize: 50, total: 0, totalPages: 0 } };
   await ensureIsTestColumn(pool);
+  await ensureFilterCols(pool);
   await ensureExtractCountColumn(pool);
   const limit = Math.min(Number(pageSize) || 50, 200);
   const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;

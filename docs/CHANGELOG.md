@@ -258,6 +258,22 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-16] リスト抽出 500 修正: filter_prefecture 桁あふれ (複数県選択時の DBエラー)
+
+**現象**: 都道府県を複数選択して リスト抽出 → Drive 格納 を実行すると
+`DBエラー: Data too long for column 'filter_prefecture' at row 1` で 500 が返り、 Drive フォルダ作成も中断。
+
+**原因**: `extraction_batches.filter_prefecture` が `VARCHAR(20)` で定義されていた。 都道府県多選択UI 導入後は CSV ("東京都,神奈川県,千葉県,埼玉県,..." 等) で保存されるため、 2県以上 (関東1都6県なら 25字+) で容易に上限を超えていた。
+
+**変更**:
+- `database/init.sql`: `extraction_batches.filter_prefecture` / `filter_industry` を `VARCHAR(255)` に拡張
+- `backend/src/migrations/runtime.js`: 既存環境向け `MODIFY COLUMN` を追加 (現状 `< 255` の場合のみ拡張する冪等処理)
+- `backend/src/services/extractionService.js`: zero-downtime デプロイで migration 完了前に新コードが走る race condition 回避のため、 `createBatchesPerPc` / `commitBatch` / `extractAndUpload` 系の INSERT 直前に `ensureFilterCols(pool)` で 列幅確保 (1度成功すれば no-op)
+
+**互換性**: 既存データは無影響。 ALTER MODIFY は VARCHAR の拡張なので排他短時間で完了。
+
+---
+
 ## [2026-06-16] リスト抽出: テストモードのチェック時に画面が下にずれる現象を修正
 
 **現象**: 「テストモード」 チェックボックスを ON にした時、 メイン領域のスクロール位置が下に動いて 抽出ボタン側が見えるように勝手にスクロールされる。
