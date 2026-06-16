@@ -436,11 +436,25 @@ async function listBatches({ page = 1, pageSize = 50 } = {}) {
   await ensureExtractCountColumn(pool);
   const limit = Math.min(Number(pageSize) || 50, 200);
   const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
+  // 一緒に格納した原稿 (manuscript_contents) を集約:
+  //   extraction_batches.manuscript_id (= スロット ID) に紐づいた
+  //   manuscript_slot_files (kind='manuscript') 経由で原稿の title / 登録番号を引く。
+  //   1スロットに複数原稿の可能性もあるので GROUP_CONCAT で連結 (区切り ' / ')。
   const [rows] = await pool.query(
-    `SELECT id, name, filter_industry, filter_prefecture, target_count, actual_count,
-            pc_number, status, is_test, drive_file_url, created_at
-       FROM extraction_batches
-      ORDER BY created_at DESC
+    `SELECT b.id, b.name, b.filter_industry, b.filter_prefecture, b.target_count, b.actual_count,
+            b.pc_number, b.status, b.is_test, b.drive_file_url, b.created_at,
+            (SELECT GROUP_CONCAT(DISTINCT mc.title ORDER BY mc.id SEPARATOR ' / ')
+               FROM manuscript_slot_files msf
+               JOIN manuscript_contents mc ON mc.id = msf.manuscript_content_id
+              WHERE msf.manuscript_id = b.manuscript_id
+                AND msf.manuscript_content_id IS NOT NULL) AS manuscript_titles,
+            (SELECT GROUP_CONCAT(DISTINCT mc.registration_no ORDER BY mc.id SEPARATOR ' / ')
+               FROM manuscript_slot_files msf
+               JOIN manuscript_contents mc ON mc.id = msf.manuscript_content_id
+              WHERE msf.manuscript_id = b.manuscript_id
+                AND msf.manuscript_content_id IS NOT NULL) AS manuscript_registration_nos
+       FROM extraction_batches b
+      ORDER BY b.created_at DESC
       LIMIT ? OFFSET ?`,
     [limit, offset]
   );

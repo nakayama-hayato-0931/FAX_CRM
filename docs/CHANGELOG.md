@@ -274,6 +274,21 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-16] リスト抽出 一覧: 「状態」 列を 「同時格納原稿」 列に置換
+
+**背景**: `extraction_batches.status` を `sent` (送信済) に更新する経路がコード上に存在せず、 常に `ready` (送信待ち) のまま表示されていた。 実 FAX 配信は外部 PC 配信ソフトで行うため、 自動で送信済みを判定する経路もない。 ステータス列自体が意味を持っていなかった。
+
+**変更**:
+- backend `extractionService.listBatches`: `manuscript_slot_files` (kind='manuscript') 経由で `manuscript_contents.title` / `registration_no` を GROUP_CONCAT で集約して返すように
+- frontend `pages/lists/index.js`:
+  - 「状態」 列を削除
+  - 「同時格納原稿」 列を追加 (タイトル + 登録番号のバッジ表示)
+  - `STATUS_LABEL` 定数 / `manuscript_titles` を含む新フィールド対応の DEMO データに整理
+
+**取得経路**: `extraction_batches.manuscript_id` (= スロット ID) → `manuscript_slot_files` (kind='manuscript') → `manuscript_contents`。 1スロットに複数原稿がある場合は ' / ' 区切りで連結。
+
+---
+
 ## [2026-06-16] 全画面: ボタンクリック時の auto-scroll を全 button に対して抑制
 
 **現象**: テストモード チェックボックスの auto-scroll を div+onClick で修正したが、 同じ症状が PC番号 / 全選択 / クリア / 件数プレビュー / その他のページの ボタンクリックでも発生していた。

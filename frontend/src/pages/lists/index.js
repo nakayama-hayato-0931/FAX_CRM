@@ -7,17 +7,10 @@ import BatchResultModal from '@/components/BatchResultModal';
 import NgWordsModal from '@/components/NgWordsModal';
 
 const DEMO_BATCHES = [
-  { id: 7, name: '関東-製造業-PC03', filter_industry: '製造業', filter_prefecture: '東京都', target_count: 200, actual_count: 200, pc_number: 'PC03', status: 'ready', drive_file_url: null, created_at: '2026-05-12T09:00:00Z' },
-  { id: 6, name: '関西-卸売-100件', filter_industry: '卸売業', filter_prefecture: '大阪府', target_count: 100, actual_count: 100, pc_number: 'PC01', status: 'sent', drive_file_url: null, created_at: '2026-05-08T14:30:00Z' },
-  { id: 5, name: '東海-情報通信-50件', filter_industry: '情報通信', filter_prefecture: '愛知県', target_count: 50, actual_count: 47, pc_number: 'PC02', status: 'ready', drive_file_url: null, created_at: '2026-05-05T11:00:00Z' },
+  { id: 7, name: '関東-製造業-PC03', filter_industry: '製造業', filter_prefecture: '東京都', target_count: 200, actual_count: 200, pc_number: 'PC03', drive_file_url: null, manuscript_titles: '建設_東京_v2', manuscript_registration_nos: 'M-203', created_at: '2026-05-12T09:00:00Z' },
+  { id: 6, name: '関西-卸売-100件',   filter_industry: '卸売業', filter_prefecture: '大阪府', target_count: 100, actual_count: 100, pc_number: 'PC01', drive_file_url: null, manuscript_titles: null, manuscript_registration_nos: null, created_at: '2026-05-08T14:30:00Z' },
+  { id: 5, name: '東海-情報通信-50件', filter_industry: '情報通信', filter_prefecture: '愛知県', target_count: 50, actual_count: 47, pc_number: 'PC02', drive_file_url: null, manuscript_titles: '介護_中京_v1', manuscript_registration_nos: 'M-187', created_at: '2026-05-05T11:00:00Z' },
 ];
-
-const STATUS_LABEL = {
-  draft: { label: '下書き', cls: 'bg-zinc-100 text-zinc-700' },
-  ready: { label: '送信待ち', cls: 'bg-emerald-100 text-emerald-700' },
-  sent:  { label: '送信済', cls: 'bg-emerald-100 text-emerald-700' },
-  failed:{ label: '失敗',   cls: 'bg-red-100 text-red-700' },
-};
 
 export default function ListsPage() {
   const router = useRouter();
@@ -132,7 +125,7 @@ export default function ListsPage() {
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">都道府県</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">指定/実件数</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">PC</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">状態</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">同時格納原稿</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">作成日</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-600 uppercase">操作</th>
               </tr>
@@ -147,7 +140,8 @@ export default function ListsPage() {
                 </td></tr>
               )}
               {!loading && items.map((b) => {
-                const s = STATUS_LABEL[b.status] || { label: b.status, cls: 'bg-zinc-100 text-zinc-700' };
+                const titles = (b.manuscript_titles || '').split(' / ').filter(Boolean);
+                const regNos = (b.manuscript_registration_nos || '').split(' / ').filter(Boolean);
                 return (
                   <tr key={b.id} className={[
                     'border-t border-zinc-100 hover:bg-zinc-50/60',
@@ -166,7 +160,22 @@ export default function ListsPage() {
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs">{b.pc_number || '—'}</td>
                     <td className="px-4 py-2.5">
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${s.cls}`}>{s.label}</span>
+                      {titles.length === 0 ? (
+                        <span className="text-zinc-400 text-xs">—</span>
+                      ) : (
+                        <div className="flex flex-col gap-0.5">
+                          {titles.map((t, i) => (
+                            <div key={i} className="flex items-center gap-1.5 text-xs">
+                              <span className="text-zinc-800">{t}</span>
+                              {regNos[i] && (
+                                <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 font-mono text-[10px]">
+                                  {regNos[i]}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-zinc-500 text-xs">
                       {new Date(b.created_at).toLocaleDateString('ja-JP')}
