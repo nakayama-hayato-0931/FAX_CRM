@@ -274,6 +274,23 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-16] 全画面: ボタンクリック時の auto-scroll を全 button に対して抑制
+
+**現象**: テストモード チェックボックスの auto-scroll を div+onClick で修正したが、 同じ症状が PC番号 / 全選択 / クリア / 件数プレビュー / その他のページの ボタンクリックでも発生していた。
+
+**原因**: Chrome は要素にフォーカスが当たった瞬間、 要素が viewport の中央付近に来るよう `scrollIntoViewIfNeeded` ヒューリスティクスでスクロールする。 fixed sidebar + main `overflow:auto` レイアウトと組み合わさり、 「ボタンを押しただけで画面が下にズレる」 症状として観測される。
+
+**変更** (`frontend/src/pages/_app.js`):
+- `useSuppressFocusScroll` フックを `Shell` で呼び出し、 `document` の `mousedown` を捕捉
+- `<button>` 要素 (`BUTTON` tag または 親に button を持つ要素) は `e.preventDefault()` で focus 取得を抑制
+- click イベントは通常通り発火するので、 `onClick` ハンドラ・ form submit は影響を受けない
+- キーボード Tab フォーカスは抑制されないので accessibility は維持
+- input (text/checkbox/radio/textarea) は対象外 (フォーカスや toggle 機能を壊さない)
+
+**影響範囲**: 全ページ全 button (グローバル適用)。
+
+---
+
 ## [2026-06-16] リスト抽出: テストモードのチェック時に画面が下にずれる現象を修正
 
 **現象**: 「テストモード」 チェックボックスを ON にした時、 メイン領域のスクロール位置が下に動いて 抽出ボタン側が見えるように勝手にスクロールされる。
