@@ -144,9 +144,18 @@ router.post('/extract-and-upload', async (req, res, next) => {
     });
   } catch (e) { return next(e); }
 
-  // 2. 事前準備: 23 スロット を 1 回だけ ensure (PC ごとに重複呼び出しを避ける)
+  // 2. 事前準備: 1 回だけ DB スロット (23 行) + Drive 親/子フォルダ をまとめて ensure
+  //    - ensureSlotsExist: DB の manuscripts 23 行を冪等作成
+  //    - ensureDriveFolders: 日付の親フォルダ + 23 子フォルダ を Drive 上に
+  //      まとめて作成 (内部で並列 findOrCreate)
+  //    PC ごとの ensureSlotDriveFolder を並列に呼ぶと 親フォルダ作成で race
+  //    して 同名フォルダが複数できる/フォルダが作られない事象があった。
+  //    事前に 1 回だけ全部作っておけば、 PC 側は drive_folder_id を読むだけで済む。
   try { await ms.ensureSlotsExist(body.date); } catch (e) {
     console.warn(`[extract-and-upload] ensureSlotsExist failed: ${e.message}`);
+  }
+  try { await ms.ensureDriveFolders(body.date); } catch (e) {
+    console.warn(`[extract-and-upload] ensureDriveFolders failed: ${e.message}`);
   }
 
   // 3. PC ごとの処理を 並列実行 (Drive API rate limit 配慮で concurrency 制限)
