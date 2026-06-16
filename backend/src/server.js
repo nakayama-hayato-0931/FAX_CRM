@@ -55,6 +55,7 @@ const jobPostingsRouter = require('./routes/jobPostings');
 const manuscriptContentsRouter = require('./routes/manuscriptContents');
 const ngWordsRouter = require('./routes/ngWords');
 const salesOwnersRouter = require('./routes/salesOwners');
+const sendResultSummaryRouter = require('./routes/sendResultSummary');
 
 const app = express();
 
@@ -109,6 +110,7 @@ app.use('/api/job-postings', requireAuth, jobPostingsRouter);
 app.use('/api/manuscript-contents', requireAuth, manuscriptContentsRouter);
 app.use('/api/ng-words', requireAuth, ngWordsRouter);
 app.use('/api/sales-owners', requireAuth, salesOwnersRouter);
+app.use('/api/send-result-summary', requireAuth, sendResultSummaryRouter);
 
 // scheduler 手動 trigger ルート (notFound より前に登録)
 registerSchedulerRoutes(app);

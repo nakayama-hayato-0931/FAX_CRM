@@ -258,6 +258,31 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-16] 送信結果集計ページ追加 (地域 × 業種 × 原稿国籍 で受電率/案件化率)
+
+**要望**: 期間を選択したら、 どこの地域 / 業種 / 原稿国籍 で送って、 受電数・率と案件化数・率は何 % か分かる表が欲しい。 「いつ送ったか」 は抽出 / 格納時のフォルダ日付で判断。
+
+**変更**:
+- backend `sendResultSummaryService.js` 新規:
+  - 集計対象: `contact_events WHERE channel='fax' AND event_type='send'`
+    (リスト抽出 commit 時に記録されるレコード)
+  - 期間絞り込み: `manuscript_folder_date BETWEEN from AND to` (= Drive フォルダ日付)
+  - 受電判定: 同 customer に 抽出日以降の `channel='call'` あり
+  - 案件化判定: `sales_projects.company_name` 一致 + `acquired_date >= 抽出日`
+  - 軸: region (8地域に CASE マッピング) / industry_category / nationality (manuscript_contents)
+  - `manuscript_id` → `manuscript_slot_files` → `manuscript_content_id` → `manuscript_contents.nationality` でリンク
+- backend `routes/sendResultSummary.js`: GET `/api/send-result-summary?from=&to=&groupBy=`
+- frontend `pages/send-result-summary/index.js`:
+  - 期間プリセット (今日 / 当月 / 直近30日 / 直近90日) + 任意 from/to
+  - 集計軸セレクト (地域 × 業種 × 国籍 / 各組合せ)
+  - KPI カード (送信数 / 受電数 / 受電率 / 案件化数 / 案件化率)
+  - 内訳表
+- Layout `分析` グループに 「送信結果集計」 (chart-bar アイコン) を追加
+
+**注**: 既存の `contact_events` (channel=fax,send) は前回コミットの 「FAX抽出時に operator 記録」 以降に積まれた分のみ集計対象。 それ以前の抽出履歴は集計に含まれない (今後の抽出から正しい数字が出る)。
+
+---
+
 ## [2026-06-10] ドライブ格納の大幅高速化 (PC並列 + フォルダ並列)
 
 **要望**: 2500 件 × N PC を抽出して Drive 格納するのが遅い。

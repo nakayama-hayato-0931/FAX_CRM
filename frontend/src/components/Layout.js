@@ -59,6 +59,7 @@ const NAV_GROUPS = [
     title: '分析',
     items: [
       { href: '/cpa', label: 'CPA指標', icon: ICONS.chartPie },
+      { href: '/send-result-summary', label: '送信結果集計', icon: ICONS.chartBar },
     ],
   },
   {
