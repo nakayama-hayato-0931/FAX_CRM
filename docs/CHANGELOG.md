@@ -258,6 +258,35 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-10] ドライブ格納の大幅高速化 (PC並列 + フォルダ並列)
+
+**要望**: 2500 件 × N PC を抽出して Drive 格納するのが遅い。
+
+**真因** (Explore で調査):
+1. `routes/batches.js` extract-and-upload で PC ごとに for-of 直列処理 → N 倍時間
+2. `ensureSlotsExist` (23 スロット) が PC ごとに重複呼び出し
+3. `manuscriptService.ensureDriveFolders` で 23 スロット × `findOrCreateFolder` を直列 (= find + create で 46 API 往復)
+
+**変更**:
+- `routes/batches.js`:
+  - `ensureSlotsExist(date)` を 事前 1 回だけ呼ぶ (PC ごとの重複削除)
+  - PC 処理を **`Promise.all`** で並列化 + チャンクで **concurrency cap (5)** (Drive API rate limit 配慮)
+  - env `EXTRACT_DRIVE_CONCURRENCY` で上書き可
+- `manuscriptService.ensureDriveFolders`:
+  - 23 スロット の `findOrCreateFolder` を **2 フェーズ化**
+    - Phase 1: 並列 findOrCreate (concurrency 5)
+    - Phase 2: DB 更新 + ファイル移動 (順次)
+  - env `DRIVE_FOLDER_CONCURRENCY` で上書き可
+
+**期待効果** (PC 23 台 × Excel/Drive で 旧 30-60 秒/PC × 23 = 11-23 分):
+- PC 並列化で 23/5 ≈ 5 倍速
+- スロットフォルダ並列化で findOrCreate 5 倍速
+- 合計 **5-10 倍速** (見込み 2-4 分以内に短縮)
+
+**リスク**: Drive API 並列呼び出し過剰で 5xx (rate limit) 可能性。 concurrency cap 5 で抑えてるが、 もし 429 が出るなら env で 3 等に絞れる。
+
+---
+
 ## [2026-06-10] リストインポート: 複数ファイル選択 + 順次取込
 
 **要望**: リストインポートを複数ファイル一気に選択して インポートしたい。

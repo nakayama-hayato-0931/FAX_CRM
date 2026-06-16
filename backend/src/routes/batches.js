@@ -144,36 +144,38 @@ router.post('/extract-and-upload', async (req, res, next) => {
     });
   } catch (e) { return next(e); }
 
-  // 2. PC ごとに Excel生成 → Drive upload
-  const results = [];
-  for (const pb of perPcBatches) {
+  // 2. 事前準備: 23 スロット を 1 回だけ ensure (PC ごとに重複呼び出しを避ける)
+  try { await ms.ensureSlotsExist(body.date); } catch (e) {
+    console.warn(`[extract-and-upload] ensureSlotsExist failed: ${e.message}`);
+  }
+
+  // 3. PC ごとの処理を 並列実行 (Drive API rate limit 配慮で concurrency 制限)
+  //    旧実装: for-of の 直列処理 → 23 PC で 1 PC あたり 10-30 秒なら 数分〜十分以上
+  //    新実装: Promise.all で並列 + 同時 5 並列に絞る (Drive API 100-200req/min を考慮)
+  const CONCURRENCY = Number(process.env.EXTRACT_DRIVE_CONCURRENCY) || 5;
+  const titleParts = [body.industry, body.prefecture].filter(Boolean);
+  const autoTitle = titleParts.length ? titleParts.join(' / ') : null;
+
+  async function processOnePc(pb) {
     const pcNum = pb.pcNumber;
     const batchInfo = { batchId: pb.batchId, actualCount: pb.actualCount };
-    let driveInfo = null, error = null, tmpPath = null;
-
     if (pb.actualCount === 0) {
-      // データ不足で割り当てゼロ → Excel/Drive アップはスキップ
-      results.push({
+      return {
         pcNumber: pcNum, batch: batchInfo, drive: null,
         error: 'データ不足のため割り当てなし (Drive アップロード スキップ)',
-      });
-      continue;
+      };
     }
-
+    let driveInfo = null, error = null, tmpPath = null;
     try {
-      // 2-1. Excel生成
+      // Excel 生成
       const excelResult = await extraction.generateExcelBuffer(pb.batchId);
 
-      // 2-2. スロット確保
-      let slot = await ms.getSlotByDateAndPc(body.date, pcNum);
-      if (!slot) {
-        await ms.ensureSlotsExist(body.date);
-        slot = await ms.getSlotByDateAndPc(body.date, pcNum);
-      }
-      if (!slot) throw new Error(`スロット作成失敗 (${body.date} / PC${pcNum})`);
+      // スロット取得 (既に ensureSlotsExist 済みなのでもう一度ループしない)
+      const slot = await ms.getSlotByDateAndPc(body.date, pcNum);
+      if (!slot) throw new Error(`スロット未作成 (${body.date} / PC${pcNum})`);
 
-      // 2-3. Drive にアップロード
-      tmpPath = path.join(os.tmpdir(), `${Date.now()}_${excelResult.fileName}`);
+      // Drive アップロード
+      tmpPath = path.join(os.tmpdir(), `${Date.now()}_${pcNum}_${excelResult.fileName}`);
       fs.writeFileSync(tmpPath, excelResult.buffer);
       const parentId = await ms.ensureSlotDriveFolder(slot.id);
       const uploaded = await drive.uploadFile({
@@ -183,7 +185,7 @@ router.post('/extract-and-upload', async (req, res, next) => {
         parentId,
       });
 
-      // 2-4. manuscript_slot_files + extraction_batches.drive_file_id を記録
+      // DB 記録
       const pool = getPool();
       if (pool) {
         await pool.query(
@@ -203,25 +205,20 @@ router.post('/extract-and-upload', async (req, res, next) => {
       }
       driveInfo = { fileId: uploaded.id, webViewLink: uploaded.webViewLink, slotId: slot.id };
 
-      // 2-4b. スロットタイトル を 業種 / 都道府県 で自動設定 (空欄のときだけ)
-      //       「未設定」 のまま放置を防止。 手動設定済みのタイトルは尊重して上書きしない
-      try {
-        const titleParts = [body.industry, body.prefecture].filter(Boolean);
-        if (titleParts.length && pool) {
-          const autoTitle = titleParts.join(' / ');
+      // スロットタイトル 自動設定 (空欄のときだけ)
+      if (autoTitle && pool) {
+        try {
           await pool.query(
             `UPDATE manuscripts SET title = ?
               WHERE id = ? AND (title IS NULL OR title = '')`,
             [autoTitle, slot.id]
           );
+        } catch (titleErr) {
+          console.warn(`[extract-and-upload] PC${pcNum} スロットタイトル設定失敗: ${titleErr.message}`);
         }
-      } catch (titleErr) {
-        console.warn(`[extract-and-upload] PC${pcNum} スロットタイトル設定失敗: ${titleErr.message}`);
       }
 
-      // 2-5. 原稿 PDF を 同じスロットに attach (manuscriptContentId が指定されてる時)
-      //      attachContentToSlot は失敗時 throw するが、 原稿のみ失敗しても
-      //      Excel/Drive 出力は成功扱いにしたいので try/catch で吸収
+      // 原稿 PDF を 同じスロットに attach
       if (manuscriptContentId) {
         try {
           const attached = await ms.attachContentToSlot(slot.id, manuscriptContentId);
@@ -233,7 +230,6 @@ router.post('/extract-and-upload', async (req, res, next) => {
             registration_no: attached.content_registration_no,
           };
         } catch (mErr) {
-          // 409 (既に紐付け済み) は warning 扱いで OK 扱い
           if (mErr.status === 409) {
             driveInfo.manuscript = { attached: false, alreadyAttached: true };
           } else {
@@ -247,7 +243,15 @@ router.post('/extract-and-upload', async (req, res, next) => {
     } finally {
       if (tmpPath && fs.existsSync(tmpPath)) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
     }
-    results.push({ pcNumber: pcNum, batch: batchInfo, drive: driveInfo, error });
+    return { pcNumber: pcNum, batch: batchInfo, drive: driveInfo, error };
+  }
+
+  // CONCURRENCY 件ずつ並列処理 (チャンク化)
+  const results = new Array(perPcBatches.length);
+  for (let i = 0; i < perPcBatches.length; i += CONCURRENCY) {
+    const chunk = perPcBatches.slice(i, i + CONCURRENCY);
+    const chunkResults = await Promise.all(chunk.map(processOnePc));
+    for (let j = 0; j < chunkResults.length; j++) results[i + j] = chunkResults[j];
   }
   return created(res, { date: body.date, results });
 });

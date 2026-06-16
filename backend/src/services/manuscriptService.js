@@ -203,25 +203,35 @@ async function ensureDriveFolders(date) {
 
   const slots = await getByDate(date);
   const pool = getPool();
-  let created = 0, skipped = 0, relinked = 0, filesMoved = 0, fileMoveErrors = 0;
-  for (const slot of slots) {
-    const slotName = String(slot.slot_number);
-    const folder = await drive.findOrCreateFolder({ name: slotName, parentId: dateFolder.id });
+  // Phase 1: 23 スロットのフォルダ findOrCreate を並列実行 (Drive API 鍵バウンドの並列化)
+  //   旧実装は 23 件 直列で 各々 find + create = 最大 46 API 往復 → 数十秒。
+  //   Promise.all で並列化、 concurrency cap (5) で rate limit を回避。
+  const FOLDER_CONCURRENCY = Number(process.env.DRIVE_FOLDER_CONCURRENCY) || 5;
+  const folderResults = [];
+  for (let i = 0; i < slots.length; i += FOLDER_CONCURRENCY) {
+    const chunk = slots.slice(i, i + FOLDER_CONCURRENCY);
+    const chunkResults = await Promise.all(chunk.map(async (slot) => {
+      const slotName = String(slot.slot_number);
+      const folder = await drive.findOrCreateFolder({ name: slotName, parentId: dateFolder.id });
+      return { slot, folder };
+    }));
+    folderResults.push(...chunkResults);
+  }
 
+  // Phase 2: DB 更新 + 必要なら旧フォルダから新フォルダへファイル移動 (順次でも軽い)
+  let created = 0, skipped = 0, relinked = 0, filesMoved = 0, fileMoveErrors = 0;
+  for (const { slot, folder } of folderResults) {
     if (slot.drive_folder_id === folder.id) {
-      // 既に正しい場所に紐づいている
       skipped++;
       continue;
     }
 
     const wasLinked = !!slot.drive_folder_id;
-    // 再リンク (DB 更新)
     await pool.query(
       `UPDATE manuscripts SET drive_folder_id = ?, drive_folder_url = ? WHERE id = ?`,
       [folder.id, folder.webViewLink || null, slot.id]
     );
 
-    // 旧フォルダから新フォルダへ Drive 上のファイルを移動 (slot_files テーブル)
     if (wasLinked && slot.drive_folder_id !== folder.id) {
       const [files] = await pool.query(
         `SELECT id, drive_file_id FROM manuscript_slot_files
@@ -247,10 +257,8 @@ async function ensureDriveFolders(date) {
       }
       relinked++;
     } else if (folder.created) {
-      // 純粋な新規作成
       created++;
     } else {
-      // Drive 側に同名フォルダが既に存在 → DB が知らなかっただけ
       relinked++;
     }
   }
