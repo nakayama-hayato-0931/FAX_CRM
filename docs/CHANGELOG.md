@@ -258,6 +258,19 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-16] リスト抽出: テストモードのチェック時に画面が下にずれる現象を修正
+
+**現象**: 「テストモード」 チェックボックスを ON にした時、 メイン領域のスクロール位置が下に動いて 抽出ボタン側が見えるように勝手にスクロールされる。
+
+**原因**: `<label>` + `<input type=checkbox>` の構造では、 label クリック時に input にフォーカスが移り、 ブラウザ (Chrome 等) の `scrollIntoViewIfNeeded` ヒューリスティクスが走って input が viewport の中央に来るようスクロールが起きていた。 sidebar の overflow:hidden + main の overflow:auto レイアウトと組み合わさり、 main 側のスクロールが視認できる形で動いた。
+
+**変更** (`frontend/src/pages/lists/new.js`):
+- `<label>` を `<div role=checkbox tabIndex=0 onClick>` に置換 (input への focus 移動を発生させない)
+- `<input>` は表示専用 (`readOnly` + `tabIndex={-1}` + `pointer-events-none`)
+- キーボード操作 (Space/Enter) も維持
+
+---
+
 ## [2026-06-16] 送信結果集計ページ追加 (地域 × 業種 × 原稿国籍 で受電率/案件化率)
 
 **要望**: 期間を選択したら、 どこの地域 / 業種 / 原稿国籍 で送って、 受電数・率と案件化数・率は何 % か分かる表が欲しい。 「いつ送ったか」 は抽出 / 格納時のフォルダ日付で判断。

@@ -460,16 +460,23 @@ export default function NewBatchPage() {
           )}
         </Field>
 
-        {/* テストモード */}
-        <div className={[
-          'border rounded-md p-3 transition',
-          form.testMode ? 'border-amber-400 bg-amber-50' : 'border-zinc-200 bg-zinc-50',
-        ].join(' ')}>
-          <label className="flex items-start gap-2 cursor-pointer select-none">
+        {/* テストモード — div+onClick で実装 (label+input だと一部ブラウザで
+            input への focus 移動時に scrollIntoViewIfNeeded が走り、 スクロール位置が
+            微妙にずれることがあるため。 input は表示用 readOnly + tabIndex=-1 にして
+            実際の状態切替は div の onClick で行う) */}
+        <div role="checkbox" aria-checked={form.testMode} tabIndex={0}
+             onClick={() => setForm({ ...form, testMode: !form.testMode })}
+             onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setForm({ ...form, testMode: !form.testMode }); } }}
+             className={[
+               'border rounded-md p-3 cursor-pointer select-none outline-none',
+               form.testMode ? 'border-amber-400 bg-amber-50' : 'border-zinc-200 bg-zinc-50',
+             ].join(' ')}>
+          <div className="flex items-start gap-2">
             <input type="checkbox"
                    checked={form.testMode}
-                   onChange={(e) => setForm({ ...form, testMode: e.target.checked })}
-                   className="w-4 h-4 text-amber-600 rounded mt-0.5" />
+                   readOnly
+                   tabIndex={-1}
+                   className="w-4 h-4 text-amber-600 rounded mt-0.5 pointer-events-none" />
             <div>
               <div className="text-sm font-medium text-zinc-800">
                 テストモード <span className="text-xs text-zinc-500">(顧客マスタに履歴を残さない)</span>
@@ -478,7 +485,7 @@ export default function NewBatchPage() {
                 送信回数 / 最終送信日時 / 最終PC を更新しません。 リスト/Excel/Drive は通常通り作成されるので動作確認に使えます。 バッチ名末尾に <code>_TEST</code> が付きます。
               </div>
             </div>
-          </label>
+          </div>
         </div>
 
         {/* PC番号 チェックボックス */}
