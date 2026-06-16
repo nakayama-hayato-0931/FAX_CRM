@@ -33,7 +33,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 
-const { ping, isConfigured } = require('../config/db');
+const { ping, isConfigured, getPool } = require('../config/db');
 const { runStartupMigrations } = require('./migrations/runtime');
 const { notFound, errorHandler, attachRequestId } = require('./middlewares/errorHandler');
 const { requireAuth, requireAuthOrWebhook } = require('./middlewares/auth');
@@ -119,6 +119,12 @@ app.use(errorHandler);
 const PORT = Number(process.env.PORT || 4001);
 const server = app.listen(PORT, () => {
   console.log(`[server] FAX CRM Backend listening on :${PORT}`);
+
+  // DB pool を先に初期化 (lazy 初期化なので getPool() を 1 回呼んで
+  //   dbConfigured を true にしないと isConfigured() が常に false になる)
+  if (process.env.DB_HOST) {
+    try { getPool(); } catch (_e) {}
+  }
 
   // 定時スケジューラを最優先で起動 (migration を待たない)
   //   旧実装は listen callback の中で await runStartupMigrations() を
