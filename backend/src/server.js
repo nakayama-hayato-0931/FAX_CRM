@@ -117,39 +117,47 @@ app.use(notFound);
 app.use(errorHandler);
 
 const PORT = Number(process.env.PORT || 4001);
-const server = app.listen(PORT, async () => {
+const server = app.listen(PORT, () => {
   console.log(`[server] FAX CRM Backend listening on :${PORT}`);
-  if (!isConfigured()) {
+
+  // 定時スケジューラを最優先で起動 (migration を待たない)
+  //   旧実装は listen callback の中で await runStartupMigrations() を
+  //   先に呼んでいたため、 大規模 ALTER TABLE (49 万件への index 追加など)
+  //   で callback が数分ブロックされ、 startDailyScheduler() の登録が遅延し、
+  //   結果として朝 7:00 の sync が走らない 事象があった。
+  //   scheduler 自体は 60 秒間隔の setInterval なので、 migration が
+  //   進行中でも 各 sync は DB 接続待ちで自然に直列化される。
+  if (isConfigured()) {
+    startDailyScheduler();
+  } else {
     console.log('[server] ⚠ DB未設定 (DB_HOST が空)。.env を設定するとDB機能が有効になります。');
     return;
   }
-  // 起動時 自動スキーマ補正 (冪等)
-  try {
-    const r = await runStartupMigrations();
-    if (r.skipped) {
-      console.log('[migrations] skipped (DB未設定)');
-    } else {
-      if (r.applied.length) console.log('[migrations] applied:', r.applied);
-      else                  console.log('[migrations] 適用済み (no-op)');
-      if (r.failed.length)  console.warn('[migrations] failed:', r.failed);
+
+  // migration / admin bootstrap は バックグラウンドで実行 (await しない)
+  //   listen callback は同期的にすぐ return、 startDailyScheduler の
+  //   setInterval を確実に登録する
+  (async () => {
+    try {
+      const r = await runStartupMigrations();
+      if (r.skipped) {
+        console.log('[migrations] skipped (DB未設定)');
+      } else {
+        if (r.applied.length) console.log('[migrations] applied:', r.applied);
+        else                  console.log('[migrations] 適用済み (no-op)');
+        if (r.failed.length)  console.warn('[migrations] failed:', r.failed);
+      }
+    } catch (e) {
+      console.error('[migrations] 起動時マイグレーション失敗:', e.message);
     }
-  } catch (e) {
-    console.error('[migrations] 起動時マイグレーション失敗:', e.message);
-  }
 
-  // 初期 admin ユーザー ブートストラップ
-  try {
-    const r = await authSvc.bootstrapInitialAdmin();
-    if (r.created) console.log(`[auth] initial admin created: ${r.username}`);
-  } catch (e) {
-    console.error('[auth] 初期 admin 作成失敗:', e.message);
-  }
-
-  // 定時スケジューラ: 毎朝 JST 7:00 に 各種シート同期を直列実行
-  //   FAX 送信実績 → 売上 → 案件 → 面接 の順
-  //   setInterval で毎分チェック方式 (Railway 再起動に耐性あり、
-  //   1 日 1 回しか走らない lastRunDate ガード付き)
-  startDailyScheduler();
+    try {
+      const r = await authSvc.bootstrapInitialAdmin();
+      if (r.created) console.log(`[auth] initial admin created: ${r.username}`);
+    } catch (e) {
+      console.error('[auth] 初期 admin 作成失敗:', e.message);
+    }
+  })();
 });
 
 // ============================================================
