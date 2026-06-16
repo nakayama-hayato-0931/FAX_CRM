@@ -2,7 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body, #__next { height: 100%; }
+html, body, #__next {
+  height: 100%;
+  /* 全体スクロールを禁止 — sidebar 固定 + main のみ内部スクロール の前提。
+     body が overflow:visible のままだと、 長いページで body 自体に
+     scrollbar が出て sidebar も一緒に動いてしまう */
+  overflow: hidden;
+}
 body {
   font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
