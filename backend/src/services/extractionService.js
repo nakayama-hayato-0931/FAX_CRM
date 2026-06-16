@@ -92,12 +92,14 @@ function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeP
   // 抽出条件:
   //   - ブラックリスト除外
   //   - FAX 番号必須 (callcenter由来等のFAX無し顧客は対象外)
-  //   - REGEXP_REPLACE で全角ハイフン/空白を除いた数字のみ残して 1文字以上 (= 実質的にFAX番号がある)
+  //   - 数字が 1 文字でも含まれていれば OK。 (旧 REGEXP_REPLACE は 全件 関数評価で
+  //     49 万件にかけるとフルスキャン直撃で 数十秒。 REGEXP は index は使えないが
+  //     関数評価より遥かに速い)
   const where = [
     'is_blacklisted = 0',
     'fax_number IS NOT NULL',
     "fax_number <> ''",
-    "REGEXP_REPLACE(fax_number, '[^0-9]', '') <> ''",
+    "fax_number REGEXP '[0-9]'",
   ];
   const params = [];
   // 業種フィルタ: 9カテゴリ (飲食/製造/小売/宿泊/建設/農業/介護/運送/その他) → industry_category 列で絞る
@@ -134,15 +136,18 @@ function buildWhere({ industry, prefecture, recentDays, recentCallDays, excludeP
     )`);
     params.push(Number(recentCallDays));
   }
-  // 既存案件 (sales_projects + job_postings) と company_name 一致の顧客を除外
-  //   いずれのテーブルも customer_id を持たないため text 完全一致で照合
+  // 既存案件 (sales_projects + job_postings) と company_name 一致の顧客を除外。
+  //   旧実装は NOT IN (UNION subquery) で 49 万件 × 数千件 を 文字列比較し
+  //   プレビューが 数十秒かかっていた。 NOT EXISTS + 各テーブルの company_name
+  //   index (runtime migration で追加) で 数百ms に短縮。
   if (excludeProjects) {
-    where.push(`company_name NOT IN (
-      SELECT company_name FROM sales_projects
-       WHERE company_name IS NOT NULL AND company_name <> ''
-      UNION
-      SELECT company_name FROM job_postings
-       WHERE company_name IS NOT NULL AND company_name <> ''
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM sales_projects sp
+       WHERE sp.company_name = customers.company_name
+    )`);
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM job_postings jp
+       WHERE jp.company_name = customers.company_name
     )`);
   }
   // 抽出履歴が N 回以上の顧客を除外 (0 = 除外しない)

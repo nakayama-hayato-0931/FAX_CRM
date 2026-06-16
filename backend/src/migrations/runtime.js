@@ -140,6 +140,29 @@ async function runStartupMigrations() {
     failed.push({ name: 'cpa_monthly_costs.incoming_*_manual', error: e.message });
   }
 
+  // ⑤y リスト抽出プレビュー高速化用 index
+  //   NOT EXISTS の相関サブクエリで sales_projects.company_name /
+  //   job_postings.company_name / customers.company_name を高速 lookup するため。
+  //   index がないと 49 万件 × 数千件 で 数十秒、 index ありで 数百ms。
+  //   timeout: 0 で大規模 ALTER も完走させる。
+  for (const [table, indexName, column] of [
+    ['customers',        'idx_customers_company_name',        'company_name'],
+    ['sales_projects',   'idx_sales_projects_company_name',   'company_name'],
+    ['job_postings',     'idx_job_postings_company_name',     'company_name'],
+  ]) {
+    try {
+      if (await colExists(pool, table, column) && !(await indexExists(pool, table, indexName))) {
+        await pool.query({
+          sql: `ALTER TABLE ${table} ADD INDEX ${indexName} (${column})`,
+          timeout: 0,
+        });
+        applied.push(`${table}.${indexName} 追加`);
+      }
+    } catch (e) {
+      failed.push({ name: `${table}.${indexName}`, error: e.message });
+    }
+  }
+
   // ⑤z customers.extract_count 列 (抽出履歴カウンタ)
   //   大規模 customers (40万件超) の ALTER は 既定 timeout を超える可能性があるため
   //   { sql, timeout: 0 } 形式で query timeout を無効化
