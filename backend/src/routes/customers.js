@@ -64,7 +64,8 @@ router.get('/lookup-by-phone', async (req, res, next) => {
 });
 
 // GET /api/customers/:id/timeline
-router.get('/:id(\\d+)/timeline', async (req, res, next) => {
+//   id は 正/負 両方を許容 (負は callcenter-only 顧客の sentinel)
+router.get('/:id(-?\\d+)/timeline', async (req, res, next) => {
   try {
     const rows = await contactEvents.getTimeline(req.params.id, req.query);
     return ok(res, rows);
@@ -76,7 +77,7 @@ router.get('/facets/prefectures', async (_req, res, next) => {
   catch (e) { next(e); }
 });
 
-router.get('/:id(\\d+)', async (req, res, next) => {
+router.get('/:id(-?\\d+)', async (req, res, next) => {
   try {
     const c = await customerService.getById(req.params.id);
     if (!c) return fail(res, 404, 'NOT_FOUND', 'customer not found');
