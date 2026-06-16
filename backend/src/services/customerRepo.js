@@ -236,13 +236,36 @@ async function listFromCallcenter(query) {
   );
   const [cnt] = await pool.query(`SELECT COUNT(*) AS total FROM companies c ${whereSql}`, params);
 
-  // call_count は contact_events から取りたいが、それは fax-crm DB 側にある
-  // → 一覧では call_count を 0 と仮置き (Tier 2 で詳細ページから取得)
+  // call_count は contact_events から取得。 contact_events は fax-crm DB 側にあり、
+  // customer_id (fax-crm.customers.id) で集計するので、 external_faxcrm_id がある
+  // 行についてだけ拾える。 callcenter-only (紐付け無し) 顧客は 0。
+  //   一覧 50 件分の id を IN list で 1 クエリで取得 → O(1) クエリ追加
+  const faxIds = rows
+    .map((r) => r.external_faxcrm_id)
+    .filter((id) => id && Number(id) > 0);
+  const callMap = new Map();
+  if (faxIds.length) {
+    try {
+      const faxPool = getFaxPool();
+      if (faxPool) {
+        const [ccRows] = await faxPool.query(
+          `SELECT customer_id, COUNT(*) AS cnt FROM contact_events
+            WHERE channel = 'call' AND customer_id IN (?)
+            GROUP BY customer_id`,
+          [faxIds]
+        );
+        for (const r of ccRows) callMap.set(Number(r.customer_id), Number(r.cnt));
+      }
+    } catch (e) {
+      console.warn('[customerRepo] listFromCallcenter call_count 集計失敗:', e.message);
+    }
+  }
+
   const items = rows.map(r => ({
     ...r,
     send_count: Number(r.send_count) || 0,
     response_count: Number(r.response_count) || 0,
-    call_count: 0,
+    call_count: callMap.get(Number(r.external_faxcrm_id)) || 0,
     // external_callcenter_id 互換 (旧 API レスポンス維持)
     external_callcenter_id: r._callcenter_id,
   }));
