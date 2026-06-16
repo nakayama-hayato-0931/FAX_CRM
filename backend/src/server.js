@@ -68,7 +68,23 @@ app.use(morgan('dev'));
 app.get('/api/health', async (_req, res) => {
   let db = { ok: false, configured: isConfigured() };
   try { db = await ping(); } catch (_e) { /* keep default */ }
-  res.json({ status: 'ok', db, uptime: process.uptime(), env: process.env.NODE_ENV });
+  // scheduler の状態も同梱 (認証なしで見られる、 定時動作確認用)
+  const scheduler = {
+    enabled: !(process.env.DAILY_SYNC_ENABLED === '0' || process.env.FAX_STATS_DAILY_SYNC_ENABLED === '0'),
+    hour: Number(process.env.DAILY_SYNC_HOUR ?? process.env.FAX_STATS_DAILY_SYNC_HOUR ?? 7),
+    minute: Number(process.env.DAILY_SYNC_MINUTE ?? process.env.FAX_STATS_DAILY_SYNC_MINUTE ?? 0),
+    jstNow: new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().replace('T', ' ').replace('Z', ''),
+    jobs: SCHEDULER_JOBS.map((j) => ({
+      name: j.name,
+      lastRunDate: j._lastRunDate || null,
+      state: SCHEDULER_STATE[j.name]?.state || 'idle',
+      startedAt: SCHEDULER_STATE[j.name]?.startedAt || null,
+      finishedAt: SCHEDULER_STATE[j.name]?.finishedAt || null,
+      elapsedSec: SCHEDULER_STATE[j.name]?.elapsedSec || null,
+      error: SCHEDULER_STATE[j.name]?.error || null,
+    })),
+  };
+  res.json({ status: 'ok', db, uptime: process.uptime(), env: process.env.NODE_ENV, scheduler });
 });
 
 // 認証 不要 (ログイン と health のみ)
