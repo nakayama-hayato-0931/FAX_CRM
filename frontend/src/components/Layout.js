@@ -38,7 +38,7 @@ const NAV_GROUPS = [
     title: '集客運用',
     items: [
       { href: '/customers', label: '顧客マスタ', icon: ICONS.users },
-      { href: '/lists',     label: 'リスト抽出', icon: ICONS.filter },
+      { href: '/lists',     label: 'リストの抽出', icon: ICONS.filter },
     ],
   },
   {
@@ -193,7 +193,7 @@ export default function Layout({ children }) {
               <button onClick={logout}
                       title="ログアウト"
                       className="flex-1 text-center text-[10.5px] text-emerald-50/90 hover:text-rose-200 hover:bg-black/30 px-2 py-1.5 rounded transition">
-                ログアウト
+                ログアウ
               </button>
             </div>
             <div className="text-center pt-2 text-[9px] text-emerald-100/50 tracking-widest">v0.1.0</div>
