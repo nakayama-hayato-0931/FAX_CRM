@@ -274,6 +274,34 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-17] 複数人運用のためのリポジトリ整備 (README / CONTRIBUTING / PR + Issue テンプレ)
+
+**要望**: 複数人で修正できるようにしたい。 GitHub を見れば現在の状況が分かるようにしてほしい。
+
+**変更**:
+- `README.md` を 「直近の状況の入口」 として刷新
+  - トップに `直近の状況を知る` 表 (CHANGELOG / Pull Requests / Issues / Railway / /api/health / DECISIONS / ARCHITECTURE / ROADMAP / CLAUDE.md へのリンク)
+  - 古い API 一覧 / 機能チェックリスト / 絵文字 を削除 (CHANGELOG.md と ARCHITECTURE.md に任せる)
+  - クイックスタート + 必要な環境変数 + デプロイ + デモ表示の動線
+- `CONTRIBUTING.md` 新設
+  - 絶対に守る規約 (用語 / 既存モックアップ参照禁止 / 絵文字禁止 / Slack 通知禁止)
+  - ブランチ運用 (`feature/*` `fix/*` `chore/*` `hotfix/*`)
+  - コミットメッセージ規約 (CLAUDE.md §3.2 と同期)
+  - PR フロー (テンプレ / 必須チェックリスト / Squash and merge)
+  - CHANGELOG 更新ルール / DB スキーマ 3点セット / 落とし穴
+- `.github/PULL_REQUEST_TEMPLATE.md` 新設
+- `.github/ISSUE_TEMPLATE/bug_report.md` 新設
+- `.github/ISSUE_TEMPLATE/feature_request.md` 新設
+
+**手動で要設定 (GitHub UI、 1 回だけ)**:
+- `Settings → Branches → main` の保護ルール:
+  - Require pull request before merging を ON
+  - Require approvals: 1 以上
+  - 「Squash and merge」 をデフォルトに
+- ROADMAP.md の項目を順次 Issue に転記すると、 GitHub だけで進捗が見える
+
+---
+
 ## [2026-06-17] PC番号 / 都道府県 チェック で画面が下にズレる現象を完全修正
 
 **現象**: リスト抽出の PC番号ボタンや 顧客マスタの 都道府県フィルタ をクリックすると 画面が下にズレる。 前のコミット (`_app.js` global handler) では止まらない症状が継続していた。
