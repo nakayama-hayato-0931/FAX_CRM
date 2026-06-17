@@ -140,6 +140,36 @@ async function runStartupMigrations() {
     failed.push({ name: 'cpa_monthly_costs.incoming_*_manual', error: e.message });
   }
 
+  // ④c cpa_monthly_costs に CPA 指標 7 列の月別 手動上書き
+  //   案件数 / 面接数 / 内定社数 / バラシ (件数, INT)
+  //   初回入金 / 見込売上 / 入金実績 (円, BIGINT)
+  //   NULL = 自動集計、 数値 = 上書き。 シート同期は manual 列を触らない。
+  try {
+    if (await colExists(pool, 'cpa_monthly_costs', 'month')) {
+      const metricCols = [
+        { col: 'projects_manual',         type: 'INT',    comment: '案件数 手動上書き (NULL=自動集計)' },
+        { col: 'interviews_manual',       type: 'INT',    comment: '面接数 手動上書き (NULL=自動集計)' },
+        { col: 'offers_manual',           type: 'INT',    comment: '内定社数 手動上書き (NULL=自動集計)' },
+        { col: 'cancels_manual',          type: 'INT',    comment: 'バラシ 手動上書き (NULL=自動集計)' },
+        { col: 'first_payment_manual',    type: 'BIGINT', comment: '初回入金 手動上書き (NULL=自動集計)' },
+        { col: 'expected_revenue_manual', type: 'BIGINT', comment: '見込売上 手動上書き (NULL=自動集計)' },
+        { col: 'payment_actual_manual',   type: 'BIGINT', comment: '入金実績 手動上書き (NULL=自動集計)' },
+      ];
+      for (const { col, type, comment } of metricCols) {
+        if (!(await colExists(pool, 'cpa_monthly_costs', col))) {
+          await pool.query(
+            `ALTER TABLE cpa_monthly_costs
+               ADD COLUMN ${col} ${type} DEFAULT NULL COMMENT ?`,
+            [comment]
+          );
+          applied.push(`cpa_monthly_costs.${col} 追加`);
+        }
+      }
+    }
+  } catch (e) {
+    failed.push({ name: 'cpa_monthly_costs.<metric>_manual', error: e.message });
+  }
+
   // ⑤y リスト抽出プレビュー高速化用 index
   //   NOT EXISTS の相関サブクエリで sales_projects.company_name /
   //   job_postings.company_name / customers.company_name を高速 lookup するため。

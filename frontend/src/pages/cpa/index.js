@@ -9,6 +9,7 @@ import InterviewsDetailModal from '@/components/InterviewsDetailModal';
 import JobPostingsDetailModal from '@/components/JobPostingsDetailModal';
 import CpaCostInputModal from '@/components/CpaCostInputModal';
 import CpaIncomingInputModal from '@/components/CpaIncomingInputModal';
+import CpaMetricEditModal from '@/components/CpaMetricEditModal';
 
 // ROAS = first_payment / cost * 100
 const DEMO_ROWS = [
@@ -32,21 +33,21 @@ const COLUMNS_BASE = [
   { key: 'sends',           label: '送信数',             kind: 'raw',     format: num, align: 'right' },
   // === ここに 受電数 系列を挿入 (buildColumns で展開分岐) ===
   { key: 'incoming_rate',   label: '受電率',             kind: 'derived', format: pct, align: 'right' },
-  { key: 'projects',        label: '案件数',             kind: 'raw',     format: num, align: 'right', clickable: 'projects' },
+  { key: 'projects',        label: '案件数',             kind: 'raw',     format: num, align: 'right', clickable: 'projects',  manualMetric: { key: 'projects',         label: '案件数',     unit: 'count' } },
   { key: 'project_rate',    label: '案件化率',           kind: 'derived', format: pct, align: 'right' },
   { key: 'project_cpa',     label: '案件CPA',            kind: 'derived', format: yen, align: 'right' },
-  { key: 'interviews',      label: '面接数',             kind: 'raw',     format: num, align: 'right', clickable: 'interviews' },
+  { key: 'interviews',      label: '面接数',             kind: 'raw',     format: num, align: 'right', clickable: 'interviews', manualMetric: { key: 'interviews',       label: '面接数',     unit: 'count' } },
   { key: 'interview_rate',  label: '面接実施率',          kind: 'derived', format: pct, align: 'right' },
   { key: 'interview_cpa',   label: '面接CPA',            kind: 'derived', format: yen, align: 'right' },
-  { key: 'offers',          label: '内定社数',            kind: 'raw',     format: num, align: 'right', clickable: 'offers' },
+  { key: 'offers',          label: '内定社数',            kind: 'raw',     format: num, align: 'right', clickable: 'offers',    manualMetric: { key: 'offers',           label: '内定社数',   unit: 'count' } },
   { key: 'offer_rate',      label: '内定率',             kind: 'derived', format: pct, align: 'right' },
   // 不合格列は一旦非表示 (算出ルール調整中)。 再開する場合は下を有効化:
   // { key: 'rejects',         label: '不合格',             kind: 'raw',     format: num, align: 'right', clickable: 'rejects' },
-  { key: 'cancels',         label: 'バラシ',             kind: 'raw',     format: num, align: 'right', clickable: 'cancels' },
-  { key: 'first_payment',   label: '初回入金',            kind: 'raw',     format: yen, align: 'right' },
-  { key: 'expected_revenue',label: '見込売上',            kind: 'raw',     format: yen, align: 'right' },
+  { key: 'cancels',         label: 'バラシ',             kind: 'raw',     format: num, align: 'right', clickable: 'cancels',   manualMetric: { key: 'cancels',          label: 'バラシ',     unit: 'count' } },
+  { key: 'first_payment',   label: '初回入金',            kind: 'raw',     format: yen, align: 'right', manualMetric: { key: 'first_payment',    label: '初回入金',   unit: 'yen' } },
+  { key: 'expected_revenue',label: '見込売上',            kind: 'raw',     format: yen, align: 'right', manualMetric: { key: 'expected_revenue', label: '見込売上',   unit: 'yen' } },
   { key: 'roas',            label: 'ROAS',              kind: 'derived', format: pct, align: 'right' },
-  { key: 'payment_actual',      label: '入金実績',           kind: 'raw',     format: yen, align: 'right' },
+  { key: 'payment_actual',      label: '入金実績',           kind: 'raw',     format: yen, align: 'right', manualMetric: { key: 'payment_actual',   label: '入金実績',   unit: 'yen' } },
   { key: 'payment_actual_roas', label: '入金実績ROAS',       kind: 'derived', format: pct, align: 'right' },
 ];
 
@@ -94,6 +95,8 @@ export default function CpaPage() {
   const [costInputMonth, setCostInputMonth] = useState(null);
   // 受電数 手動入力モーダル: { month, monthLabel, row }
   const [incomingInputMonth, setIncomingInputMonth] = useState(null);
+  // 指標 手動上書きモーダル: { month, monthLabel, metricKey, metricLabel, autoValue, currentValue, isManual, unit }
+  const [metricEditModal, setMetricEditModal] = useState(null);
   // 概算単価
   const [costPerFax, setCostPerFax] = useState(9.385423213);
   // 受電数 を 受電/不在 の 2列に展開するかどうか
@@ -314,7 +317,7 @@ export default function CpaPage() {
                 </td></tr>
               )}
               {!loading && rows.map((row) => (
-                <tr key={row.month} className="border-t border-zinc-100 hover:bg-zinc-50/60">
+                <tr key={row.month} className="group border-t border-zinc-100 hover:bg-zinc-50/60">
                   {COLUMNS.map((c) => {
                     const value = row[c.key];
                     // cost / incoming は 0 でも編集できるよう常にクリック可
@@ -392,6 +395,32 @@ export default function CpaPage() {
                        (c.key === 'incoming_calls' && (row.incoming_picked_is_manual || row.incoming_missed_is_manual)))
                         ? <span className="ml-1 px-1 py-0.5 text-[9px] rounded bg-sky-100 text-sky-700 align-middle">手動</span>
                         : null;
+                    // 指標 (案件数 / 面接数 / 内定 / バラシ / 初回入金 / 見込売上 / 入金実績) の手動上書きバッジ
+                    const metricManualBadge = (c.manualMetric && row[`${c.manualMetric.key}_is_manual`])
+                      ? <span className="ml-1 px-1 py-0.5 text-[9px] rounded bg-sky-100 text-sky-700 align-middle">手動</span>
+                      : null;
+                    // 指標セル右に hover で出る「編集」 リンク (手動上書き) — group hover で表示
+                    const metricEditBtn = c.manualMetric ? (
+                      <button type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isDemo) { toast('デモ表示中は編集できません'); return; }
+                                const mm = c.manualMetric;
+                                const autoVal = row[`${mm.key}_auto`] ?? row[mm.key];
+                                const isMan  = row[`${mm.key}_is_manual`] ? 1 : 0;
+                                setMetricEditModal({
+                                  month: row.month, monthLabel: formatMonth(row.month),
+                                  metricKey: mm.key, metricLabel: mm.label, unit: mm.unit,
+                                  autoValue: Number(autoVal || 0),
+                                  currentValue: Number(row[mm.key] || 0),
+                                  isManual: isMan,
+                                });
+                              }}
+                              className="ml-1 text-[9px] text-zinc-400 hover:text-emerald-700 opacity-0 group-hover:opacity-100 transition"
+                              title={`${c.manualMetric.label} を手動上書き / 自動集計に戻す`}>
+                        編集
+                      </button>
+                    ) : null;
                     return (
                       <td key={c.key} className={cellClass}>
                         {isClickable ? (
@@ -408,6 +437,8 @@ export default function CpaPage() {
                         )}
                         {costBadge}
                         {incomingManualBadge}
+                        {metricManualBadge}
+                        {metricEditBtn}
                       </td>
                     );
                   })}
@@ -501,6 +532,21 @@ export default function CpaPage() {
           monthLabel={incomingInputMonth.monthLabel}
           row={incomingInputMonth.row}
           onClose={() => setIncomingInputMonth(null)}
+          onSaved={() => reload()}
+        />
+      )}
+
+      {metricEditModal && (
+        <CpaMetricEditModal
+          month={metricEditModal.month}
+          monthLabel={metricEditModal.monthLabel}
+          metricKey={metricEditModal.metricKey}
+          metricLabel={metricEditModal.metricLabel}
+          autoValue={metricEditModal.autoValue}
+          currentValue={metricEditModal.currentValue}
+          isManual={metricEditModal.isManual}
+          unit={metricEditModal.unit}
+          onClose={() => setMetricEditModal(null)}
           onSaved={() => reload()}
         />
       )}

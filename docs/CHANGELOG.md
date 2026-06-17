@@ -274,6 +274,30 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-17] CPA 指標 7 列の月別 手動上書き機能 (案件数 / 面接数 / 内定 / バラシ / 初回入金 / 見込売上 / 入金実績)
+
+**要望**: CPA の自動算出値を手動で修正したい。 自動算出結果は残しつつ、 同期で勝手に戻らないように。
+
+**変更**:
+- backend `cpa_monthly_costs` に 7 列追加 (`projects_manual` / `interviews_manual` / `offers_manual` / `cancels_manual` / `first_payment_manual` / `expected_revenue_manual` / `payment_actual_manual`)
+- `cpaService.getMonthly`:
+  - SELECT に 7 列を含める
+  - JS overlay: 各 X_manual が NULL でなければ自動値を上書き、 `X_auto` と `X_is_manual` を返す
+  - 派生値 (project_cpa / interview_cpa / offer_cpa / project_rate / interview_rate / offer_rate / roas / payment_actual_roas) を 上書き後の値で全て再計算
+- `cpaService.setMonthlyMetrics(month, body)` を新設: 指定キーだけ更新、 null/空 で自動集計に戻す
+- `routes/cpa.js`: PUT `/api/cpa/monthly-metrics/:month`
+- `migrations/runtime.js` + `init.sql` + service `ensureManualMetricColumns` で 3段冪等 ALTER
+- frontend `CpaMetricEditModal.js` 新規 (汎用編集モーダル)
+- `cpa/index.js`:
+  - 該当 7 列に `manualMetric: { key, label, unit }` プロパティ
+  - セルに `_is_manual` の 「手動」 バッジ + ホバー時「編集」 リンク
+  - 既存の clickable (内訳モーダル) は維持
+- 同期で勝手に戻らないことの保証: シート同期は manual 列を触らない (INSERT/UPDATE で X_manual を SET しない)
+
+**注**: A `CPA シート同期の定時化` は実は既に 7時スケジューラに登録済 (`sales-projects` / `job-postings` / `interviews`)。 fax-stats と同じ仕組みで 5秒 stagger で順次実行されます。 `/api/health` の scheduler 状態で確認できます。
+
+---
+
 ## [2026-06-16] リスト抽出 一覧: 「状態」 列を 「同時格納原稿」 列に置換
 
 **背景**: `extraction_batches.status` を `sent` (送信済) に更新する経路がコード上に存在せず、 常に `ready` (送信待ち) のまま表示されていた。 実 FAX 配信は外部 PC 配信ソフトで行うため、 自動で送信済みを判定する経路もない。 ステータス列自体が意味を持っていなかった。

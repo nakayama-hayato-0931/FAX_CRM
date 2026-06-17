@@ -97,4 +97,15 @@ router.put('/monthly-incoming/:month(\\d{4}-\\d{2}-\\d{2})', async (req, res, ne
   } catch (e) { next(e); }
 });
 
+// PUT /api/cpa/monthly-metrics/:month  CPA 指標 手動上書き (案件数/面接数/内定/バラシ/初回入金/見込売上/入金実績)
+//   body: { projects?, interviews?, offers?, cancels?, first_payment?, expected_revenue?, payment_actual? }
+//   各値 null / 空 を渡すと その項目は自動集計に戻る (シート同期では触らない)
+//   渡されなかったキーは触らない
+router.put('/monthly-metrics/:month(\\d{4}-\\d{2}-\\d{2})', async (req, res, next) => {
+  try {
+    const r = await cpa.setMonthlyMetrics(req.params.month, req.body || {});
+    return ok(res, r);
+  } catch (e) { next(e); }
+});
+
 module.exports = router;

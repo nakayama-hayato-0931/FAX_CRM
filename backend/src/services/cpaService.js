@@ -103,6 +103,8 @@ async function ensureMonthlyCostsTable() {
   );
   // 受電数 手動入力列 (NULL = 自動集計を使う / 数値 = 手動上書き)
   await ensureManualIncomingColumns(pool);
+  // CPA 指標 7 列の月別 手動上書き
+  await ensureManualMetricColumns(pool);
 }
 
 // cpa_monthly_costs に incoming_picked_manual / incoming_missed_manual を追加
@@ -133,6 +135,46 @@ async function ensureManualIncomingColumns(pool) {
     _manualIncomingEnsured = true;
   } catch (e) {
     console.error('[cpaService] incoming manual 列 ensure 失敗:', e.message);
+  }
+}
+
+// CPA 指標の月別手動上書き列 (7 個):
+//   - 案件数 / 面接数 / 内定社数 / バラシ      → 件数なので INT
+//   - 初回入金 / 見込売上 / 入金実績            → 円なので BIGINT
+// NULL = 自動算出 (シート同期) を使う、 数値 = それで上書き。
+// 同期で勝手に戻らないために 列は触らず NULL 復帰時のみフロントから DELETE する。
+const MANUAL_METRIC_COLS = {
+  projects_manual:         { type: 'INT',    comment: '案件数 手動上書き (NULL=自動集計)' },
+  interviews_manual:       { type: 'INT',    comment: '面接数 手動上書き (NULL=自動集計)' },
+  offers_manual:           { type: 'INT',    comment: '内定社数 手動上書き (NULL=自動集計)' },
+  cancels_manual:          { type: 'INT',    comment: 'バラシ 手動上書き (NULL=自動集計)' },
+  first_payment_manual:    { type: 'BIGINT', comment: '初回入金 手動上書き (NULL=自動集計)' },
+  expected_revenue_manual: { type: 'BIGINT', comment: '見込売上 手動上書き (NULL=自動集計)' },
+  payment_actual_manual:   { type: 'BIGINT', comment: '入金実績 手動上書き (NULL=自動集計)' },
+};
+let _manualMetricsEnsured = false;
+async function ensureManualMetricColumns(pool) {
+  if (_manualMetricsEnsured) return;
+  try {
+    const names = Object.keys(MANUAL_METRIC_COLS);
+    const [cols] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cpa_monthly_costs'
+          AND COLUMN_NAME IN (${names.map(() => '?').join(',')})`,
+      names
+    );
+    const have = new Set(cols.map((c) => c.COLUMN_NAME));
+    for (const [col, def] of Object.entries(MANUAL_METRIC_COLS)) {
+      if (have.has(col)) continue;
+      await pool.query(
+        `ALTER TABLE cpa_monthly_costs
+           ADD COLUMN ${col} ${def.type} DEFAULT NULL COMMENT ?`,
+        [def.comment]
+      );
+    }
+    _manualMetricsEnsured = true;
+  } catch (e) {
+    console.error('[cpaService] manual metric 列 ensure 失敗:', e.message);
   }
 }
 
@@ -262,6 +304,13 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
       0                                                               AS incoming_rate,
       cmc.incoming_picked_manual                                      AS incoming_picked_manual,
       cmc.incoming_missed_manual                                      AS incoming_missed_manual,
+      cmc.projects_manual                                             AS projects_manual,
+      cmc.interviews_manual                                           AS interviews_manual,
+      cmc.offers_manual                                               AS offers_manual,
+      cmc.cancels_manual                                              AS cancels_manual,
+      cmc.first_payment_manual                                        AS first_payment_manual,
+      cmc.expected_revenue_manual                                     AS expected_revenue_manual,
+      cmc.payment_actual_manual                                       AS payment_actual_manual,
       ROUND(COALESCE(jp.projects, 0)
             / NULLIF(COALESCE(fs.sends, 0) + COALESCE(out_.outsourced_sends, 0), 0) * 100, 2)
                                                                       AS project_rate,
@@ -443,6 +492,48 @@ async function getMonthly({ months = 12, basis = 'acquired' } = {}) {
     r.incoming_rate = denom > 0
       ? Math.round((picked + missed) / denom * 10000) / 100
       : 0;
+
+    // ── CPA 指標 7 列の手動上書き ────────────────────────────────────────────
+    //   各 X_manual が NULL でなければ自動値を上書き。 同時に派生値
+    //   (CPA / 率 / ROAS) を 上書き後の値で再計算する。 同期時には manual 列を
+    //   触らないので、 シート同期しても手動値は維持される。
+    //   _auto は元の自動算出値、 _is_manual はバッジ用フラグ。
+    const overlayInt = (key) => {
+      const auto = Number(r[key] || 0);
+      r[`${key}_auto`] = auto;
+      const m = r[`${key}_manual`];
+      if (m != null) {
+        r[key] = Number(m);
+        r[`${key}_is_manual`] = 1;
+      } else {
+        r[`${key}_is_manual`] = 0;
+      }
+    };
+    overlayInt('projects');
+    overlayInt('interviews');
+    overlayInt('offers');
+    overlayInt('cancels');
+    overlayInt('first_payment');
+    overlayInt('expected_revenue');
+    overlayInt('payment_actual');
+
+    // 派生値 (CPA / 率 / ROAS) を 上書き後の値で再計算
+    //   cost は SELECT の inHouseCostExpr (auto概算 or 手動) + outsourced_cost
+    const cost = Number(r.in_house_cost || 0) + Number(r.outsourced_cost || 0);
+    const projects   = Number(r.projects   || 0);
+    const interviews = Number(r.interviews || 0);
+    const offers     = Number(r.offers     || 0);
+    const firstPay   = Number(r.first_payment  || 0);
+    const paymentAct = Number(r.payment_actual || 0);
+    const sends      = Number(r.sends || 0);
+    r.project_cpa         = projects   > 0 ? Math.round(cost / projects)               : 0;
+    r.interview_cpa       = interviews > 0 ? Math.round(cost / interviews)             : 0;
+    r.offer_cpa           = offers     > 0 ? Math.round(cost / offers)                 : 0;
+    r.project_rate        = sends      > 0 ? Math.round(projects   / sends      * 10000) / 100 : 0;
+    r.interview_rate      = projects   > 0 ? Math.round(interviews / projects   * 10000) / 100 : 0;
+    r.offer_rate          = interviews > 0 ? Math.round(offers     / interviews * 10000) / 100 : 0;
+    r.roas                = cost       > 0 ? Math.round(firstPay   / cost       * 10000) / 100 : 0;
+    r.payment_actual_roas = cost       > 0 ? Math.round(paymentAct / cost       * 10000) / 100 : 0;
   }
 
   return rows;
@@ -609,6 +700,51 @@ async function setMonthlyIncoming(month, { incoming_picked_manual, incoming_miss
   return getMonthlyCost(month);
 }
 
+/**
+ * CPA 指標 7 列の月別手動上書き
+ *   body の各キー (projects/interviews/offers/cancels/first_payment/expected_revenue/payment_actual)
+ *   について null/空 を渡すと自動集計に戻す、 数値を渡すと上書き。 渡されなかったキーは触らない。
+ */
+const MANUAL_METRIC_KEYS = ['projects', 'interviews', 'offers', 'cancels',
+                            'first_payment', 'expected_revenue', 'payment_actual'];
+
+async function setMonthlyMetrics(month, body) {
+  assertMonth(month);
+  const norm = (v) => {
+    if (v === null || v === undefined || v === '') return { explicit: true, value: null };
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) {
+      const err = new Error('0 以上の数値、 または空 (自動集計に戻す)'); err.status = 400; throw err;
+    }
+    return { explicit: true, value: Math.round(n) };
+  };
+  const updates = {};
+  for (const k of MANUAL_METRIC_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(body, k)) {
+      updates[`${k}_manual`] = norm(body[k]).value;
+    }
+  }
+  const pool = getPool();
+  if (!pool) { const err = new Error('DB未設定'); err.status = 500; throw err; }
+  await ensureMonthlyCostsTable();
+
+  if (Object.keys(updates).length === 0) return getMonthlyCost(month);
+
+  // 行が無いケースもあるので INSERT ... ON DUPLICATE で対応
+  const cols = Object.keys(updates);
+  const insertCols = ['month', 'in_house_cost', ...cols].join(', ');
+  const insertVals = ['?', '0', ...cols.map(() => '?')].join(', ');
+  const updateExpr = cols.map((c) => `${c} = VALUES(${c})`).join(', ');
+  const params = [month, ...cols.map((c) => updates[c])];
+  await pool.query(
+    `INSERT INTO cpa_monthly_costs (${insertCols})
+     VALUES (${insertVals})
+     ON DUPLICATE KEY UPDATE ${updateExpr}`,
+    params
+  );
+  return getMonthlyCost(month);
+}
+
 async function deleteMonthlyCost(month) {
   assertMonth(month);
   const pool = getPool();
@@ -633,4 +769,5 @@ module.exports = {
   getCostPerFax,
   getMonthlyCost, setMonthlyCost, deleteMonthlyCost, listMonthlyCosts,
   setMonthlyIncoming,
+  setMonthlyMetrics,
 };
