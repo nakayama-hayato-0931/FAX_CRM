@@ -667,22 +667,31 @@ export default function CustomersPage() {
                             {g.prefs.map((p) => {
                               const checked = filters.prefectures.includes(p);
                               return (
-                                <label key={p}
-                                       className={[
-                                         'cursor-pointer text-[11px] px-1.5 py-0.5 rounded border transition select-none',
-                                         checked
-                                           ? 'bg-emerald-600 text-white border-emerald-600'
-                                           : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
-                                       ].join(' ')}>
-                                  <input type="checkbox" checked={checked}
-                                         onChange={() => {
-                                           const set = new Set(filters.prefectures);
-                                           if (checked) set.delete(p); else set.add(p);
-                                           setFilters({ ...filters, prefectures: [...set] });
-                                         }}
-                                         className="sr-only" />
+                                <div key={p}
+                                     role="checkbox"
+                                     aria-checked={checked}
+                                     tabIndex={0}
+                                     onClick={() => {
+                                       const set = new Set(filters.prefectures);
+                                       if (checked) set.delete(p); else set.add(p);
+                                       setFilters({ ...filters, prefectures: [...set] });
+                                     }}
+                                     onKeyDown={(e) => {
+                                       if (e.key === ' ' || e.key === 'Enter') {
+                                         e.preventDefault();
+                                         const set = new Set(filters.prefectures);
+                                         if (checked) set.delete(p); else set.add(p);
+                                         setFilters({ ...filters, prefectures: [...set] });
+                                       }
+                                     }}
+                                     className={[
+                                       'cursor-pointer text-[11px] px-1.5 py-0.5 rounded border transition select-none outline-none',
+                                       checked
+                                         ? 'bg-emerald-600 text-white border-emerald-600'
+                                         : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
+                                     ].join(' ')}>
                                   {p}
-                                </label>
+                                </div>
                               );
                             })}
                           </div>

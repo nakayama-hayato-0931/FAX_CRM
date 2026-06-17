@@ -274,6 +274,20 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-17] PC番号 / 都道府県 チェック で画面が下にズレる現象を完全修正
+
+**現象**: リスト抽出の PC番号ボタンや 顧客マスタの 都道府県フィルタ をクリックすると 画面が下にズレる。 前のコミット (`_app.js` global handler) では止まらない症状が継続していた。
+
+**真因**: PC番号と 都道府県は `<label>` + `<input type=checkbox class=sr-only>` の構造で、 button 要素ではないので global mousedown handler (BUTTON 限定) が反応していなかった。 label を click すると 内部 input への focus 遷移で Chrome の `scrollIntoViewIfNeeded` が走る。
+
+**変更**:
+- `frontend/src/pages/lists/new.js` の PC番号 (23個): `<label>+<input sr-only>` → `<div role=checkbox tabIndex=0>` に置換
+- `frontend/src/pages/customers/index.js` の 都道府県フィルタ: 同じく `div role=checkbox` に置換
+- `frontend/src/pages/_app.js` global mousedown handler を `capture: true` に変更 (button 要素には引き続き効く)
+- input checkbox を含まない構造にしたので focus 対象は div になり scrollIntoView が走らない
+
+---
+
 ## [2026-06-17] 定時 scheduler: 失敗時リトライ対応 (CPA 系シート同期が朝7時に動かない問題の修正)
 
 **現象**: FAX 送信実績は朝 7時に定時同期されるが、 CPA 系 (sales-projects / job-postings / interviews) は同じ scheduler に登録されているのに動かない。

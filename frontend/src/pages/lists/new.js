@@ -504,15 +504,23 @@ export default function NewBatchPage() {
           <div className="grid grid-cols-12 gap-1.5">
             {ALL_PCS.map((pc) => {
               const checked = form.pcNumbers.includes(pc);
+              // label+input checkbox だと click 時に内部 input へ focus が遷移し、
+              // ブラウザ (Chrome) の scrollIntoViewIfNeeded で main の scrollTop が
+              // 動いて 「画面が下にズレる」 症状が出る。 input を使わず div role=checkbox
+              // にすることで focus 対象を div に固定し scroll を発生させない
               return (
-                <label key={pc}
-                       className={[
-                         'cursor-pointer text-center text-xs py-1.5 rounded border transition select-none',
-                         checked ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
-                       ].join(' ')}>
-                  <input type="checkbox" checked={checked} onChange={() => togglePc(pc)} className="sr-only" />
+                <div key={pc}
+                     role="checkbox"
+                     aria-checked={checked}
+                     tabIndex={0}
+                     onClick={() => togglePc(pc)}
+                     onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); togglePc(pc); } }}
+                     className={[
+                       'cursor-pointer text-center text-xs py-1.5 rounded border transition select-none outline-none',
+                       checked ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
+                     ].join(' ')}>
                   {pc}
-                </label>
+                </div>
               );
             })}
           </div>

@@ -34,8 +34,9 @@ function useSuppressFocusScroll() {
       // input checkbox / radio は preventDefault すると checked toggle が阻害される
       // ブラウザがあるので 対象外。 必要なら個別ページで div+onClick に置き換える
     }
-    document.addEventListener('mousedown', onMouseDown);
-    return () => document.removeEventListener('mousedown', onMouseDown);
+    // capture:true で他の listener より先に処理 (React の合成イベントは bubble phase)
+    document.addEventListener('mousedown', onMouseDown, true);
+    return () => document.removeEventListener('mousedown', onMouseDown, true);
   }, []);
 }
 
