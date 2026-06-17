@@ -77,7 +77,10 @@ app.get('/api/health', async (_req, res) => {
     jstNow: new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().replace('T', ' ').replace('Z', ''),
     jobs: SCHEDULER_JOBS.map((j) => ({
       name: j.name,
-      lastRunDate: j._lastRunDate || null,
+      lastSuccessDate: j._lastSuccessDate || null,
+      inFlight: !!j._inFlight,
+      failuresToday: j._failuresToday || 0,
+      lastFailureAt: j._lastFailureAt ? new Date(j._lastFailureAt).toISOString() : null,
       state: SCHEDULER_STATE[j.name]?.state || 'idle',
       startedAt: SCHEDULER_STATE[j.name]?.startedAt || null,
       finishedAt: SCHEDULER_STATE[j.name]?.finishedAt || null,
@@ -275,27 +278,65 @@ function startDailyScheduler() {
     return h > hour || (h === hour && m >= minute);
   }
 
-  // 各ジョブの最終実行日 (YYYY-MM-DD) を 1 日 1 回ガード
-  //   process メモリ上のみ保持 (再起動でリセット)。
-  //   Railway 再起動が朝 7:00 をまたいでも、 起動後 60 秒以内に
-  //   tick() が走り 「今日まだ動いてない」 を検知して 1 回だけ実行する。
-  for (const j of SCHEDULER_JOBS) j._lastRunDate = null;
+  // 各ジョブの状態管理 (process メモリ、 再起動でリセット):
+  //   _lastSuccessDate: 最後に成功した日 (YYYY-MM-DD) — これが today なら 当日は終了 (リトライ不要)
+  //   _inFlight: 現在実行中か (二重起動防止)
+  //   _failuresToday: 今日の失敗回数 (試行回数を絞るため)
+  //   _lastFailureAt: 最後に失敗した時刻 (Date.now()) — 5分以内は再試行しない (バックオフ)
+  //
+  // 以前の実装は 「先に lastRunDate=today マーク → 失敗しても再試行されない」 だったため、
+  // CPA 系シート同期が一度でも失敗すると 翌朝まで復活せず、 ユーザーから 「定時で動いてない」 と
+  // 報告される原因になっていた。 新実装は 「成功した時だけ today を記録、 失敗時は バックオフ
+  // 付きで再試行、 1日 最大 N 回まで」 とする。
+  const RETRY_BACKOFF_MS = 5 * 60 * 1000;   // 失敗後 5分は再試行しない
+  const MAX_RETRIES_PER_DAY = 8;            // 1日 最大 8 回まで試行 (6:00-8:00 枠でも十分)
+  const today0 = jstToday();
+  for (const j of SCHEDULER_JOBS) {
+    j._lastSuccessDate = null;
+    j._inFlight = false;
+    j._failuresToday = 0;
+    j._lastFailureAt = 0;
+    j._failuresDate = today0;
+  }
 
   async function tick() {
     if (!jstPastTarget()) return;       // まだ朝 7:00 前 → 何もしない
     const today = jstToday();
     for (let i = 0; i < SCHEDULER_JOBS.length; i++) {
       const job = SCHEDULER_JOBS[i];
-      if (job._lastRunDate === today) continue;  // 今日もう走った
-      job._lastRunDate = today;                  // 先にマーク (二重起動防止)
+      // 日付が変わったら failure カウンタをリセット
+      if (job._failuresDate !== today) {
+        job._failuresToday = 0;
+        job._failuresDate = today;
+        job._lastFailureAt = 0;
+      }
+      if (job._lastSuccessDate === today) continue;          // 今日 既に成功 → スキップ
+      if (job._inFlight) continue;                            // 実行中 → 重複起動しない
+      if (job._failuresToday >= MAX_RETRIES_PER_DAY) continue; // 試行回数枯渇
+      // バックオフ (前回失敗から RETRY_BACKOFF_MS 経っているか)
+      if (job._lastFailureAt && Date.now() - job._lastFailureAt < RETRY_BACKOFF_MS) continue;
+
+      job._inFlight = true;
       // Google Sheets API rate limit 回避のため 5 秒 stagger で順次起動
-      setTimeout(() => { runJob(job.name).catch(() => {}); }, i * 5_000);
+      setTimeout(async () => {
+        try {
+          await runJob(job.name);
+          job._lastSuccessDate = today;
+          job._lastFailureAt = 0;
+        } catch (e) {
+          job._failuresToday += 1;
+          job._lastFailureAt = Date.now();
+          console.error(`[scheduler] ${job.name}: 失敗 #${job._failuresToday} → ${RETRY_BACKOFF_MS/60000}分後に再試行 (最大${MAX_RETRIES_PER_DAY}回): ${e.message}`);
+        } finally {
+          job._inFlight = false;
+        }
+      }, i * 5_000);
     }
   }
 
-  // 毎分 1 回チェック (1 日 1 回しか走らない、 失敗してもリトライしない、 起動時の即時実行もしない)
+  // 毎分 1 回チェック。 成功するまでバックオフ付きで再試行する。
   setInterval(tick, 60 * 1000);
-  console.log(`[scheduler] daily sync: enabled at JST ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (poll every 60s, lastRunDate guard, jobs: ${SCHEDULER_JOBS.map((j) => j.name).join(', ')})`);
+  console.log(`[scheduler] daily sync: enabled at JST ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (poll 60s, retry-on-failure: backoff ${RETRY_BACKOFF_MS/60000}m / max ${MAX_RETRIES_PER_DAY}/day, jobs: ${SCHEDULER_JOBS.map((j) => j.name).join(', ')})`);
 }
 
 // 手動 trigger ルートは notFound より前に登録する必要があるので

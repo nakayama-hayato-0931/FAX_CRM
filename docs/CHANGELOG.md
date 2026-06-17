@@ -274,6 +274,25 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-17] 定時 scheduler: 失敗時リトライ対応 (CPA 系シート同期が朝7時に動かない問題の修正)
+
+**現象**: FAX 送信実績は朝 7時に定時同期されるが、 CPA 系 (sales-projects / job-postings / interviews) は同じ scheduler に登録されているのに動かない。
+
+**真因**: 旧 `tick()` は `job._lastRunDate = today` を **runJob 呼び出し前** にマークしていたため、 ジョブが失敗 (Sheets API rate limit, ネットワーク, 等) しても 今日マークが残り、 翌朝までリトライされない構造だった。 sales-projects/interviews は全件同期で時間がかかり、 一度失敗すると永久に再試行されないため定時同期が完了しないように見えていた。
+
+**変更** (`backend/src/server.js`):
+- `_lastRunDate` を `_lastSuccessDate` に置換 — **成功した時だけ** today を記録
+- `_inFlight` フラグで二重起動防止 (失敗中の重複実行を回避)
+- `_failuresToday` カウンタと `RETRY_BACKOFF_MS=5分` で バックオフ付き再試行
+- 1日 最大 8 回まで試行 (6:00-8:00 の 3 時間枠でも十分)
+- 日付が変わったら failure カウンタを自動リセット
+- 失敗時は `console.error` で詳細出力
+- `/api/health` の scheduler 状態に `lastSuccessDate / inFlight / failuresToday / lastFailureAt` を追加
+
+**動作**: 朝 7時に CPA 系 sync が失敗しても、 7:05 / 7:10 / 7:15 ... と 5分間隔でリトライし、 6-8時の枠内で確実に成功する。
+
+---
+
 ## [2026-06-17] CPA 指標 7 列の月別 手動上書き機能 (案件数 / 面接数 / 内定 / バラシ / 初回入金 / 見込売上 / 入金実績)
 
 **要望**: CPA の自動算出値を手動で修正したい。 自動算出結果は残しつつ、 同期で勝手に戻らないように。
