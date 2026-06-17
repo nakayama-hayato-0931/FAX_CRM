@@ -274,6 +274,25 @@ status_label='ビザ' (完全一致) : 0 件 (sync で除外済み)
 
 ---
 
+## [2026-06-17] GitHub リポジトリを 共有用の新リポ (`nakayama-hayato-0931/FAX_CRM`) に一本化
+
+**背景**: 複数人運用のため、 共有目的の新リポジトリ `https://github.com/nakayama-hayato-0931/FAX_CRM` に一本化。 旧リポ `test-hitokiwa/fax-crm-system` は履歴閲覧用に残す (archive 予定)。
+
+**変更**:
+- ローカル `origin` remote を 新リポに切替 (`git remote set-url origin https://github.com/nakayama-hayato-0931/FAX_CRM.git`)
+- 重複していた `faxcrm` remote を削除
+- ドキュメント (README / CONTRIBUTING / CLAUDE.md) の GitHub 関連リンクは すべて相対パス (`../../pulls` 等) で書いてあるので、 リポジトリ移動でも自動的に正しい先に向く (書き換え不要)
+
+**ユーザー側で必要な追加作業**:
+1. Railway の各サービス (`fax-crm-backend` / `fax-crm-frontend`) の Source を 新リポに繋ぎ直す
+   - Settings → Source → Disconnect → 新リポを再接続 → Branch: `main`
+2. 旧リポ `test-hitokiwa/fax-crm-system` を Archive (GitHub UI: Settings → Archive this repository)
+3. 共同開発者 全員に 新リポを clone してもらう
+
+切り替え後は 新リポへの push (or PR マージ) で Railway 自動デプロイされる。
+
+---
+
 ## [2026-06-17] 複数人運用のためのリポジトリ整備 (README / CONTRIBUTING / PR + Issue テンプレ)
 
 **要望**: 複数人で修正できるようにしたい。 GitHub を見れば現在の状況が分かるようにしてほしい。
