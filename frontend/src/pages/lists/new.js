@@ -513,8 +513,14 @@ export default function NewBatchPage() {
                      role="checkbox"
                      aria-checked={checked}
                      tabIndex={0}
-                     onClick={() => togglePc(pc)}
-                     onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); togglePc(pc); } }}
+                     onClick={(e) => { e.stopPropagation(); togglePc(pc); }}
+                     onKeyDown={(e) => {
+                       if (e.key === ' ' || e.key === 'Enter') {
+                         e.preventDefault();
+                         e.stopPropagation();
+                         togglePc(pc);
+                       }
+                     }}
                      className={[
                        'cursor-pointer text-center text-xs py-1.5 rounded border transition select-none outline-none',
                        checked ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50',
