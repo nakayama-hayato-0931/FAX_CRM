@@ -187,13 +187,13 @@ export default function Layout({ children }) {
             <div className="flex gap-1 px-1">
               <button onClick={() => setShowPwModal(true)}
                       title="パスワード変更"
-                      className="flex-1 text-center text-[10.5px] text-emerald-50/90 hover:text-white hover:bg-black/30 px-2 py-1.5 rounded transition">
+                      className="flex-1 text-center text-[10.5px] whitespace-nowrap text-emerald-50/90 hover:text-white hover:bg-black/30 px-2 py-1.5 rounded transition">
                 パスワード
               </button>
               <button onClick={logout}
                       title="ログアウト"
-                      className="flex-1 text-center text-[10.5px] text-emerald-50/90 hover:text-rose-200 hover:bg-black/30 px-2 py-1.5 rounded transition">
-                ログアウ
+                      className="flex-1 text-center text-[10.5px] whitespace-nowrap text-emerald-50/90 hover:text-rose-200 hover:bg-black/30 px-2 py-1.5 rounded transition">
+                ログアウト
               </button>
             </div>
             <div className="text-center pt-2 text-[9px] text-emerald-100/50 tracking-widest">v0.1.0</div>
