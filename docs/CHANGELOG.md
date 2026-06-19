@@ -9,6 +9,20 @@
 
 ---
 
+## [2026-06-19] 受電報告 手動入力: 「NGリストに追加」 チェック を新設
+
+**要望**: 受電報告で対応した結果、 そのまま NG にしたい顧客を 別画面に行かず この場で NGリスト (顧客マスタの ブラックリスト) に追加できるようにしたい。 NGリストに入れば 以後リスト抽出から自動除外される。
+
+**変更** (`frontend/src/components/IncomingCallManualModal.js`):
+- 「結果」 と 「詳細メモ」 の間に 「NGリストに追加」 チェックボックスを追加 (div role=checkbox パターン、 focus auto-scroll 回避)
+- チェック時は NG 理由 (任意) も入力可能
+- 保存処理: `POST /api/incoming-calls` で受電報告を保存 → `addToNgList` が true なら 続けて `PATCH /api/customers/:customerId/blacklist` で `is_blacklisted=true` + reason を保存
+- NGリスト 追加が失敗しても 受電報告本体は保存済として扱う (per-item エラートースト)
+
+**互換性**: 既存の `customers.is_blacklisted` フラグ + リスト抽出の除外ロジックをそのまま使うため API / DB 追加なし。
+
+---
+
 ## [2026-06-19] 受電報告 手動入力: 使用PC を NO.01〜NO.23 のドロップダウンに
 
 **要望**: 使用PC をフリーテキスト入力でなく NO.01〜23 の選択式に。

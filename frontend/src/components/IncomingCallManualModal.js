@@ -92,6 +92,11 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
     respondedAt: initial.respondedAt || nowLocal,
   });
   const [busy, setBusy] = useState(false);
+  // NGリスト追加 (= customers.is_blacklisted = true)
+  //   保存時に customer ID が確定したら PATCH /api/customers/:id/blacklist で
+  //   フラグを立てる。 以後 リスト抽出から自動的に除外される (ブラックリスト)。
+  const [addToNgList, setAddToNgList] = useState(false);
+  const [ngReason, setNgReason] = useState('');
 
   // 原稿サジェスト
   const [mscCandidates, setMscCandidates] = useState([]);
@@ -287,7 +292,20 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
         respondedAt: form.respondedAt || null,
       };
       await api.post('/api/incoming-calls', body);
-      toast.success('受電報告を保存しました');
+      // NGリスト追加 (チェック時): 受電報告は保存済なので、 失敗しても本体は完了扱い。
+      if (addToNgList) {
+        try {
+          await api.patch(`/api/customers/${customerId}/blacklist`, {
+            isBlacklisted: true,
+            reason: ngReason || null,
+          });
+          toast.success('受電報告を保存し、 NGリストに追加しました');
+        } catch (e) {
+          toast.error(`受電報告は保存しましたが NGリスト追加に失敗: ${e.userMessage || e.message}`);
+        }
+      } else {
+        toast.success('受電報告を保存しました');
+      }
       onCompleted?.();
     } catch (err) {
       toast.error(err.userMessage || '保存失敗');
@@ -532,6 +550,35 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                 ))}
               </div>
             </Field>
+
+            {/* NGリストに追加 — チェックすると保存時にこの顧客の is_blacklisted=true をセット。
+                顧客マスタの 「NGリスト」 と同義で、 以後リスト抽出から自動除外される */}
+            <div className={[
+                   'border rounded-md p-3 transition',
+                   addToNgList ? 'border-red-400 bg-red-50' : 'border-zinc-200 bg-zinc-50',
+                 ].join(' ')}>
+              <div role="checkbox" aria-checked={addToNgList} tabIndex={0}
+                   onClick={() => setAddToNgList((v) => !v)}
+                   onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setAddToNgList((v) => !v); } }}
+                   className="flex items-start gap-2 cursor-pointer select-none outline-none">
+                <input type="checkbox" checked={addToNgList} readOnly tabIndex={-1}
+                       className="w-4 h-4 text-red-600 rounded mt-0.5 pointer-events-none" />
+                <div>
+                  <div className="text-sm font-medium text-zinc-800">NGリストに追加</div>
+                  <div className="text-[11px] text-zinc-600 mt-0.5 leading-relaxed">
+                    この顧客に NG フラグを立てます。 以後 リスト抽出から自動的に除外されます (顧客マスタの 「NGリスト」 と同義)。
+                  </div>
+                </div>
+              </div>
+              {addToNgList && (
+                <div className="mt-2 pl-6">
+                  <input type="text" value={ngReason}
+                         onChange={(e) => setNgReason(e.target.value)}
+                         placeholder="NG 理由 (任意、 例: 拒否 / 解約 / 連絡不可)"
+                         className="rep-input" />
+                </div>
+              )}
+            </div>
 
             <Field label="詳細メモ">
               <textarea rows={3} value={form.resultDetail}
