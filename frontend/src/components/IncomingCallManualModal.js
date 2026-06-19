@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '@/utils/api';
 
@@ -38,25 +38,30 @@ function normalizeDigit(s) {
 
 /**
  * 受電報告 手動入力モーダル (バッチ無しで1件保存)
- *   - 会社名検索で customer を選択
- *   - 送信日 / PC / 原稿 (任意) / 結果 / 詳細 / 受電日時 (任意) を入力
- *   - POST /api/incoming-calls
+ *
+ * 設計:
+ *   - 顧客: 「会社名 / 電話 / FAX」 を 常時直接入力可能。
+ *     入力中に サジェスト (既存顧客検索) を表示し、 選択すると 3 フィールドを自動入力 +
+ *     customer.id を内部に保持。 直接入力のまま送信すれば quick-create で新規確保。
+ *   - 原稿: 「履歴書 登録番号」 入力中に サジェスト (manuscript_contents 検索) を表示し、
+ *     選択すると 登録番号を自動入力。 タイトル / 国籍 / 業種 を補助表示。 直接入力可。
  */
 export default function IncomingCallManualModal({ onClose, onCompleted, initial = {} }) {
-  // 顧客入力モード: 'search' = 既存検索 / 'direct' = 会社名/電話/FAX を直接入力
-  const [mode, setMode] = useState('search');
-  const [query, setQuery] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [candidates, setCandidates] = useState([]);
+  // 顧客入力 (直接入力 + サジェスト統合)
+  const [companyInput, setCompanyInput] = useState(initial.customer?.company_name || '');
+  const [phoneInput, setPhoneInput]     = useState(initial.customer?.phone_number || '');
+  const [faxInput, setFaxInput]         = useState(initial.customer?.fax_number || '');
+  // 既存顧客と紐付いている場合の customer object (null なら直接入力 → 送信時 quick-create)
   const [customer, setCustomer] = useState(initial.customer || null);
-  // 選択した顧客の詳細 (基本情報 + アクション履歴)
+  // 顧客サジェスト
+  const [custCandidates, setCustCandidates] = useState([]);
+  const [custSearching, setCustSearching] = useState(false);
+  const [custFocus, setCustFocus] = useState(null);  // 'company' | 'phone' | 'fax' | null
+  // 選択した顧客の詳細 + タイムライン
   const [customerDetail, setCustomerDetail] = useState(null);
   const [timeline, setTimeline] = useState([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
-
-  // 直接入力モード用
-  const [direct, setDirect] = useState({ company_name: '', fax_number: '', phone_number: '' });
 
   // 今 を datetime-local 形式 (YYYY-MM-DDTHH:mm) で初期化
   const nowLocal = (() => {
@@ -74,6 +79,12 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
     respondedAt: initial.respondedAt || nowLocal,
   });
   const [busy, setBusy] = useState(false);
+
+  // 原稿サジェスト
+  const [mscCandidates, setMscCandidates] = useState([]);
+  const [mscSearching, setMscSearching] = useState(false);
+  const [mscFocused, setMscFocused] = useState(false);
+  const [selectedManuscript, setSelectedManuscript] = useState(null);
 
   // 担当営業 マスタ (トグル選択肢)
   const [salesOwners, setSalesOwners] = useState([]);
@@ -107,61 +118,118 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
     }
   };
 
-  // 顧客選択時:
-  //   1) customers の last_sent_at / last_pc_number から 送信日 / 使用PC を補完
-  //   2) その顧客の最新 incoming_call_report から 原稿(登録番号) を補完
-  //   3) 詳細 (基本情報) と アクション履歴 を取得して 上部パネルに表示
+  // 顧客サジェスト検索 (会社名/電話/FAX のうち focus 中フィールドの値で 2文字以上 + debounce)
+  const debounceRef = useRef(null);
   useEffect(() => {
-    if (!customer) {
-      setCustomerDetail(null);
-      setTimeline([]);
-      setTimelineExpanded(false);
-      return;
-    }
+    if (customer) { setCustCandidates([]); return; }   // 既存と紐付け済ならサジェストしない
+    const q = custFocus === 'company' ? companyInput
+            : custFocus === 'phone'   ? phoneInput
+            : custFocus === 'fax'     ? faxInput : '';
+    if (!q || q.length < 2) { setCustCandidates([]); return; }
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setCustSearching(true);
+      try {
+        const { data } = await api.get('/api/customers', { params: { q, pageSize: 8 } });
+        setCustCandidates(data.data || []);
+      } catch (_e) { /* ignore */ }
+      finally { setCustSearching(false); }
+    }, 300);
+    return () => clearTimeout(debounceRef.current);
+  }, [companyInput, phoneInput, faxInput, custFocus, customer]);
+
+  // 顧客選択:
+  //   入力フィールドを 候補から自動入力 + customer ID を内部保持。
+  //   送信日 / 使用PC / 原稿(登録番号) / 担当営業 を 顧客の最新情報から補完。
+  //   詳細 + タイムラインを別領域に表示。
+  const selectCustomer = (c) => {
+    setCustomer(c);
+    setCompanyInput(c.company_name || '');
+    setPhoneInput(c.phone_number || '');
+    setFaxInput(c.fax_number || '');
+    setCustCandidates([]);
+    setCustFocus(null);
     setForm((f) => ({
       ...f,
-      sendDate: customer.last_sent_at ? new Date(customer.last_sent_at).toISOString().slice(0, 10) : f.sendDate,
-      pcNumber: customer.last_pc_number || f.pcNumber,
+      sendDate: c.last_sent_at ? new Date(c.last_sent_at).toISOString().slice(0, 10) : f.sendDate,
+      pcNumber: c.last_pc_number || f.pcNumber,
     }));
-    api.get('/api/incoming-calls/last', { params: { customer_id: customer.id } })
+    api.get('/api/incoming-calls/last', { params: { customer_id: c.id } })
       .then((r) => {
         const last = r.data?.data;
         if (!last) return;
         setForm((f) => ({
           ...f,
           candidateRegistrationNo: last.candidate_registration_no || f.candidateRegistrationNo,
-          // 担当営業も最新報告から補完 (上書きは行わない)
           salesOwner: f.salesOwner || last.sales_owner || '',
         }));
       })
       .catch(() => { /* ignore */ });
-    // 詳細 + タイムライン
     setLoadingDetail(true);
     setCustomerDetail(null);
     setTimeline([]);
     setTimelineExpanded(false);
     Promise.all([
-      api.get(`/api/customers/${customer.id}`).catch(() => ({ data: { data: null } })),
-      api.get(`/api/customers/${customer.id}/timeline`, { params: { limit: 50 } }).catch(() => ({ data: { data: [] } })),
+      api.get(`/api/customers/${c.id}`).catch(() => ({ data: { data: null } })),
+      api.get(`/api/customers/${c.id}/timeline`, { params: { limit: 50 } }).catch(() => ({ data: { data: [] } })),
     ]).then(([d, t]) => {
       setCustomerDetail(d.data?.data || null);
       setTimeline(t.data?.data || []);
     }).finally(() => setLoadingDetail(false));
-  }, [customer]);
+  };
 
-  // 顧客検索 (q が 2文字以上で 300ms debounce)
+  // 顧客の紐付け解除 (= 直接入力に戻る)
+  const clearCustomer = () => {
+    setCustomer(null);
+    setCustomerDetail(null);
+    setTimeline([]);
+    setTimelineExpanded(false);
+  };
+
+  // 原稿サジェスト検索 (登録番号 or タイトル で 1文字以上 + debounce)
+  const mscDebounceRef = useRef(null);
   useEffect(() => {
-    if (!query || query.length < 2) { setCandidates([]); return; }
-    const t = setTimeout(async () => {
-      setSearching(true);
+    const q = form.candidateRegistrationNo;
+    if (selectedManuscript && selectedManuscript.registration_no === q) {
+      // 既に選択済の候補と同値なら何もしない
+      return;
+    }
+    if (!q || q.length < 1) { setMscCandidates([]); return; }
+    clearTimeout(mscDebounceRef.current);
+    mscDebounceRef.current = setTimeout(async () => {
+      setMscSearching(true);
       try {
-        const { data } = await api.get('/api/customers', { params: { q: query, pageSize: 10 } });
-        setCandidates(data.data || []);
+        const { data } = await api.get('/api/manuscript-contents', { params: { q, pageSize: 8 } });
+        setMscCandidates(data.data || []);
       } catch (_e) { /* ignore */ }
-      finally { setSearching(false); }
+      finally { setMscSearching(false); }
     }, 300);
-    return () => clearTimeout(t);
-  }, [query]);
+    return () => clearTimeout(mscDebounceRef.current);
+  }, [form.candidateRegistrationNo, selectedManuscript]);
+
+  const selectManuscript = (m) => {
+    setSelectedManuscript(m);
+    setForm((f) => ({ ...f, candidateRegistrationNo: m.registration_no || f.candidateRegistrationNo }));
+    setMscCandidates([]);
+    setMscFocused(false);
+  };
+
+  // 電話 / FAX の onChange: 全角数字を即座に半角に変換、 全角入力を弾く
+  const onDigitChange = (key, raw) => {
+    const normalized = normalizeDigit(raw);
+    if (normalized !== raw && /[^\x00-\x7F]/.test(raw)) {
+      toast('全角は半角に自動変換しました', { duration: 1500 });
+    }
+    if (key === 'phone') setPhoneInput(normalized);
+    else if (key === 'fax') setFaxInput(normalized);
+    // 直接入力 中は customer 紐付けを解除
+    if (customer) clearCustomer();
+  };
+
+  const onCompanyChange = (v) => {
+    setCompanyInput(v);
+    if (customer) clearCustomer();
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -171,11 +239,11 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
 
     let customerId = customer?.id;
 
-    // 直接入力モードなら quick-create で顧客を確保してから報告を保存
-    if (mode === 'direct' && !customerId) {
-      const c = direct.company_name.trim();
-      const f = direct.fax_number;
-      const p = direct.phone_number;
+    // 既存顧客と紐付いてなければ quick-create
+    if (!customerId) {
+      const c = companyInput.trim();
+      const f = faxInput;
+      const p = phoneInput;
       if (!c && !f && !p) { toast.error('会社名 / 電話 / FAX のいずれかを入力してください'); return; }
       setBusy(true);
       try {
@@ -192,8 +260,6 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
         return;
       }
     }
-
-    if (!customerId) { toast.error('顧客を選択 or 直接入力してください'); return; }
 
     setBusy(true);
     try {
@@ -215,21 +281,14 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
     } finally { setBusy(false); }
   };
 
-  // 電話 / FAX の onChange: 全角数字を即座に半角に変換、 全角入力を弾く
-  const onDigitChange = (key, raw) => {
-    const normalized = normalizeDigit(raw);
-    if (normalized !== raw && /[^\x00-\x7F]/.test(raw)) {
-      // 全角文字が含まれていた場合は警告 (静かに) → 1回だけ
-      toast('全角は半角に自動変換しました', { duration: 1500 });
-    }
-    setDirect((d) => ({ ...d, [key]: normalized }));
-  };
-
   useEffect(() => {
     const k = (e) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   }, [onClose]);
+
+  const showCustSuggest = !customer && custCandidates.length > 0 && custFocus;
+  const showMscSuggest  = !selectedManuscript && mscFocused && mscCandidates.length > 0;
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -242,89 +301,82 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
           </div>
 
           <div className="p-6 space-y-4 overflow-auto flex-1">
-            {/* 顧客 — モード切替 */}
+            {/* 顧客 — 直接入力 + サジェスト */}
             <div>
-              <div className="text-xs font-medium text-zinc-700 mb-1.5">顧客 *</div>
-              <div className="inline-flex rounded-md border border-zinc-300 overflow-hidden mb-2">
-                <button type="button"
-                        onClick={() => { setMode('search'); setCustomer(null); }}
-                        className={['px-3 py-1.5 text-xs transition',
-                          mode === 'search' ? 'bg-emerald-600 text-white' : 'bg-white text-zinc-700 hover:bg-zinc-50'].join(' ')}>
-                  既存顧客を検索
-                </button>
-                <button type="button"
-                        onClick={() => { setMode('direct'); setCustomer(null); }}
-                        className={['px-3 py-1.5 text-xs transition border-l border-zinc-300',
-                          mode === 'direct' ? 'bg-emerald-600 text-white' : 'bg-white text-zinc-700 hover:bg-zinc-50'].join(' ')}>
-                  直接入力
-                </button>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-medium text-zinc-700">顧客 *</span>
+                {customer && (
+                  <span className="text-[11px] text-emerald-700">
+                    既存顧客と紐付け中
+                    <button type="button" onClick={clearCustomer}
+                            className="ml-2 text-zinc-500 hover:text-zinc-700 underline">解除</button>
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-zinc-500 mb-2">
+                会社名 / 電話 / FAX を直接入力。 2文字以上で既存顧客のサジェストが出ます。 候補を選ぶと全項目が自動入力されます。
               </div>
 
-              {mode === 'search' && (
-                customer ? (
+              <div className="grid grid-cols-3 gap-2 relative">
+                <div className="relative">
+                  <input type="text" value={companyInput}
+                         onChange={(e) => onCompanyChange(e.target.value)}
+                         onFocus={() => setCustFocus('company')}
+                         onBlur={() => setTimeout(() => setCustFocus((f) => f === 'company' ? null : f), 200)}
+                         placeholder="会社名"
+                         autoFocus
+                         className="rep-input" />
+                </div>
+                <div className="relative">
+                  <input type="tel" value={phoneInput}
+                         onChange={(e) => onDigitChange('phone', e.target.value)}
+                         onFocus={() => setCustFocus('phone')}
+                         onBlur={() => setTimeout(() => setCustFocus((f) => f === 'phone' ? null : f), 200)}
+                         inputMode="numeric"
+                         placeholder="電話番号"
+                         className="rep-input font-mono" />
+                </div>
+                <div className="relative">
+                  <input type="tel" value={faxInput}
+                         onChange={(e) => onDigitChange('fax', e.target.value)}
+                         onFocus={() => setCustFocus('fax')}
+                         onBlur={() => setTimeout(() => setCustFocus((f) => f === 'fax' ? null : f), 200)}
+                         inputMode="numeric"
+                         placeholder="FAX番号"
+                         className="rep-input font-mono" />
+                </div>
+
+                {/* サジェスト ドロップダウン */}
+                {showCustSuggest && (
+                  <div className="absolute top-full left-0 right-0 mt-1 border border-zinc-200 rounded bg-white shadow-lg z-10 max-h-60 overflow-auto">
+                    {custSearching && <div className="text-[11px] text-zinc-400 px-3 py-1">検索中…</div>}
+                    {custCandidates.map((c) => (
+                      <button key={c.id} type="button"
+                              onMouseDown={(e) => e.preventDefault()}  // blur 抑止
+                              onClick={() => selectCustomer(c)}
+                              className="block w-full text-left px-3 py-1.5 text-sm hover:bg-emerald-50">
+                        <div className="font-medium">{c.company_name}</div>
+                        <div className="text-xs text-zinc-500">
+                          {c.fax_number   && <>FAX: {c.fax_number} </>}
+                          {c.phone_number && <>/ 電話: {c.phone_number} </>}
+                          {c.prefecture   && <>/ {c.prefecture}</>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 既存と紐付き済 → 詳細パネル */}
+              {customer && (
+                <div className="mt-3">
                   <SelectedCustomerPanel
                     customer={customer}
                     detail={customerDetail}
                     timeline={timeline}
                     timelineExpanded={timelineExpanded}
                     onToggleTimeline={() => setTimelineExpanded((v) => !v)}
-                    loading={loadingDetail}
-                    onChange={() => setCustomer(null)}
-                  />
-                ) : (
-                  <>
-                    <input type="text" value={query}
-                           onChange={(e) => setQuery(e.target.value)}
-                           placeholder="会社名 / 電話番号 / FAX番号 で検索"
-                           className="rep-input"
-                           autoFocus />
-                    {searching && <div className="text-[11px] text-zinc-400 mt-1">検索中…</div>}
-                    {candidates.length > 0 && (
-                      <ul className="mt-1 border border-zinc-200 rounded max-h-48 overflow-auto bg-white shadow">
-                        {candidates.map((c) => (
-                          <li key={c.id}>
-                            <button type="button"
-                                    onClick={() => { setCustomer(c); setQuery(''); setCandidates([]); }}
-                                    className="block w-full text-left px-3 py-1.5 text-sm hover:bg-emerald-50">
-                              <div className="font-medium">{c.company_name}</div>
-                              <div className="text-xs text-zinc-500">
-                                {c.fax_number ? `FAX: ${c.fax_number}` : ''}
-                                {c.phone_number ? ` / 電話: ${c.phone_number}` : ''}
-                                {c.prefecture ? ` / ${c.prefecture}` : ''}
-                              </div>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {query.length >= 2 && !searching && candidates.length === 0 && (
-                      <div className="mt-1 text-xs text-zinc-500 bg-amber-50 border border-amber-200 rounded p-2">
-                        該当顧客が見つかりません。 「直接入力」 タブで会社名 / 電話 / FAX を入力してください。
-                      </div>
-                    )}
-                  </>
-                )
-              )}
-
-              {mode === 'direct' && (
-                <div className="bg-zinc-50 border border-zinc-200 rounded p-3 space-y-2">
-                  <div className="text-[11px] text-zinc-500 mb-1">
-                    会社名 / 電話 / FAX の<strong>いずれか1つ以上</strong>を入力。 既存と同じ電話/FAXがあれば自動再利用します。
-                  </div>
-                  <input type="text" value={direct.company_name}
-                         onChange={(e) => setDirect({ ...direct, company_name: e.target.value })}
-                         placeholder="会社名 (任意)"
-                         className="rep-input" />
-                  <input type="tel" value={direct.phone_number}
-                         onChange={(e) => onDigitChange('phone_number', e.target.value)}
-                         inputMode="numeric"
-                         placeholder="電話番号 (例: 03-1234-5678 / 全角→半角自動変換)"
-                         className="rep-input font-mono" />
-                  <input type="tel" value={direct.fax_number}
-                         onChange={(e) => onDigitChange('fax_number', e.target.value)}
-                         inputMode="numeric"
-                         placeholder="FAX番号 (例: 03-1234-5679 / 全角→半角自動変換)"
-                         className="rep-input font-mono" />
+                    loading={loadingDetail} />
                 </div>
               )}
             </div>
@@ -335,34 +387,64 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                        onChange={(e) => setForm({ ...form, respondedAt: e.target.value })}
                        className="rep-input" />
               </Field>
-              <Field label={`送信日${mode === 'search' && customer ? ' (自動入力)' : ' (任意)'}`}
-                     hint={mode === 'search' && customer ? '顧客の最終送信から補完済み (変更可)' : '不明なら空欄でOK'}>
+              <Field label={`送信日${customer ? ' (自動入力)' : ' (任意)'}`}
+                     hint={customer ? '顧客の最終送信から補完 (変更可)' : '不明なら空欄でOK'}>
                 <input type="date" value={form.sendDate}
                        onChange={(e) => setForm({ ...form, sendDate: e.target.value })}
                        className="rep-input" />
               </Field>
-              <Field label={`使用PC${mode === 'search' && customer ? ' (自動入力)' : ' (任意)'}`}
-                     hint={mode === 'search' && customer ? '顧客の最終PCから補完済み (変更可)' : '不明なら空欄でOK'}>
+              <Field label={`使用PC${customer ? ' (自動入力)' : ' (任意)'}`}
+                     hint={customer ? '顧客の最終PCから補完 (変更可)' : '不明なら空欄でOK'}>
                 <input type="text" value={form.pcNumber}
                        onChange={(e) => setForm({ ...form, pcNumber: e.target.value })}
                        placeholder="NO.3" className="rep-input font-mono" />
               </Field>
             </div>
 
+            {/* 原稿 (登録番号) - サジェスト autocomplete */}
             <Field label="原稿 (履歴書 登録番号)"
-                   hint={mode === 'search' && customer
-                     ? '顧客の最終報告から自動補完 (変更可)。 同じ求職者で連続入力するならそのまま'
-                     : '例: QT4654 / CZ5995 等。 直接入力 OK'}>
-              <input type="text" value={form.candidateRegistrationNo}
-                     onChange={(e) => setForm({ ...form, candidateRegistrationNo: e.target.value })}
-                     placeholder="QT4654 等"
-                     className="rep-input font-mono" />
+                   hint="例: QT4654 / CZ5995 等。 入力中に原稿管理から候補が出ます。 直接入力もOK">
+              <div className="relative">
+                <input type="text" value={form.candidateRegistrationNo}
+                       onChange={(e) => {
+                         setForm({ ...form, candidateRegistrationNo: e.target.value });
+                         if (selectedManuscript) setSelectedManuscript(null);
+                       }}
+                       onFocus={() => setMscFocused(true)}
+                       onBlur={() => setTimeout(() => setMscFocused(false), 200)}
+                       placeholder="QT4654 等"
+                       className="rep-input font-mono" />
+                {showMscSuggest && (
+                  <div className="absolute top-full left-0 right-0 mt-1 border border-zinc-200 rounded bg-white shadow-lg z-10 max-h-60 overflow-auto">
+                    {mscSearching && <div className="text-[11px] text-zinc-400 px-3 py-1">検索中…</div>}
+                    {mscCandidates.map((m) => (
+                      <button key={m.id} type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => selectManuscript(m)}
+                              className="block w-full text-left px-3 py-1.5 text-sm hover:bg-emerald-50">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-emerald-700 font-medium">{m.registration_no || '—'}</span>
+                          <span className="text-zinc-800 truncate">{m.title || '—'}</span>
+                        </div>
+                        <div className="text-[10px] text-zinc-500 mt-0.5">
+                          {m.nationality       && <>{m.nationality} </>}
+                          {m.gender            && <>/ {m.gender} </>}
+                          {m.industry_category && <>/ {m.industry_category}</>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {selectedManuscript && (
+                <div className="mt-1 text-[11px] text-zinc-600">
+                  原稿: <span className="font-medium text-zinc-800">{selectedManuscript.title || '(無題)'}</span>
+                  {selectedManuscript.nationality && <span className="ml-2 text-zinc-500">{selectedManuscript.nationality}</span>}
+                </div>
+              )}
             </Field>
 
-            <Field label="担当営業 *"
-                   hint={mode === 'search' && customer
-                     ? '同顧客の前回報告から自動補完 (変更可)'
-                     : '応対した営業担当者を選択。 無ければ + 新規追加'}>
+            <Field label="担当営業 *" hint="応対した営業担当者を選択。 無ければ + 新規追加">
               <div className="flex gap-1.5 flex-wrap items-center">
                 {salesOwners.map((o) => {
                   const selected = form.salesOwner === o.name;
@@ -379,7 +461,6 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
                     </button>
                   );
                 })}
-                {/* 自動補完された値が マスタに無い場合も 選択中として表示 */}
                 {form.salesOwner && !salesOwners.some((o) => o.name === form.salesOwner) && (
                   <button type="button"
                           className="px-3 py-1.5 text-sm rounded border bg-emerald-600 text-white border-emerald-600 font-medium">
@@ -450,8 +531,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
             <button type="submit"
                     disabled={busy
                               || !form.salesOwner || !form.salesOwner.trim()
-                              || (mode === 'search' && !customer)
-                              || (mode === 'direct' && !direct.company_name.trim() && !direct.fax_number && !direct.phone_number)}
+                              || (!customer && !companyInput.trim() && !phoneInput && !faxInput)}
                     className="px-4 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
               {busy ? '保存中…' : '保存'}
             </button>
@@ -480,38 +560,31 @@ function Field({ label, hint, children }) {
 function fmtDate(v)     { if (!v) return '—'; try { return new Date(v).toLocaleDateString('ja-JP'); } catch (_) { return String(v).slice(0, 10); } }
 function fmtDateTime(v) { if (!v) return '—'; try { return new Date(v).toLocaleString('ja-JP', { hour12: false }); } catch (_) { return String(v); } }
 
-function SelectedCustomerPanel({ customer, detail, timeline, timelineExpanded, onToggleTimeline, loading, onChange }) {
-  // detail があれば優先 (より新鮮)、無ければ customer (検索結果) を使う
+function SelectedCustomerPanel({ customer, detail, timeline, timelineExpanded, onToggleTimeline, loading }) {
   const d = detail || customer;
   const isBL = !!d.is_blacklisted;
   const sendCount = Number(d.send_count || 0);
   const responseCount = Number(d.response_count || 0);
   const callCount = (timeline || []).filter((e) => e.channel === 'call').length;
-  const faxEventCount = (timeline || []).filter((e) => e.channel === 'fax').length;
 
   return (
     <div className="bg-emerald-50/60 border border-emerald-200 rounded">
-      {/* ヘッダ: 会社名 + 変更ボタン */}
       <div className="flex items-start justify-between px-3 py-2 border-b border-emerald-100">
         <div className="min-w-0 flex-1">
           <div className="font-medium text-zinc-900 truncate">{d.company_name}</div>
           <div className="text-xs text-zinc-600 mt-0.5">
-            {d.fax_number && <>FAX: <span className="font-mono">{d.fax_number}</span>{' '}</>}
+            {d.fax_number   && <>FAX: <span className="font-mono">{d.fax_number}</span>{' '}</>}
             {d.phone_number && <>/ 電話: <span className="font-mono">{d.phone_number}</span></>}
           </div>
         </div>
-        <div className="flex items-center gap-2 ml-2 flex-shrink-0">
-          {isBL && (
-            <span className="px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-700 font-medium" title={d.blacklisted_reason || ''}>
-              ブラック ({d.blacklisted_reason || '—'})
-            </span>
-          )}
-          <button type="button" onClick={onChange}
-                  className="text-xs text-emerald-700 hover:underline">変更</button>
-        </div>
+        {isBL && (
+          <span className="ml-2 flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-700 font-medium"
+                title={d.blacklisted_reason || ''}>
+            ブラック ({d.blacklisted_reason || '—'})
+          </span>
+        )}
       </div>
 
-      {/* 主要メタ + KPI */}
       <div className="px-3 py-2 grid grid-cols-3 gap-x-3 gap-y-1 text-[11px]">
         <Cell k="業種カテゴリ" v={d.industry_category} />
         <Cell k="業種(詳細)"   v={d.industry} />
@@ -519,9 +592,6 @@ function SelectedCustomerPanel({ customer, detail, timeline, timelineExpanded, o
         <Cell k="市区町村"     v={d.city} />
         <Cell k="代表者"       v={d.representative} />
         <Cell k="従業員数"     v={d.employee_count} />
-        <Cell k="郵便番号"     v={d.postal_code} />
-        <Cell k="ソース"       v={d.source_file} />
-        <Cell k="callcenter ID" v={d.external_callcenter_id} />
       </div>
       {d.address && (
         <div className="px-3 pb-2 text-[11px]">
@@ -529,14 +599,7 @@ function SelectedCustomerPanel({ customer, detail, timeline, timelineExpanded, o
           <span className="text-zinc-800">{d.address}</span>
         </div>
       )}
-      {d.url && (
-        <div className="px-3 pb-2 text-[11px]">
-          <span className="text-zinc-500">URL:</span>{' '}
-          <a href={d.url} target="_blank" rel="noreferrer" className="text-emerald-700 hover:underline break-all">{d.url}</a>
-        </div>
-      )}
 
-      {/* KPI バー */}
       <div className="px-3 py-2 border-t border-emerald-100 grid grid-cols-4 gap-2 text-[11px]">
         <Kpi k="累計送信回数" v={sendCount.toLocaleString()} />
         <Kpi k="架電イベント" v={callCount} />
@@ -544,13 +607,11 @@ function SelectedCustomerPanel({ customer, detail, timeline, timelineExpanded, o
         <Kpi k="直近結果" v={d.last_result ? (RESULT_BADGE[d.last_result]?.label || d.last_result) : '—'} />
       </div>
 
-      {/* 直近送信 / 直近 PC */}
       <div className="px-3 pb-2 text-[11px] text-zinc-600 flex flex-wrap gap-x-4 gap-y-0.5">
         <span>直近送信日: {fmtDate(d.last_sent_at)}</span>
         <span>直近PC: <span className="font-mono">{d.last_pc_number || '—'}</span></span>
       </div>
 
-      {/* タイムライン (折りたたみ) */}
       <div className="border-t border-emerald-100">
         <button type="button" onClick={onToggleTimeline}
                 className="w-full text-left px-3 py-1.5 text-xs text-zinc-700 hover:bg-emerald-100/60 flex items-center justify-between">
@@ -582,10 +643,9 @@ function SelectedCustomerPanel({ customer, detail, timeline, timelineExpanded, o
                         <span className="text-zinc-500 ml-auto">{fmtDateTime(ev.occurred_at)}</span>
                       </div>
                       <div className="text-zinc-600 mt-0.5 flex flex-wrap gap-x-3">
-                        {ev.pc_number && <span>PC: <span className="font-mono">{ev.pc_number}</span></span>}
+                        {ev.pc_number       && <span>PC: <span className="font-mono">{ev.pc_number}</span></span>}
                         {ev.manuscript_slot != null && <span>原稿: {ev.manuscript_folder_date} / {ev.manuscript_slot}</span>}
-                        {ev.operator_name && <span>担当: {ev.operator_name}</span>}
-                        {ev.source_system && <span className="text-zinc-400">[{ev.source_system}]</span>}
+                        {ev.operator_name   && <span>担当: {ev.operator_name}</span>}
                       </div>
                       {ev.memo && <div className="text-zinc-700 mt-0.5 truncate" title={ev.memo}>{ev.memo}</div>}
                     </li>
