@@ -26,6 +26,19 @@ const CHANNEL_LABEL = {
   fax: 'FAX', call: 'CALL', email: 'EMAIL', sns: 'SNS', meeting: '面談', other: 'その他',
 };
 
+// 使用PC: NO.01 〜 NO.23 の選択肢
+const PC_OPTIONS = Array.from({ length: 23 }, (_, i) => `NO.${String(i + 1).padStart(2, '0')}`);
+
+// 'NO.3' / 'NO.03' / '3' / '03' / 'NO. 3' を全部 'NO.03' に揃える (既存データ吸収)
+function normalizePcNumber(v) {
+  if (v == null || v === '') return '';
+  const m = String(v).match(/(\d{1,2})/);
+  if (!m) return '';
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 1 || n > 23) return '';
+  return `NO.${String(n).padStart(2, '0')}`;
+}
+
 // 全角数字 → 半角 + 全角ハイフン類 → 半角 + 数字/ハイフン/+ 以外を除去
 function normalizeDigit(s) {
   if (!s) return '';
@@ -71,7 +84,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
   })();
   const [form, setForm] = useState({
     sendDate: initial.sendDate || '',
-    pcNumber: initial.pcNumber || '',
+    pcNumber: normalizePcNumber(initial.pcNumber || ''),
     candidateRegistrationNo: initial.candidateRegistrationNo || '',
     salesOwner: initial.salesOwner || '',
     result: initial.result || 'project',
@@ -152,7 +165,7 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
     setForm((f) => ({
       ...f,
       sendDate: c.last_sent_at ? new Date(c.last_sent_at).toISOString().slice(0, 10) : f.sendDate,
-      pcNumber: c.last_pc_number || f.pcNumber,
+      pcNumber: normalizePcNumber(c.last_pc_number) || f.pcNumber,
     }));
     api.get('/api/incoming-calls/last', { params: { customer_id: c.id } })
       .then((r) => {
@@ -395,9 +408,14 @@ export default function IncomingCallManualModal({ onClose, onCompleted, initial 
               </Field>
               <Field label={`使用PC${customer ? ' (自動入力)' : ' (任意)'}`}
                      hint={customer ? '顧客の最終PCから補完 (変更可)' : '不明なら空欄でOK'}>
-                <input type="text" value={form.pcNumber}
-                       onChange={(e) => setForm({ ...form, pcNumber: e.target.value })}
-                       placeholder="NO.3" className="rep-input font-mono" />
+                <select value={form.pcNumber}
+                        onChange={(e) => setForm({ ...form, pcNumber: e.target.value })}
+                        className="rep-input font-mono">
+                  <option value="">指定なし</option>
+                  {PC_OPTIONS.map((pc) => (
+                    <option key={pc} value={pc}>{pc}</option>
+                  ))}
+                </select>
               </Field>
             </div>
 
